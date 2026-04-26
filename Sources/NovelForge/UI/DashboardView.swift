@@ -3,7 +3,6 @@ import SwiftData
 
 struct DashboardView: View {
     @Query(sort: \Project.updatedAt, order: .reverse) var projects: [Project]
-    @State private var showingNewBookSheet = false
     
     var activeProjects: [Project] {
         projects.filter { $0.status != .completed && $0.status != .failed }
@@ -16,63 +15,66 @@ struct DashboardView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                // Header
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text("NovelForge")
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
-                        Text("KI-gestützte Buchproduktion")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button("Neues Buch") {
-                        showingNewBookSheet = true
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-                .padding(.horizontal)
-                
-                // Stats Cards
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
-                    StatCard(title: "Aktive Projekte", value: "\(activeProjects.count)", icon: "book.fill", color: .blue)
-                    StatCard(title: "Abgeschlossen", value: "\(completedProjects.count)", icon: "checkmark.circle.fill", color: .green)
-                    StatCard(title: "In Produktion", value: "\(activeProjects.filter { $0.status == .drafting }.count)", icon: "gear", color: .orange)
-                    StatCard(title: "Fehler", value: "\(projects.filter { $0.status == .failed }.count)", icon: "exclamationmark.triangle.fill", color: .red)
-                }
-                .padding(.horizontal)
-                
-                // Active Productions
-                if !activeProjects.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Aktuell in Produktion")
-                            .font(.headline)
-                            .padding(.horizontal)
-                        
-                        ForEach(activeProjects.prefix(3)) { project in
-                            ProjectCard(project: project)
-                        }
-                    }
-                }
-                
-                // Recent Completed
-                if !completedProjects.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Kürzlich abgeschlossen")
-                            .font(.headline)
-                            .padding(.horizontal)
-                        
-                        ForEach(completedProjects.prefix(3)) { project in
-                            CompletedProjectCard(project: project)
-                        }
+                headerSection
+                statsSection
+                activeProductionsSection
+                completedProjectsSection
+            }
+            .padding()
+        }
+        .navigationTitle("Dashboard")
+    }
+    
+    private var headerSection: some View {
+        HStack {
+            VStack(alignment: .leading) {
+                Text("NovelForge")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+                Text("KI-gestützte Buchproduktion")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+    }
+    
+    private var statsSection: some View {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
+            StatCard(title: "Aktive Projekte", value: "\(activeProjects.count)", icon: "book.fill", color: .blue)
+            StatCard(title: "Abgeschlossen", value: "\(completedProjects.count)", icon: "checkmark.circle.fill", color: .green)
+            StatCard(title: "In Produktion", value: "\(activeProjects.filter { $0.status == .drafting }.count)", icon: "gear", color: .orange)
+            StatCard(title: "Fehler", value: "\(projects.filter { $0.status == .failed }.count)", icon: "exclamationmark.triangle.fill", color: .red)
+        }
+    }
+    
+    private var activeProductionsSection: some View {
+        Group {
+            if !activeProjects.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Aktuell in Produktion")
+                        .font(.headline)
+                    
+                    ForEach(activeProjects.prefix(3)) { project in
+                        ProjectCard(project: project)
                     }
                 }
             }
-            .padding(.vertical)
         }
-        .sheet(isPresented: $showingNewBookSheet) {
-            NewBookWizardView()
+    }
+    
+    private var completedProjectsSection: some View {
+        Group {
+            if !completedProjects.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Kürzlich abgeschlossen")
+                        .font(.headline)
+                    
+                    ForEach(completedProjects.prefix(3)) { project in
+                        CompletedProjectCard(project: project)
+                    }
+                }
+            }
         }
     }
 }
@@ -101,7 +103,7 @@ struct StatCard: View {
                 .foregroundStyle(.secondary)
         }
         .padding()
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(Color.gray.opacity(0.1))
         .cornerRadius(12)
     }
 }
@@ -137,9 +139,8 @@ struct ProjectCard: View {
             }
         }
         .padding()
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(Color.gray.opacity(0.1))
         .cornerRadius(12)
-        .padding(.horizontal)
     }
     
     private func calculateProgress(for project: Project) -> Double {
@@ -166,9 +167,8 @@ struct CompletedProjectCard: View {
                 .foregroundStyle(.green)
         }
         .padding()
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(Color.gray.opacity(0.1))
         .cornerRadius(12)
-        .padding(.horizontal)
     }
 }
 

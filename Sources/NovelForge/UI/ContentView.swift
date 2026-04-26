@@ -2,19 +2,18 @@ import SwiftUI
 import SwiftData
 
 struct ContentView: View {
-    @Environment(\.modelContext) var modelContext
-    @State private var selectedTab: SidebarItem = .dashboard
-    @StateObject private var orchestrator = PipelineOrchestrator.shared
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \Project.updatedAt, order: .reverse) private var projects: [Project]
+    
+    @State private var selectedSidebarItem: SidebarItem? = .dashboard
+    @State private var selectedProject: Project?
+    @State private var showingNewBookSheet = false
     
     enum SidebarItem: String, CaseIterable, Identifiable {
         case dashboard = "Dashboard"
         case projects = "Projekte"
         case newBook = "Neues Buch"
         case queue = "Warteschlange"
-        case manuscript = "Manuskript"
-        case storyBible = "Story Bible"
-        case agents = "Agenten"
-        case exports = "Exporte"
         case settings = "Einstellungen"
         
         var id: String { rawValue }
@@ -25,10 +24,6 @@ struct ContentView: View {
             case .projects: return "folder"
             case .newBook: return "plus.circle"
             case .queue: return "list.bullet"
-            case .manuscript: return "doc.text"
-            case .storyBible: return "book.closed"
-            case .agents: return "cpu"
-            case .exports: return "square.and.arrow.up"
             case .settings: return "gear"
             }
         }
@@ -36,7 +31,7 @@ struct ContentView: View {
     
     var body: some View {
         NavigationSplitView {
-            List(SidebarItem.allCases, selection: $selectedTab) { item in
+            List(SidebarItem.allCases, selection: $selectedSidebarItem) { item in
                 NavigationLink(value: item) {
                     Label(item.rawValue, systemImage: item.icon)
                 }
@@ -46,7 +41,7 @@ struct ContentView: View {
             .frame(minWidth: 200)
         } detail: {
             Group {
-                switch selectedTab {
+                switch selectedSidebarItem {
                 case .dashboard:
                     DashboardView()
                 case .projects:
@@ -55,23 +50,28 @@ struct ContentView: View {
                     NewBookWizardView()
                 case .queue:
                     PipelineQueueView()
-                case .manuscript:
-                    ManuscriptView()
-                case .storyBible:
-                    StoryBibleView()
-                case .agents:
-                    AgentMonitorView()
-                case .exports:
-                    ExportView()
                 case .settings:
                     SettingsView()
+                case .none:
+                    Text("Wählen Sie einen Bereich")
+                        .foregroundStyle(.secondary)
                 }
             }
-        }
-        .onAppear {
-            orchestrator.configure(with: modelContext)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
+}
+
+func getLastProviderConfig(for project: Project) -> ProviderConfiguration? {
+    var config = ProviderConfiguration(provider: .openAI)
+    config.isActive = true
+    config.defaultModel = "gpt-4o"
+    
+    if let apiKey = KeychainService.getAPIKey(for: .openAI) {
+        config.apiKey = apiKey
+    }
+    
+    return config
 }
 
 struct ProjectsListView: View {
@@ -84,7 +84,7 @@ struct ProjectsListView: View {
             ForEach(projects) { project in
                 NavigationLink(value: project) {
                     HStack {
-                        VStack(alignment: .leading) {
+                        VStack(alignment: .leading, spacing: 4) {
                             Text(project.title)
                                 .font(.headline)
                             Text("\(project.authorName) • \(project.genre)")
@@ -94,6 +94,7 @@ struct ProjectsListView: View {
                         Spacer()
                         StatusBadge(status: project.status)
                     }
+                    .padding(.vertical, 4)
                 }
                 .tag(project)
             }
@@ -113,7 +114,7 @@ struct ProjectsListView: View {
 }
 
 struct PipelineQueueView: View {
-    @Query(sort: \Project.updatedAt, order: .reverse) var allProjects: [Project]
+    @Query var allProjects: [Project]
     @StateObject private var orchestrator = PipelineOrchestrator.shared
     
     var activeProjects: [Project] {
@@ -124,27 +125,25 @@ struct PipelineQueueView: View {
         VStack {
             if orchestrator.isRunning {
                 PipelineProgressView()
+            } else if activeProjects.isEmpty {
+                ContentUnavailableView(
+                    "Keine aktiven Produktionen",
+                    systemImage: "list.bullet.clipboard",
+                    description: Text("Starten Sie eine neue Buchproduktion")
+                )
             } else {
-                if activeProjects.isEmpty {
-                    ContentUnavailableView(
-                        "Keine aktiven Produktionen",
-                        systemImage: "list.bullet.clipboard",
-                        description: Text("Starten Sie eine neue Buchproduktion")
-                    )
-                } else {
-                    List(activeProjects) { project in
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(project.title)
-                                    .font(.headline)
-                                Text("Status: \(project.status.rawValue)")
-                                    .font(.caption)
-                            }
-                            Spacer()
+                List(activeProjects) { project in
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(project.title)
+                                .font(.headline)
+                            Text("Status: \(project.status.rawValue)")
+                                .font(.caption)
+                        }
+                        Spacer()
+                        if let config = getLastProviderConfig(for: project) {
                             Button("Fortsetzen") {
-                                if let config = getLastProviderConfig(for: project) {
-                                    orchestrator.startPipeline(project: project, providerConfig: config)
-                                }
+                                orchestrator.startPipeline(project: project, providerConfig: config)
                             }
                             .buttonStyle(.borderedProminent)
                         }
@@ -152,7 +151,7 @@ struct PipelineQueueView: View {
                 }
             }
         }
-        .navigationTitle("Produktionswarteschlange")
+        .navigationTitle("Warteschlange")
     }
 }
 
@@ -161,7 +160,6 @@ struct PipelineProgressView: View {
     
     var body: some View {
         VStack(spacing: 20) {
-            // Phase indicator
             HStack {
                 Image(systemName: "gear")
                     .imageScale(.large)
@@ -177,22 +175,22 @@ struct PipelineProgressView: View {
                 }
             }
             
-            // Progress bar
             VStack(alignment: .leading) {
                 HStack {
                     Text("\(Int(orchestrator.progress * 100))%")
                         .font(.caption)
                     Spacer()
-                    Text("Geschätzte Restzeit: \(orchestrator.estimatedTimeRemaining)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if !orchestrator.estimatedTimeRemaining.isEmpty {
+                        Text("Geschätzte Restzeit: \(orchestrator.estimatedTimeRemaining)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 ProgressView(value: orchestrator.progress)
                     .progressViewStyle(.linear)
                     .scaleEffect(y: 2)
             }
             
-            // Chapter/Scene info
             if orchestrator.currentChapter > 0 {
                 HStack {
                     Label("Kapitel \(orchestrator.currentChapter)", systemImage: "doc.text")
@@ -221,31 +219,15 @@ struct PipelineProgressView: View {
                 .buttonStyle(.bordered)
                 
                 Button("Abbrechen") {
-                    orchestrator.pausePipeline()
-                    orchestrator.currentProject?.status = .failed
+                    orchestrator.cancelPipeline()
                 }
                 .buttonStyle(.bordered)
                 .tint(.red)
             }
         }
         .padding()
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(Color.gray.opacity(0.1))
         .cornerRadius(12)
         .padding()
     }
-}
-
-func getLastProviderConfig(for project: Project) -> ProviderConfiguration? {
-    // In a real implementation, this would retrieve the saved configuration
-    // For now, return a default OpenAI configuration
-    var config = ProviderConfiguration(provider: .openAI)
-    config.isActive = true
-    config.defaultModel = "gpt-4o"
-    
-    // Try to get API key from Keychain
-    if let apiKey = KeychainService.getAPIKey(for: .openAI) {
-        config.apiKey = apiKey
-    }
-    
-    return config
 }
