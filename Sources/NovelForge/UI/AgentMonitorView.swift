@@ -215,17 +215,16 @@ struct ExportDetailView: View {
                         .font(.headline)
                     
                     Button("KDP-Bericht anzeigen") {
-                        let report = ExportEngine.generateKDPReport(project: project)
-                        // Show report in new window
+                        showReport(text: ExportEngine.generateKDPReport(project: project), title: "KDP-Bericht")
                     }
                     
                     Button("Produktionsprotokoll anzeigen") {
-                        let log = ExportEngine.generateProductionLog(project: project)
-                        // Show log in new window
+                        showReport(text: ExportEngine.generateProductionLog(project: project), title: "Produktionsprotokoll")
                     }
                     
                     Button("KI-Offenlegungsbericht") {
-                        // Generate disclosure report
+                        let disclosure = generateDisclosureReport(project: project)
+                        showReport(text: disclosure, title: "KI-Offenlegung")
                     }
                 }
                 
@@ -284,7 +283,7 @@ struct ExportFormatRow: View {
     private func exportFile() {
         isExporting = true
         
-        Task {
+        Task { @MainActor in
             do {
                 let url: URL
                 switch format {
@@ -342,6 +341,51 @@ struct ExportFormatRow: View {
         case .log: return "Vollständiges Produktionsprotokoll"
         }
     }
+}
+
+func showReport(text: String, title: String) {
+    let panel = NSSavePanel()
+    panel.nameFieldStringValue = "\(title).txt"
+    panel.canCreateDirectories = true
+    
+    if panel.runModal() == .OK, let url = panel.url {
+        do {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            NSWorkspace.shared.open(url)
+        } catch {
+            print("Failed to save report: \(error)")
+        }
+    }
+}
+
+func generateDisclosureReport(project: Project) -> String {
+    var report = "KI-OFFENLEGUNGSBERICHT\n"
+    report += String(repeating: "=", count: 25) + "\n\n"
+    report += "Projekt: \(project.title)\n"
+    report += "Autor: \(project.authorName)\n"
+    report += "Erstellt am: \(Date())\n\n"
+    
+    report += "Dieses Werk wurde mit Unterstützung von Künstlicher Intelligenz (KI) erstellt.\n\n"
+    
+    report += "Verwendete KI-Tools:\n"
+    report += "- NovelForge (Buchproduktions-App)\n"
+    report += "- KI-Sprachmodelle für Textgenerierung\n\n"
+    
+    if let jobs = project.pipelineJobs {
+        report += "Pipeline-Schritte: \(jobs.count)\n"
+        report += "Verwendete Agenten:\n"
+        let agents = Set(jobs.map { $0.agentName })
+        for agent in agents {
+            report += "- \(agent)\n"
+        }
+    }
+    
+    report += "\nHinweis:\n"
+    report += "Gemäß den Richtlinien von Amazon KDP und anderen Verlagsplattformen\n"
+    report += "müssen KI-generierte Inhalte offengelegt werden.\n"
+    report += "Dieser Bericht dient als Nachweis für die KI-Unterstützung.\n"
+    
+    return report
 }
 
 struct QualityMetricRow: View {

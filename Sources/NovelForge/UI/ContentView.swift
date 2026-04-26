@@ -77,6 +77,7 @@ struct ContentView: View {
 struct ProjectsListView: View {
     @Query(sort: \Project.updatedAt, order: .reverse) var projects: [Project]
     @State private var selectedProject: Project?
+    @State private var showingNewBookWizard = false
     
     var body: some View {
         List(selection: $selectedProject) {
@@ -101,9 +102,12 @@ struct ProjectsListView: View {
         .toolbar {
             ToolbarItem {
                 Button("Neues Buch", systemImage: "plus") {
-                    // Open new book wizard
+                    showingNewBookWizard = true
                 }
             }
+        }
+        .sheet(isPresented: $showingNewBookWizard) {
+            NewBookWizardView()
         }
     }
 }
@@ -138,8 +142,8 @@ struct PipelineQueueView: View {
                             }
                             Spacer()
                             Button("Fortsetzen") {
-                                Task {
-                                    // Resume pipeline
+                                if let config = getLastProviderConfig(for: project) {
+                                    orchestrator.startPipeline(project: project, providerConfig: config)
                                 }
                             }
                             .buttonStyle(.borderedProminent)
@@ -229,4 +233,19 @@ struct PipelineProgressView: View {
         .cornerRadius(12)
         .padding()
     }
+}
+
+func getLastProviderConfig(for project: Project) -> ProviderConfiguration? {
+    // In a real implementation, this would retrieve the saved configuration
+    // For now, return a default OpenAI configuration
+    var config = ProviderConfiguration(provider: .openAI)
+    config.isActive = true
+    config.defaultModel = "gpt-4o"
+    
+    // Try to get API key from Keychain
+    if let apiKey = KeychainService.getAPIKey(for: .openAI) {
+        config.apiKey = apiKey
+    }
+    
+    return config
 }

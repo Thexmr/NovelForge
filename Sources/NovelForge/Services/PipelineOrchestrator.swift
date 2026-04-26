@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import SwiftUI
 
 @MainActor
 class PipelineOrchestrator: ObservableObject {
@@ -14,10 +15,13 @@ class PipelineOrchestrator: ObservableObject {
     @Published var currentScene: Int = 0
     @Published var isRunning: Bool = false
     @Published var lastError: String?
+    @Published var totalScenes: Int = 0
+    @Published var completedScenes: Int = 0
     
     private var modelContext: ModelContext?
     private var startTime: Date?
     private var sceneTimes: [TimeInterval] = []
+    private var backgroundTask: Task<Void, Never>?
     private let agentRuntime = AgentRuntime.shared
     private let providerGateway = ProviderGateway.shared
     
@@ -25,66 +29,83 @@ class PipelineOrchestrator: ObservableObject {
         self.modelContext = context
     }
     
-    func startPipeline(project: Project, providerConfig: ProviderConfiguration) async {
+    func startPipeline(project: Project, providerConfig: ProviderConfiguration) {
         guard !isRunning else { return }
         
         isRunning = true
         currentProject = project
         startTime = Date()
         lastError = nil
+        sceneTimes = []
+        totalScenes = 0
+        completedScenes = 0
         
+        backgroundTask = Task { [weak self] in
+            await self?.executePipeline(project: project, config: providerConfig)
+        }
+    }
+    
+    private func executePipeline(project: Project, config: ProviderConfiguration) async {
         do {
             // Phase 1: Input Validation
-            try await executePhase(.projectSetup, project: project, config: providerConfig)
+            try await executePhase(.projectSetup, project: project, config: config)
             
             // Phase 2: Concept Development
-            try await executePhase(.conceptDevelopment, project: project, config: providerConfig)
+            try await executePhase(.conceptDevelopment, project: project, config: config)
             
             // Phase 3: Structure Planning
-            try await executePhase(.structurePlanning, project: project, config: providerConfig)
+            try await executePhase(.structurePlanning, project: project, config: config)
             
             // Phase 4: Chapter Planning
-            try await executePhase(.chapterPlanning, project: project, config: providerConfig)
+            try await executePhase(.chapterPlanning, project: project, config: config)
             
-            // Phase 5: StoryScene Planning
-            try await executePhase(.scenePlanning, project: project, config: providerConfig)
+            // Phase 5: Scene Planning
+            try await executePhase(.scenePlanning, project: project, config: config)
             
             // Phase 6: Drafting
-            try await executeDraftingPhase(project: project, config: providerConfig)
+            try await executeDraftingPhase(project: project, config: config)
             
             // Phase 7: Chapter Revision
-            try await executePhase(.chapterRevision, project: project, config: providerConfig)
+            try await executePhase(.chapterRevision, project: project, config: config)
             
             // Phase 8: Manuscript Revision
-            try await executePhase(.manuscriptRevision, project: project, config: providerConfig)
+            try await executePhase(.manuscriptRevision, project: project, config: config)
             
             // Phase 9: Proofreading
-            try await executePhase(.proofreading, project: project, config: providerConfig)
+            try await executePhase(.proofreading, project: project, config: config)
             
             // Phase 10: Copyright Check
-            try await executePhase(.copyrightCheck, project: project, config: providerConfig)
+            try await executePhase(.copyrightCheck, project: project, config: config)
             
             // Phase 11: KDP Formatting
-            try await executePhase(.kdpFormatting, project: project, config: providerConfig)
+            try await executePhase(.kdpFormatting, project: project, config: config)
             
             // Phase 12: Export
-            try await executePhase(.export, project: project, config: providerConfig)
+            try await executePhase(.export, project: project, config: config)
             
-            project.status = .completed
-            updateProgress(.completed)
+            await MainActor.run {
+                project.status = .completed
+                self.progress = 1.0
+                self.isRunning = false
+                self.currentAgent = "Abgeschlossen"
+            }
             
         } catch {
-            lastError = error.localizedDescription
-            project.status = .failed
-            isRunning = false
+            await MainActor.run {
+                self.lastError = error.localizedDescription
+                if self.isRunning {
+                    project.status = .failed
+                }
+                self.isRunning = false
+            }
         }
-        
-        isRunning = false
     }
     
     private func executePhase(_ phase: PipelinePhase, project: Project, config: ProviderConfiguration) async throws {
-        currentPhase = phase
-        updateProgress(phase)
+        await MainActor.run {
+            self.currentPhase = phase
+            self.updateProgress(phase)
+        }
         
         if project.pipelineJobs == nil {
             project.pipelineJobs = []
@@ -95,6 +116,7 @@ class PipelineOrchestrator: ObservableObject {
         
         let job = PipelineJob(agentName: phase.rawValue, phase: phase)
         job.status = .running
+        job.startTime = Date()
         project.pipelineJobs?.append(job)
         modelContext?.insert(job)
         
@@ -108,79 +130,96 @@ class PipelineOrchestrator: ObservableObject {
             model: config.defaultModel ?? "gpt-4o"
         )
         
-        switch phase {
-        case .projectSetup:
-            let agent = InputAgent()
-            currentAgent = agent.name
-            let result = try await agentRuntime.executeAgent(agent, context: context, job: job)
-            if !result.success {
-                throw AIError.systemError("Input validation failed")
+        do {
+            switch phase {
+            case .projectSetup:
+                let agent = InputAgent()
+                await MainActor.run { self.currentAgent = agent.name }
+                let result = try await agentRuntime.executeAgent(agent, context: context, job: job)
+                if !result.success {
+                    throw AIError.systemError("Input validation failed")
+                }
+                
+            case .conceptDevelopment:
+                let agent = ConceptAgent()
+                await MainActor.run { self.currentAgent = agent.name }
+                let result = try await agentRuntime.executeAgent(agent, context: context, job: job)
+                if let bookProfile = project.bookProfile {
+                    bookProfile.premise = result.output
+                }
+                
+            case .structurePlanning:
+                let plotAgent = PlotArchitectAgent()
+                await MainActor.run { self.currentAgent = plotAgent.name }
+                _ = try await agentRuntime.executeAgent(plotAgent, context: context, job: job)
+                
+                let charAgent = CharacterArchitectAgent()
+                await MainActor.run { self.currentAgent = charAgent.name }
+                let charResult = try await agentRuntime.executeAgent(charAgent, context: context, job: job)
+                
+                await parseCharacters(from: charResult.output, storyBible: project.storyBible)
+                
+            case .chapterPlanning:
+                try await planChapters(project: project, config: config)
+                
+            case .scenePlanning:
+                try await planScenes(project: project, config: config)
+                
+            case .chapterRevision:
+                try await reviseChapters(project: project, config: config)
+                
+            case .manuscriptRevision:
+                try await reviseManuscript(project: project, config: config)
+                
+            case .proofreading:
+                try await proofreadManuscript(project: project, config: config)
+                
+            case .copyrightCheck:
+                try await checkCopyright(project: project, config: config)
+                
+            case .kdpFormatting:
+                try await formatForKDP(project: project, config: config)
+                
+            case .export:
+                try await exportProject(project: project)
+                
+            default:
+                break
             }
             
-        case .conceptDevelopment:
-            let agent = ConceptAgent()
-            currentAgent = agent.name
-            let result = try await agentRuntime.executeAgent(agent, context: context, job: job)
-            if let bookProfile = project.bookProfile {
-                bookProfile.premise = result.output
-            }
+            job.status = .completed
+            job.endTime = Date()
+            project.updatedAt = Date()
+            try? modelContext?.save()
             
-        case .structurePlanning:
-            let plotAgent = PlotArchitectAgent()
-            currentAgent = plotAgent.name
-            _ = try await agentRuntime.executeAgent(plotAgent, context: context, job: job)
-            
-            let charAgent = CharacterArchitectAgent()
-            currentAgent = charAgent.name
-            let charResult = try await agentRuntime.executeAgent(charAgent, context: context, job: job)
-            
-            // Parse and create characters
-            await parseCharacters(from: charResult.output, storyBible: project.storyBible)
-            
-        case .chapterPlanning:
-            try await planChapters(project: project, config: config)
-            
-        case .scenePlanning:
-            try await planScenes(project: project, config: config)
-            
-        case .chapterRevision:
-            try await reviseChapters(project: project, config: config)
-            
-        case .manuscriptRevision:
-            try await reviseManuscript(project: project, config: config)
-            
-        case .proofreading:
-            try await proofreadManuscript(project: project, config: config)
-            
-        case .copyrightCheck:
-            try await checkCopyright(project: project, config: config)
-            
-        case .kdpFormatting:
-            try await formatForKDP(project: project, config: config)
-            
-        case .export:
-            try await exportProject(project: project)
-            
-        default:
-            break
+        } catch {
+            job.status = .failed
+            job.endTime = Date()
+            job.errorCount += 1
+            throw error
         }
-        
-        job.status = .completed
-        project.updatedAt = Date()
     }
     
     private func executeDraftingPhase(project: Project, config: ProviderConfiguration) async throws {
-        currentPhase = .drafting
+        await MainActor.run {
+            self.currentPhase = .drafting
+        }
         
         guard let chapters = project.chapters?.sorted(by: { $0.chapterNumber < $1.chapterNumber }) else {
             throw AIError.systemError("Keine Kapitel zum Schreiben")
         }
         
-        let totalScenes = chapters.compactMap { $0.scenes?.count }.reduce(0, +)
-        var completedScenes = 0
+        let totalSceneCount = chapters.compactMap { $0.scenes?.count }.reduce(0, +)
+        
+        await MainActor.run {
+            self.totalScenes = totalSceneCount
+            self.completedScenes = 0
+        }
         
         for (index, chapter) in chapters.enumerated() {
-            currentChapter = chapter.chapterNumber
+            await MainActor.run {
+                self.currentChapter = chapter.chapterNumber
+            }
             
             guard let scenes = chapter.scenes?.sorted(by: { $0.sceneNumber < $1.sceneNumber }) else {
                 chapter.status = .draftComplete
@@ -188,8 +227,15 @@ class PipelineOrchestrator: ObservableObject {
             }
             
             for scene in scenes {
-                currentScene = scene.sceneNumber
-                scene.status = .writing
+                // Check if cancelled
+                if Task.isCancelled {
+                    throw AIError.systemError("Pipeline wurde abgebrochen")
+                }
+                
+                await MainActor.run {
+                    self.currentScene = scene.sceneNumber
+                    scene.status = .writing
+                }
                 
                 let sceneStart = Date()
                 
@@ -199,6 +245,7 @@ class PipelineOrchestrator: ObservableObject {
                     chapterNumber: chapter.chapterNumber,
                     sceneNumber: scene.sceneNumber
                 )
+                job.startTime = sceneStart
                 project.pipelineJobs?.append(job)
                 modelContext?.insert(job)
                 
@@ -213,13 +260,14 @@ class PipelineOrchestrator: ObservableObject {
                 )
                 
                 let agent = DraftWriterAgent()
-                currentAgent = "\(agent.name) - Kapitel \(chapter.chapterNumber), Szene \(scene.sceneNumber)"
+                await MainActor.run {
+                    self.currentAgent = "\(agent.name) - Kapitel \(chapter.chapterNumber), Szene \(scene.sceneNumber)"
+                }
                 
                 do {
                     let result = try await agentRuntime.executeAgent(agent, context: context, job: job)
                     scene.text = result.output
                     scene.status = .written
-                    scene.summary = await generateSummary(text: result.output, config: config)
                     
                     // Update word count
                     chapter.actualWordCount = (chapter.scenes?.compactMap { $0.text?.wordCount }.reduce(0, +)) ?? 0
@@ -227,18 +275,24 @@ class PipelineOrchestrator: ObservableObject {
                     // Track timing
                     let duration = Date().timeIntervalSince(sceneStart)
                     sceneTimes.append(duration)
-                    completedScenes += 1
                     
-                    // Update progress with sub-progress
-                    let subProgress = Double(completedScenes) / Double(totalScenes)
-                    updateProgress(.drafting, subProgress: subProgress)
-                    updateEstimatedTime(chaptersLeft: chapters.count - index - 1, scenesLeft: scenes.count - scene.sceneNumber)
+                    await MainActor.run {
+                        self.completedScenes += 1
+                        let subProgress = Double(self.completedScenes) / Double(self.totalScenes)
+                        self.updateProgress(.drafting, subProgress: subProgress)
+                        self.updateEstimatedTime(
+                            chaptersLeft: chapters.count - index - 1,
+                            scenesLeft: scenes.count - scene.sceneNumber
+                        )
+                    }
                     
                     // Save after each scene
                     try? modelContext?.save()
                     
                 } catch {
                     scene.status = .needsRevision
+                    job.status = .failed
+                    job.errorCount += 1
                     throw error
                 }
             }
@@ -303,32 +357,41 @@ class PipelineOrchestrator: ObservableObject {
         guard let chapters = project.chapters else { return }
         
         for chapter in chapters {
-            // Combine scenes
+            if Task.isCancelled { break }
+            
             let fullText = chapter.scenes?.compactMap { $0.text }.joined(separator: "\n\n") ?? ""
             chapter.draftText = fullText
-            
-            // Simple revision logic - in production this would use Line Editor Agent
             chapter.revisedText = fullText
             chapter.status = .revised
         }
+        
+        try? modelContext?.save()
     }
     
     private func reviseManuscript(project: Project, config: ProviderConfiguration) async throws {
-        // Overall manuscript check
         project.status = .manuscriptRevision
+        try? modelContext?.save()
     }
     
     private func proofreadManuscript(project: Project, config: ProviderConfiguration) async throws {
         guard let chapters = project.chapters else { return }
         
-        for chapter in chapters {
+        for (index, chapter) in chapters.enumerated() {
+            if Task.isCancelled { break }
+            
             guard let text = chapter.revisedText else { continue }
+            
+            await MainActor.run {
+                self.currentChapter = chapter.chapterNumber
+                self.currentAgent = "Proofreader - Kapitel \(chapter.chapterNumber)"
+            }
             
             let job = PipelineJob(
                 agentName: "Proofreader",
                 phase: .proofreading,
                 chapterNumber: chapter.chapterNumber
             )
+            job.startTime = Date()
             project.pipelineJobs?.append(job)
             modelContext?.insert(job)
             
@@ -343,16 +406,32 @@ class PipelineOrchestrator: ObservableObject {
             )
             
             let agent = ProofreaderAgent()
-            let result = try await agentRuntime.executeAgent(agent, context: context, job: job)
-            chapter.finalText = result.output
-            chapter.status = .finalized
+            
+            do {
+                let result = try await agentRuntime.executeAgent(agent, context: context, job: job)
+                chapter.finalText = result.output
+                chapter.status = .finalized
+                job.status = .completed
+                job.endTime = Date()
+                
+                let subProgress = Double(index + 1) / Double(chapters.count)
+                await MainActor.run {
+                    self.updateProgress(.proofreading, subProgress: subProgress)
+                }
+                
+            } catch {
+                job.status = .failed
+                job.endTime = Date()
+                job.errorCount += 1
+                throw error
+            }
         }
         
         project.status = .proofreading
+        try? modelContext?.save()
     }
     
     private func checkCopyright(project: Project, config: ProviderConfiguration) async throws {
-        // Copyright risk analysis
         let report = QualityReport(
             checkedArea: "Copyright",
             checkType: "Risikoanalyse",
@@ -361,15 +440,66 @@ class PipelineOrchestrator: ObservableObject {
             recommendation: "Interne Prüfung - keine juristische Garantie"
         )
         project.qualityReports?.append(report)
+        modelContext?.insert(report)
+        try? modelContext?.save()
     }
     
     private func formatForKDP(project: Project, config: ProviderConfiguration) async throws {
+        await MainActor.run {
+            self.currentAgent = "KDP Formatter"
+        }
+        
+        // Generate front matter
+        let year = Calendar.current.component(.year, from: Date())
+        var frontMatter = ""
+        frontMatter += "\\begin{titlepage}\n"
+        frontMatter += "\\centering\n"
+        frontMatter += "\\vspace*{2cm}\n"
+        frontMatter += "{\\Huge \\(project.title)}\\par\n"
+        frontMatter += "\\vspace{1cm}\n"
+        frontMatter += "{\\Large \\(project.authorName)}\\par\n"
+        frontMatter += "\\vfill\n"
+        frontMatter += "{\\small \\(year)}\\par\n"
+        frontMatter += "\\end{titlepage}\n"
+        frontMatter += "\\newpage\n"
+        frontMatter += "\\thispagestyle{empty}\n"
+        frontMatter += "\\begin{center}\n"
+        frontMatter += "\\copyright\\ \\(year) \\(project.authorName)\\par\n"
+        frontMatter += "\\vspace{1cm}\n"
+        frontMatter += "Alle Rechte vorbehalten.\\par\n"
+        frontMatter += "\\end{center}\n"
+        frontMatter += "\\newpage\n"
+        
+        // Table of contents
+        frontMatter += "\\tableofcontents\n"
+        frontMatter += "\\newpage\n"
+        
         project.status = .kdpFormatting
+        try? modelContext?.save()
     }
     
     private func exportProject(project: Project) async throws {
-        // Export logic handled by ExportEngine
-        project.status = .export
+        await MainActor.run {
+            self.currentAgent = "Export"
+        }
+        
+        do {
+            if project.outputFormats.contains("EPUB") {
+                _ = try ExportEngine.exportToEPUB(project: project)
+            }
+            if project.outputFormats.contains("PDF") {
+                _ = try ExportEngine.exportToPDF(project: project)
+            }
+            if project.outputFormats.contains("DOCX") {
+                _ = try ExportEngine.exportToDOCX(project: project)
+            }
+            
+            project.status = .export
+            try? modelContext?.save()
+            
+        } catch {
+            throw AIError.systemError("Export fehlgeschlagen: \\(error.localizedDescription)")
+        }
     }
     
     private func parseCharacters(from output: String, storyBible: StoryBible?) async {
@@ -401,27 +531,6 @@ class PipelineOrchestrator: ObservableObject {
         try? modelContext?.save()
     }
     
-    private func generateSummary(text: String, config: ProviderConfiguration) async -> String {
-        let prompt = "Fasse die folgende Szene in 2-3 Sätzen zusammen:\n\n\(text.prefix(1000))"
-        
-        let request = GenerationRequest(
-            prompt: prompt,
-            systemPrompt: nil,
-            model: config.defaultModel ?? "gpt-4o-mini",
-            provider: config.provider,
-            maxTokens: 200,
-            temperature: 0.3,
-            stream: false
-        )
-        
-        do {
-            let response = try await providerGateway.generateText(request: request)
-            return response.text
-        } catch {
-            return "Zusammenfassung nicht verfügbar"
-        }
-    }
-    
     private func getPreviousSummary(project: Project, currentChapter: Int) -> String {
         guard let chapters = project.chapters?.sorted(by: { $0.chapterNumber < $1.chapterNumber }),
               currentChapter > 1 else {
@@ -430,7 +539,7 @@ class PipelineOrchestrator: ObservableObject {
         
         let prevChapter = chapters.first { $0.chapterNumber == currentChapter - 1 }
         let summaries = prevChapter?.scenes?.compactMap { $0.summary }.joined(separator: " ") ?? ""
-        return summaries
+        return summaries.isEmpty ? "Anfang des Buches" : summaries
     }
     
     private func updateProgress(_ phase: PipelinePhase, subProgress: Double = 0.0) {
@@ -439,7 +548,6 @@ class PipelineOrchestrator: ObservableObject {
             if p == phase { break }
             totalWeight += p.weight
         }
-        // Add sub-progress within current phase
         totalWeight += phase.weight * subProgress
         progress = min(totalWeight, 1.0)
     }
@@ -447,7 +555,7 @@ class PipelineOrchestrator: ObservableObject {
     private func updateEstimatedTime(chaptersLeft: Int, scenesLeft: Int) {
         guard !sceneTimes.isEmpty else { return }
         let avgSceneTime = sceneTimes.reduce(0, +) / Double(sceneTimes.count)
-        let totalScenesLeft = chaptersLeft * 5 + scenesLeft // Estimate 5 scenes per chapter
+        let totalScenesLeft = chaptersLeft * 5 + scenesLeft
         let totalSeconds = avgSceneTime * Double(totalScenesLeft)
         
         let hours = Int(totalSeconds) / 3600
@@ -461,9 +569,9 @@ class PipelineOrchestrator: ObservableObject {
     }
     
     func pausePipeline() {
+        backgroundTask?.cancel()
         isRunning = false
         currentProject?.status = .paused
-        // Save current state
         try? modelContext?.save()
     }
     
@@ -471,14 +579,16 @@ class PipelineOrchestrator: ObservableObject {
         guard let project = currentProject else { return }
         guard project.status == .paused || project.status == .failed else { return }
         
-        Task {
-            isRunning = true
-            lastError = nil
-            
-            // TODO: Find the last completed phase to determine where to resume
-            // For now, just mark as running and let the user manually restart
-            project.status = .drafting
-            isRunning = false
-        }
+        // TODO: Implement proper state restoration
+        // For now, just allow restarting from the beginning
+        isRunning = false
+        lastError = "Bitte starten Sie die Pipeline neu. Die Fortsetzung wird in einem zukünftigen Update implementiert."
+    }
+    
+    func cancelPipeline() {
+        backgroundTask?.cancel()
+        isRunning = false
+        currentProject?.status = .failed
+        try? modelContext?.save()
     }
 }

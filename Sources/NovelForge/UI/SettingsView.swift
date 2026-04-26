@@ -205,7 +205,7 @@ struct ProviderRow: View {
     
     private func testConnection() {
         isTesting = true
-        Task {
+        Task { @MainActor in
             let gateway = ProviderGateway.shared
             let result = await gateway.testConnection(configuration: configuration)
             testResult = result
