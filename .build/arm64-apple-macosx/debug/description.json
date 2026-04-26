@@ -1,0 +1,574 @@
+{
+  "builtTestProducts" : [
+
+  ],
+  "copyCommands" : {
+
+  },
+  "explicitTargetDependencyImportCheckingMode" : {
+    "none" : {
+
+    }
+  },
+  "generatedSourceTargetSet" : [
+
+  ],
+  "pluginDescriptions" : [
+
+  ],
+  "swiftCommands" : {
+    "C.NovelForge-arm64-apple-macosx-debug.module" : {
+      "executable" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "fileList" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/sources",
+      "importPath" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/Chapter.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/Pipeline.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/Project.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/Provider.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/StoryBible.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/NovelForgeApp.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/Agents.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/ExportEngine.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/KeychainService.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/PipelineOrchestrator.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/ProviderGateway.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/AgentMonitorView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/ContentView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/DashboardView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/ManuscriptView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/NewBookWizardView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/SettingsView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Utils/Helpers.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/sources"
+        }
+      ],
+      "isLibrary" : false,
+      "moduleName" : "NovelForge",
+      "moduleOutputPath" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/Modules/NovelForge.swiftmodule",
+      "objects" : [
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Chapter.swift.o",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Pipeline.swift.o",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Project.swift.o",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Provider.swift.o",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/StoryBible.swift.o",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/NovelForgeApp.swift.o",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Agents.swift.o",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ExportEngine.swift.o",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/KeychainService.swift.o",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/PipelineOrchestrator.swift.o",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProviderGateway.swift.o",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/AgentMonitorView.swift.o",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ContentView.swift.o",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/DashboardView.swift.o",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ManuscriptView.swift.o",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/NewBookWizardView.swift.o",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/SettingsView.swift.o",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Helpers.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx14.0",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-j10",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-module-cache-path",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-Xfrontend",
+        "-entry-point-function-name",
+        "-Xfrontend",
+        "NovelForge_main",
+        "-swift-version",
+        "5",
+        "-plugin-path",
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-I",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-L",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "novelforge"
+      ],
+      "outputFileMapPath" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Chapter.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Pipeline.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Project.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Provider.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/StoryBible.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/NovelForgeApp.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Agents.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ExportEngine.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/KeychainService.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/PipelineOrchestrator.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProviderGateway.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/AgentMonitorView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ContentView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/DashboardView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ManuscriptView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/NewBookWizardView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/SettingsView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Helpers.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/Modules/NovelForge.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/Chapter.swift",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/Pipeline.swift",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/Project.swift",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/Provider.swift",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/StoryBible.swift",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/NovelForgeApp.swift",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/Agents.swift",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/ExportEngine.swift",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/KeychainService.swift",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/PipelineOrchestrator.swift",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/ProviderGateway.swift",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/AgentMonitorView.swift",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/ContentView.swift",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/DashboardView.swift",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/ManuscriptView.swift",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/NewBookWizardView.swift",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/SettingsView.swift",
+        "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Utils/Helpers.swift"
+      ],
+      "tempsPath" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build",
+      "wholeModuleOptimization" : false
+    }
+  },
+  "swiftFrontendCommands" : {
+
+  },
+  "swiftTargetScanArgs" : {
+    "NovelForge" : [
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "-module-name",
+      "NovelForge",
+      "-package-name",
+      "novelforge",
+      "-c",
+      "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/Chapter.swift",
+      "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/Pipeline.swift",
+      "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/Project.swift",
+      "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/Provider.swift",
+      "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/StoryBible.swift",
+      "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/NovelForgeApp.swift",
+      "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/Agents.swift",
+      "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/ExportEngine.swift",
+      "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/KeychainService.swift",
+      "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/PipelineOrchestrator.swift",
+      "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/ProviderGateway.swift",
+      "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/AgentMonitorView.swift",
+      "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/ContentView.swift",
+      "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/DashboardView.swift",
+      "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/ManuscriptView.swift",
+      "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/NewBookWizardView.swift",
+      "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/SettingsView.swift",
+      "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Utils/Helpers.swift",
+      "-I",
+      "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx14.0",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-j10",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-module-cache-path",
+      "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-Xfrontend",
+      "-entry-point-function-name",
+      "-Xfrontend",
+      "NovelForge_main",
+      "-swift-version",
+      "5",
+      "-plugin-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-I",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-L",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "novelforge",
+      "-driver-use-frontend-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+    ]
+  },
+  "targetDependencyMap" : {
+    "NovelForge" : [
+
+    ]
+  },
+  "testDiscoveryCommands" : {
+
+  },
+  "testEntryPointCommands" : {
+
+  },
+  "traitConfiguration" : {
+    "default" : {
+
+    }
+  },
+  "writeCommands" : {
+    "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge-entitlement.plist" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<entitlement-plist>"
+        },
+        {
+          "kind" : "virtual",
+          "name" : "<com.apple.security.get-task-allow>"
+        }
+      ],
+      "outputFilePath" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge-entitlement.plist"
+    },
+    "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/Chapter.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/Pipeline.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/Project.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/Provider.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/StoryBible.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/NovelForgeApp.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/Agents.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/ExportEngine.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/KeychainService.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/PipelineOrchestrator.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/ProviderGateway.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/AgentMonitorView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/ContentView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/DashboardView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/ManuscriptView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/NewBookWizardView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/SettingsView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Utils/Helpers.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/sources"
+    },
+    "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.product/Objects.LinkFileList" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<link-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/AgentMonitorView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Agents.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Chapter.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ContentView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/DashboardView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ExportEngine.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Helpers.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/KeychainService.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ManuscriptView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/NewBookWizardView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/NovelForgeApp.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Pipeline.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/PipelineOrchestrator.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Project.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Provider.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProviderGateway.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/SettingsView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/StoryBible.swift.o"
+        }
+      ],
+      "outputFilePath" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.product/Objects.LinkFileList"
+    },
+    "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt" : {
+      "alwaysOutOfDate" : true,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<swift-get-version>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+        }
+      ],
+      "outputFilePath" : "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+    }
+  }
+}

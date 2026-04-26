@@ -1,0 +1,131 @@
+{
+  "": {
+    "swift-dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/primary.swiftdeps"
+  },
+  "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/Chapter.swift": {
+    "dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Chapter.d",
+    "object": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Chapter.swift.o",
+    "swiftmodule": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Chapter~partial.swiftmodule",
+    "swift-dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Chapter.swiftdeps",
+    "diagnostics": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Chapter.dia"
+  },
+  "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/Pipeline.swift": {
+    "dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Pipeline.d",
+    "object": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Pipeline.swift.o",
+    "swiftmodule": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Pipeline~partial.swiftmodule",
+    "swift-dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Pipeline.swiftdeps",
+    "diagnostics": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Pipeline.dia"
+  },
+  "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/Project.swift": {
+    "dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Project.d",
+    "object": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Project.swift.o",
+    "swiftmodule": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Project~partial.swiftmodule",
+    "swift-dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Project.swiftdeps",
+    "diagnostics": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Project.dia"
+  },
+  "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/Provider.swift": {
+    "dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Provider.d",
+    "object": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Provider.swift.o",
+    "swiftmodule": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Provider~partial.swiftmodule",
+    "swift-dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Provider.swiftdeps",
+    "diagnostics": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Provider.dia"
+  },
+  "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Models/StoryBible.swift": {
+    "dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/StoryBible.d",
+    "object": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/StoryBible.swift.o",
+    "swiftmodule": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/StoryBible~partial.swiftmodule",
+    "swift-dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/StoryBible.swiftdeps",
+    "diagnostics": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/StoryBible.dia"
+  },
+  "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/NovelForgeApp.swift": {
+    "dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/NovelForgeApp.d",
+    "object": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/NovelForgeApp.swift.o",
+    "swiftmodule": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/NovelForgeApp~partial.swiftmodule",
+    "swift-dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/NovelForgeApp.swiftdeps",
+    "diagnostics": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/NovelForgeApp.dia"
+  },
+  "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/Agents.swift": {
+    "dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Agents.d",
+    "object": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Agents.swift.o",
+    "swiftmodule": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Agents~partial.swiftmodule",
+    "swift-dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Agents.swiftdeps",
+    "diagnostics": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Agents.dia"
+  },
+  "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/ExportEngine.swift": {
+    "dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ExportEngine.d",
+    "object": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ExportEngine.swift.o",
+    "swiftmodule": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ExportEngine~partial.swiftmodule",
+    "swift-dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ExportEngine.swiftdeps",
+    "diagnostics": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ExportEngine.dia"
+  },
+  "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/KeychainService.swift": {
+    "dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/KeychainService.d",
+    "object": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/KeychainService.swift.o",
+    "swiftmodule": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/KeychainService~partial.swiftmodule",
+    "swift-dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/KeychainService.swiftdeps",
+    "diagnostics": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/KeychainService.dia"
+  },
+  "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/PipelineOrchestrator.swift": {
+    "dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/PipelineOrchestrator.d",
+    "object": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/PipelineOrchestrator.swift.o",
+    "swiftmodule": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/PipelineOrchestrator~partial.swiftmodule",
+    "swift-dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/PipelineOrchestrator.swiftdeps",
+    "diagnostics": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/PipelineOrchestrator.dia"
+  },
+  "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Services/ProviderGateway.swift": {
+    "dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProviderGateway.d",
+    "object": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProviderGateway.swift.o",
+    "swiftmodule": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProviderGateway~partial.swiftmodule",
+    "swift-dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProviderGateway.swiftdeps",
+    "diagnostics": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProviderGateway.dia"
+  },
+  "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/AgentMonitorView.swift": {
+    "dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/AgentMonitorView.d",
+    "object": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/AgentMonitorView.swift.o",
+    "swiftmodule": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/AgentMonitorView~partial.swiftmodule",
+    "swift-dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/AgentMonitorView.swiftdeps",
+    "diagnostics": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/AgentMonitorView.dia"
+  },
+  "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/ContentView.swift": {
+    "dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ContentView.d",
+    "object": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ContentView.swift.o",
+    "swiftmodule": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ContentView~partial.swiftmodule",
+    "swift-dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ContentView.swiftdeps",
+    "diagnostics": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ContentView.dia"
+  },
+  "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/DashboardView.swift": {
+    "dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/DashboardView.d",
+    "object": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/DashboardView.swift.o",
+    "swiftmodule": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/DashboardView~partial.swiftmodule",
+    "swift-dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/DashboardView.swiftdeps",
+    "diagnostics": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/DashboardView.dia"
+  },
+  "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/ManuscriptView.swift": {
+    "dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ManuscriptView.d",
+    "object": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ManuscriptView.swift.o",
+    "swiftmodule": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ManuscriptView~partial.swiftmodule",
+    "swift-dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ManuscriptView.swiftdeps",
+    "diagnostics": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ManuscriptView.dia"
+  },
+  "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/NewBookWizardView.swift": {
+    "dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/NewBookWizardView.d",
+    "object": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/NewBookWizardView.swift.o",
+    "swiftmodule": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/NewBookWizardView~partial.swiftmodule",
+    "swift-dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/NewBookWizardView.swiftdeps",
+    "diagnostics": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/NewBookWizardView.dia"
+  },
+  "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/UI/SettingsView.swift": {
+    "dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/SettingsView.d",
+    "object": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/SettingsView.swift.o",
+    "swiftmodule": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/SettingsView~partial.swiftmodule",
+    "swift-dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/SettingsView.swiftdeps",
+    "diagnostics": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/SettingsView.dia"
+  },
+  "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/Sources/NovelForge/Utils/Helpers.swift": {
+    "dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Helpers.d",
+    "object": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Helpers.swift.o",
+    "swiftmodule": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Helpers~partial.swiftmodule",
+    "swift-dependencies": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Helpers.swiftdeps",
+    "diagnostics": "/Users/dave/Desktop/Kimi_Agent_Quibit-FastControl App Development/NEW BUSINESS/AI Video editor app/Amazon kdp Buch/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Helpers.dia"
+  }
+}
