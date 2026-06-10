@@ -346,6 +346,7 @@ struct NewBookWizardView: View {
         }
     }
 
+    @MainActor
     private func createProjectAndStart() {
         validationMessage = nil
 
