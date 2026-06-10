@@ -270,6 +270,70 @@ final class PipelineOrchestrator: ObservableObject {
         return response
     }
 
+    /// Führt mehrere unabhängige LLM-Anfragen parallel aus (begrenzte Nebenläufigkeit).
+    /// Token-/Kostenabrechnung erfolgt zentral; bei erreichtem Kostenlimit oder
+    /// Abbruch werden ausstehende Anfragen storniert.
+    /// Rückgabe: Ergebnisse je Index + Flag, ob das Kostenlimit ausgelöst hat.
+    private func runParallelGeneration(requests: [GenerationRequest],
+                                       config: ProviderConfiguration) async -> (results: [Int: Result<GenerationResponse, Error>], hitCostLimit: Bool) {
+        guard !requests.isEmpty else { return ([:], false) }
+
+        // Lokales Ollama arbeitet seriell am schnellsten; Cloud-APIs vertragen Parallelität.
+        let maxConcurrent = config.provider == .ollamaLocal ? 1 : 3
+        var results: [Int: Result<GenerationResponse, Error>] = [:]
+        var hitCostLimit = false
+        let gateway = self.gateway
+
+        await withTaskGroup(of: (Int, Result<GenerationResponse, Error>).self) { group in
+            var nextIndex = 0
+            func launchNext() {
+                guard nextIndex < requests.count else { return }
+                let index = nextIndex
+                let request = requests[index]
+                nextIndex += 1
+                group.addTask {
+                    do {
+                        let response = try await gateway.generateText(request: request, configuration: config)
+                        return (index, .success(response))
+                    } catch {
+                        return (index, .failure(error))
+                    }
+                }
+            }
+            for _ in 0..<min(maxConcurrent, requests.count) { launchNext() }
+
+            for await (index, result) in group {
+                results[index] = result
+                if case .success(let response) = result, let tokens = response.tokensUsed {
+                    totalTokensUsed += tokens
+                    estimatedCostUSD += ModelPricing.estimatedCost(model: requests[index].model, tokens: tokens)
+                }
+
+                if Task.isCancelled {
+                    group.cancelAll()
+                } else if let limit = config.costLimit, limit > 0, estimatedCostUSD >= limit {
+                    hitCostLimit = true
+                    group.cancelAll()
+                } else {
+                    launchNext()
+                }
+            }
+        }
+        return (results, hitCostLimit)
+    }
+
+    private func makeRequest(prompt: String, system: String, maxTokens: Int,
+                             temperature: Double, config: ProviderConfiguration) -> GenerationRequest {
+        GenerationRequest(
+            prompt: prompt,
+            systemPrompt: system,
+            model: config.defaultModel ?? config.provider.suggestedModels.first ?? "",
+            provider: config.provider,
+            maxTokens: maxTokens,
+            temperature: temperature
+        )
+    }
+
     // MARK: - Phase 1: Eingabevalidierung (lokal, ohne KI)
 
     private func runInputValidation(project: Project) throws {
@@ -466,31 +530,36 @@ final class PipelineOrchestrator: ObservableObject {
         project.status = .scenePlanning
 
         let chapters = sortedChapters(project)
-        for (index, chapter) in chapters.enumerated() {
-            try Task.checkCancellation()
-            // Bereits geplant? (Fortsetzen)
-            if !(chapter.scenes ?? []).isEmpty {
-                continue
-            }
+        let pending = chapters.filter { ($0.scenes ?? []).isEmpty } // Fortsetzen: nur ungeplante
+        guard !pending.isEmpty else { return }
 
-            currentChapter = chapter.chapterNumber
-            let job = beginJob(agent: AgentName.scenePlanner, phase: .scenePlanning,
-                               project: project, chapter: chapter.chapterNumber)
-            do {
-                let prompt = PromptFactory.scenePlan(
+        var jobs: [PipelineJob] = []
+        var requests: [GenerationRequest] = []
+        for chapter in pending {
+            jobs.append(beginJob(agent: AgentName.scenePlanner, phase: .scenePlanning,
+                                 project: project, chapter: chapter.chapterNumber))
+            requests.append(makeRequest(
+                prompt: PromptFactory.scenePlan(
                     bookTitle: project.title,
                     chapterNumber: chapter.chapterNumber, chapterTitle: chapter.title,
                     chapterGoal: chapter.goal, chapterConflict: chapter.conflict,
                     perspective: profile.narrativePerspective,
                     plotContext: bible.plotPoints,
                     targetWords: chapter.targetWordCount
-                )
-                let response = try await generate(
-                    prompt: prompt,
-                    system: "Du bist ein Szenenplaner für Romane. Du hältst dich exakt an das geforderte Ausgabeformat.",
-                    maxTokens: 1200, temperature: 0.6, config: config
-                )
+                ),
+                system: "Du bist ein Szenenplaner für Romane. Du hältst dich exakt an das geforderte Ausgabeformat.",
+                maxTokens: 1200, temperature: 0.6, config: config
+            ))
+        }
+        currentAgent = "\(AgentName.scenePlanner) – \(pending.count) Kapitel parallel"
 
+        let (results, hitCostLimit) = await runParallelGeneration(requests: requests, config: config)
+
+        var firstError: Error?
+        var done = 0
+        for (index, chapter) in pending.enumerated() {
+            switch results[index] {
+            case .success(let response)?:
                 var planned = StructureParser.parseScenes(response.text)
                 if planned.isEmpty {
                     planned = (1...4).map {
@@ -518,15 +587,25 @@ final class PipelineOrchestrator: ObservableObject {
                     modelContext?.insert(scene)
                 }
                 chapter.status = .scenesPlanned
+                completeJob(jobs[index], result: "\(planned.count) Szenen geplant",
+                            tokens: response.tokensUsed ?? 0)
+                done += 1
+                updateProgress(phase: .scenePlanning, subProgress: Double(done) / Double(pending.count))
 
-                completeJob(job, result: "\(planned.count) Szenen geplant", tokens: response.tokensUsed ?? 0)
-                updateProgress(phase: .scenePlanning, subProgress: Double(index + 1) / Double(chapters.count))
-                try? modelContext?.save()
-            } catch {
-                failJob(job, error: error)
-                throw error
+            case .failure(let error)?:
+                failJob(jobs[index], error: error)
+                if firstError == nil { firstError = error }
+
+            case nil: // storniert, bevor gestartet
+                jobs[index].status = .paused
+                jobs[index].endTime = Date()
             }
         }
+        try? modelContext?.save()
+
+        if hitCostLimit { throw AIError.quotaExceeded }
+        if let error = firstError { throw error }
+        try Task.checkCancellation()
     }
 
     // MARK: - Phase 6: Rohfassung (Szene für Szene, mit Kontinuität)
@@ -609,15 +688,50 @@ final class PipelineOrchestrator: ObservableObject {
                         maxTokens: maxTokens, temperature: 0.85, config: config
                     )
 
-                    scene.text = response.text
+                    var sceneText = response.text
+                    var sceneTokens = response.tokensUsed ?? 0
+
+                    // Qualitäts-Gate: deutlich zu kurze Szenen einmalig vertiefen/erweitern.
+                    let minWords = Int(Double(scene.targetWordCount) * 0.6)
+                    if sceneText.wordCount < minWords {
+                        do {
+                            let expanded = try await generate(
+                                prompt: PromptFactory.expandScene(
+                                    language: project.language, style: project.styleProfile,
+                                    text: sceneText, targetWords: scene.targetWordCount
+                                ),
+                                system: "Du bist ein professioneller Romanautor. Du vertiefst Szenen, ohne die Handlung zu verändern.",
+                                maxTokens: maxTokens, temperature: 0.7, config: config
+                            )
+                            if expanded.text.wordCount > sceneText.wordCount {
+                                sceneText = expanded.text
+                                sceneTokens += expanded.tokensUsed ?? 0
+                            }
+                        } catch {
+                            if error is CancellationError || (error as? AIError) == .quotaExceeded {
+                                throw error
+                            }
+                            // Erweiterung fehlgeschlagen – kurze Szene behalten, Hinweis folgt unten.
+                        }
+                    }
+                    if sceneText.wordCount < minWords {
+                        addReport(project: project,
+                                  area: "Kapitel \(chapter.chapterNumber), Szene \(scene.sceneNumber)",
+                                  type: "Umfang",
+                                  result: "Szene unter Zielumfang (\(sceneText.wordCount)/\(scene.targetWordCount) Wörter)",
+                                  severity: .warning,
+                                  recommendation: "Szene im Manuskript prüfen.")
+                    }
+
+                    scene.text = sceneText
                     scene.status = .written
                     scene.updatedAt = Date()
-                    previousSceneText = response.text
+                    previousSceneText = sceneText
                     chapter.actualWordCount = sortedScenes(chapter).compactMap { $0.text?.wordCount }.reduce(0, +)
-                    completeJob(job, result: "\(response.text.wordCount) Wörter", tokens: response.tokensUsed ?? 0)
+                    completeJob(job, result: "\(sceneText.wordCount) Wörter", tokens: sceneTokens)
 
                     // Kontext-Zusammenfassung für die folgenden Szenen.
-                    let summary = await summarizeScene(response.text, project: project,
+                    let summary = await summarizeScene(sceneText, project: project,
                                                        chapter: chapter, scene: scene, config: config)
                     scene.summary = summary
                     storySoFar.append("Kap. \(chapter.chapterNumber), Szene \(scene.sceneNumber): \(summary)")
@@ -671,33 +785,45 @@ final class PipelineOrchestrator: ObservableObject {
         project.status = .chapterRevision
 
         let chapters = sortedChapters(project)
-        for (index, chapter) in chapters.enumerated() {
-            try Task.checkCancellation()
+        for chapter in chapters where (chapter.draftText ?? "").isEmpty {
+            // Szenen mit sichtbarem Szenentrenner zusammenfügen (Print-/eBook-Konvention).
+            chapter.draftText = sortedScenes(chapter).compactMap { $0.text }.joined(separator: "\n\n***\n\n")
+        }
 
-            if chapter.draftText == nil || chapter.draftText?.isEmpty == true {
-                // Szenen mit sichtbarem Szenentrenner zusammenfügen (Print-/eBook-Konvention).
-                chapter.draftText = sortedScenes(chapter).compactMap { $0.text }.joined(separator: "\n\n***\n\n")
-            }
-            // Bereits überarbeitet? (Fortsetzen)
-            if let revised = chapter.revisedText, !revised.isEmpty { continue }
-            guard let draft = chapter.draftText, !draft.isEmpty else { continue }
+        // Fortsetzen: nur Kapitel ohne Revision, die Text haben.
+        let pending = chapters.filter { chapter in
+            guard let draft = chapter.draftText, !draft.isEmpty else { return false }
+            return (chapter.revisedText ?? "").isEmpty
+        }
+        guard !pending.isEmpty else { return }
 
-            currentChapter = chapter.chapterNumber
-            let job = beginJob(agent: AgentName.reviser, phase: .chapterRevision,
-                               project: project, chapter: chapter.chapterNumber)
-            do {
-                let prompt = PromptFactory.reviseChapter(
+        var jobs: [PipelineJob] = []
+        var requests: [GenerationRequest] = []
+        for chapter in pending {
+            jobs.append(beginJob(agent: AgentName.reviser, phase: .chapterRevision,
+                                 project: project, chapter: chapter.chapterNumber))
+            let draft = chapter.draftText ?? ""
+            requests.append(makeRequest(
+                prompt: PromptFactory.reviseChapter(
                     language: project.language, style: project.styleProfile,
                     tonality: profile.tonality, chapterNumber: chapter.chapterNumber,
                     chapterTitle: chapter.title, text: draft
-                )
-                let maxTokens = min(12000, max(3000, draft.wordCount * 3))
-                let response = try await generate(
-                    prompt: prompt,
-                    system: "Du bist ein erfahrener Lektor. Du verbesserst Prosa, ohne Handlung oder Stimme zu verändern.",
-                    maxTokens: maxTokens, temperature: 0.4, config: config
-                )
+                ),
+                system: "Du bist ein erfahrener Lektor. Du verbesserst Prosa, ohne Handlung oder Stimme zu verändern.",
+                maxTokens: min(12000, max(3000, draft.wordCount * 3)),
+                temperature: 0.4, config: config
+            ))
+        }
+        currentAgent = "\(AgentName.reviser) – \(pending.count) Kapitel parallel"
 
+        let (results, hitCostLimit) = await runParallelGeneration(requests: requests, config: config)
+
+        var firstError: Error?
+        var done = 0
+        for (index, chapter) in pending.enumerated() {
+            let draft = chapter.draftText ?? ""
+            switch results[index] {
+            case .success(let response)?:
                 // Schutz vor abgeschnittenen/leeren Antworten: nie Text verlieren.
                 if response.text.wordCount >= draft.wordCount / 2 {
                     chapter.revisedText = response.text
@@ -710,15 +836,25 @@ final class PipelineOrchestrator: ObservableObject {
                 }
                 chapter.status = .revised
                 chapter.updatedAt = Date()
-                completeJob(job, result: "Kapitel \(chapter.chapterNumber) überarbeitet", tokens: response.tokensUsed ?? 0)
+                completeJob(jobs[index], result: "Kapitel \(chapter.chapterNumber) überarbeitet",
+                            tokens: response.tokensUsed ?? 0)
+                done += 1
+                updateProgress(phase: .chapterRevision, subProgress: Double(done) / Double(pending.count))
 
-                updateProgress(phase: .chapterRevision, subProgress: Double(index + 1) / Double(chapters.count))
-                try? modelContext?.save()
-            } catch {
-                failJob(job, error: error)
-                throw error
+            case .failure(let error)?:
+                failJob(jobs[index], error: error)
+                if firstError == nil { firstError = error }
+
+            case nil:
+                jobs[index].status = .paused
+                jobs[index].endTime = Date()
             }
         }
+        try? modelContext?.save()
+
+        if hitCostLimit { throw AIError.quotaExceeded }
+        if let error = firstError { throw error }
+        try Task.checkCancellation()
     }
 
     // MARK: - Phase 8: Gesamtlektorat / Konsistenzprüfung
@@ -771,27 +907,41 @@ final class PipelineOrchestrator: ObservableObject {
         project.status = .proofreading
 
         let chapters = sortedChapters(project)
-        for (index, chapter) in chapters.enumerated() {
-            try Task.checkCancellation()
-            // Bereits korrigiert? (Fortsetzen)
-            if let final = chapter.finalText, !final.isEmpty { continue }
-            guard let text = chapter.revisedText ?? chapter.draftText, !text.isEmpty else { continue }
+        // Fortsetzen: nur Kapitel ohne finale Fassung, die Text haben.
+        let pending = chapters.filter { chapter in
+            guard (chapter.finalText ?? "").isEmpty else { return false }
+            let source = chapter.revisedText ?? chapter.draftText ?? ""
+            return !source.isEmpty
+        }
+        guard !pending.isEmpty else { return }
 
-            currentChapter = chapter.chapterNumber
-            let job = beginJob(agent: AgentName.proofreader, phase: .proofreading,
-                               project: project, chapter: chapter.chapterNumber)
-            do {
-                let maxTokens = min(12000, max(3000, text.wordCount * 3))
-                let response = try await generate(
-                    prompt: PromptFactory.proofread(language: project.language, text: text),
-                    system: "Du bist ein professioneller Korrektor. Du korrigierst nur Fehler, nie den Stil.",
-                    maxTokens: maxTokens, temperature: 0.1, config: config
-                )
+        var jobs: [PipelineJob] = []
+        var requests: [GenerationRequest] = []
+        for chapter in pending {
+            jobs.append(beginJob(agent: AgentName.proofreader, phase: .proofreading,
+                                 project: project, chapter: chapter.chapterNumber))
+            let text = chapter.revisedText ?? chapter.draftText ?? ""
+            requests.append(makeRequest(
+                prompt: PromptFactory.proofread(language: project.language, text: text),
+                system: "Du bist ein professioneller Korrektor. Du korrigierst nur Fehler, nie den Stil.",
+                maxTokens: min(12000, max(3000, text.wordCount * 3)),
+                temperature: 0.1, config: config
+            ))
+        }
+        currentAgent = "\(AgentName.proofreader) – \(pending.count) Kapitel parallel"
 
-                if response.text.wordCount >= text.wordCount / 2 {
+        let (results, hitCostLimit) = await runParallelGeneration(requests: requests, config: config)
+
+        var firstError: Error?
+        var done = 0
+        for (index, chapter) in pending.enumerated() {
+            let source = chapter.revisedText ?? chapter.draftText ?? ""
+            switch results[index] {
+            case .success(let response)?:
+                if response.text.wordCount >= source.wordCount / 2 {
                     chapter.finalText = response.text
                 } else {
-                    chapter.finalText = text
+                    chapter.finalText = source
                     addReport(project: project, area: "Kapitel \(chapter.chapterNumber)",
                               type: "Korrektorat", result: "Korrektoratsantwort unvollständig – vorige Fassung übernommen",
                               severity: .warning,
@@ -800,15 +950,25 @@ final class PipelineOrchestrator: ObservableObject {
                 chapter.status = .finalized
                 chapter.actualWordCount = chapter.computedWordCount
                 chapter.updatedAt = Date()
-                completeJob(job, result: "Kapitel \(chapter.chapterNumber) korrigiert", tokens: response.tokensUsed ?? 0)
+                completeJob(jobs[index], result: "Kapitel \(chapter.chapterNumber) korrigiert",
+                            tokens: response.tokensUsed ?? 0)
+                done += 1
+                updateProgress(phase: .proofreading, subProgress: Double(done) / Double(pending.count))
 
-                updateProgress(phase: .proofreading, subProgress: Double(index + 1) / Double(chapters.count))
-                try? modelContext?.save()
-            } catch {
-                failJob(job, error: error)
-                throw error
+            case .failure(let error)?:
+                failJob(jobs[index], error: error)
+                if firstError == nil { firstError = error }
+
+            case nil:
+                jobs[index].status = .paused
+                jobs[index].endTime = Date()
             }
         }
+        try? modelContext?.save()
+
+        if hitCostLimit { throw AIError.quotaExceeded }
+        if let error = firstError { throw error }
+        try Task.checkCancellation()
     }
 
     // MARK: - Phase 10: Copyright-Prüfung (lokal)

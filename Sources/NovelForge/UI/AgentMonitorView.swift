@@ -217,6 +217,7 @@ struct ExportDetailView: View {
                     ExportFormatRow(format: .epub, project: project)
                     ExportFormatRow(format: .pdf, project: project)
                     ExportFormatRow(format: .docx, project: project)
+                    ExportFormatRow(format: .sample, project: project)
                 }
 
                 Divider()
@@ -280,6 +281,7 @@ enum ExportFormat: String {
     case epub = "EPUB"
     case pdf = "PDF"
     case docx = "DOCX"
+    case sample = "Leseprobe"
     case metadata = "KDP-Metadaten"
     case report = "KDP-Bericht"
     case log = "Produktionsprotokoll"
@@ -290,6 +292,7 @@ enum ExportFormat: String {
         case .epub: return "book.fill"
         case .pdf: return "doc.fill"
         case .docx: return "doc.text.fill"
+        case .sample: return "text.book.closed"
         case .metadata: return "tag"
         case .report: return "chart.bar.doc.horizontal"
         case .log: return "list.clipboard"
@@ -302,6 +305,7 @@ enum ExportFormat: String {
         case .epub: return "eBook mit Verlags-Stylesheet für Amazon KDP"
         case .pdf: return "KDP-konformer Buchsatz (Trim-Größe, Bundsteg, Seitenzahlen)"
         case .docx: return "Bearbeitbares Word-Dokument mit Formatvorlagen"
+        case .sample: return "Die ersten 3 Kapitel als EPUB – für Marketing und Testleser"
         case .metadata: return "Verkaufstext, 7 Keywords & Kategorien für die Veröffentlichung"
         case .report: return "Formatprüfung und Qualitätsbewertung"
         case .log: return "Alle Pipeline-Schritte im Detail"
@@ -373,6 +377,8 @@ struct ExportFormatRow: View {
                     url = try ExportEngine.exportToPDF(project: project)
                 case .docx:
                     url = try ExportEngine.exportToDOCX(project: project)
+                case .sample:
+                    url = try ExportEngine.exportToEPUB(project: project, sampleChapterCount: 3)
                 case .metadata:
                     url = try writeText(ExportEngine.generateKDPMetadataReport(project: project),
                                         fileName: "KDP-Metadaten.txt")

@@ -18,9 +18,13 @@ struct ExportEngine {
 
     // MARK: - EPUB
 
-    static func exportToEPUB(project: Project) throws -> URL {
+    /// Exportiert das Buch als EPUB 3. Mit `sampleChapterCount` entsteht eine
+    /// Leseprobe (erste N Kapitel + Abschlussseite) für Marketing und Testleser.
+    static func exportToEPUB(project: Project, sampleChapterCount: Int? = nil) throws -> URL {
+        let isSample = sampleChapterCount != nil
+        let suffix = isSample ? "_Leseprobe" : "_ebook"
         let epubURL = try exportDirectory(for: project)
-            .appendingPathComponent("\(sanitizeFileName(project.title))_ebook.epub")
+            .appendingPathComponent("\(sanitizeFileName(project.title))\(suffix).epub")
 
         let tempDir = FileManager.default.temporaryDirectory
         let workDir = tempDir.appendingPathComponent(UUID().uuidString)
@@ -66,21 +70,29 @@ struct ExportEngine {
         manifest += "    <item id=\"copyright\" href=\"copyright.xhtml\" media-type=\"application/xhtml+xml\" />\n"
         spine += "    <itemref idref=\"copyright\" />\n"
 
-        let tocPage = generateNavHTML(project: project)
+        let allChapters = (project.chapters ?? []).sorted { $0.chapterNumber < $1.chapterNumber }
+        let chapters = sampleChapterCount.map { Array(allChapters.prefix($0)) } ?? allChapters
+
+        let tocPage = generateNavHTML(chapters: chapters)
         try tocPage.write(to: oebpsDir.appendingPathComponent("toc.xhtml"), atomically: true, encoding: .utf8)
         manifest += "    <item id=\"toc\" href=\"toc.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\" />\n"
         spine += "    <itemref idref=\"toc\" />\n"
 
-        if let chapters = project.chapters?.sorted(by: { $0.chapterNumber < $1.chapterNumber }) {
-            for chapter in chapters {
-                let chapterId = "chapter\(chapter.chapterNumber)"
-                let chapterFile = "chapter\(chapter.chapterNumber).xhtml"
-                let chapterContent = generateChapterHTML(chapter: chapter)
-                try chapterContent.write(to: oebpsDir.appendingPathComponent(chapterFile), atomically: true, encoding: .utf8)
-                manifest += "    <item id=\"\(chapterId)\" href=\"\(chapterFile)\" media-type=\"application/xhtml+xml\" />\n"
-                spine += "    <itemref idref=\"\(chapterId)\" />\n"
-                chapterFiles.append((chapterId, chapterFile, chapter.title))
-            }
+        for chapter in chapters {
+            let chapterId = "chapter\(chapter.chapterNumber)"
+            let chapterFile = "chapter\(chapter.chapterNumber).xhtml"
+            let chapterContent = generateChapterHTML(chapter: chapter)
+            try chapterContent.write(to: oebpsDir.appendingPathComponent(chapterFile), atomically: true, encoding: .utf8)
+            manifest += "    <item id=\"\(chapterId)\" href=\"\(chapterFile)\" media-type=\"application/xhtml+xml\" />\n"
+            spine += "    <itemref idref=\"\(chapterId)\" />\n"
+            chapterFiles.append((chapterId, chapterFile, chapter.title))
+        }
+
+        if isSample {
+            let endPage = generateSampleEndHTML(project: project)
+            try endPage.write(to: oebpsDir.appendingPathComponent("sample_end.xhtml"), atomically: true, encoding: .utf8)
+            manifest += "    <item id=\"sampleend\" href=\"sample_end.xhtml\" media-type=\"application/xhtml+xml\" />\n"
+            spine += "    <itemref idref=\"sampleend\" />\n"
         }
 
         // NCX (EPUB-2-Kompatibilität) – muss im Manifest deklariert sein.
@@ -257,13 +269,27 @@ struct ExportEngine {
         """
     }
 
+    private static func generateSampleEndHTML(project: Project) -> String {
+        var teaser = ""
+        if let description = project.bookProfile?.kdpDescription, !description.isEmpty {
+            teaser = "\n        <p class=\"first\" style=\"text-align: center; margin-top: 2em;\">\(escapeXML(description.truncated(to: 400)))</p>"
+        }
+        return xhtmlHeader(title: "Ende der Leseprobe") + """
+
+            <div class="copyrightpage">
+                <p class="first" style="text-align: center;">— Ende der Leseprobe —</p>
+                <p class="first" style="text-align: center; margin-top: 1em;">„\(escapeXML(project.title))“ von \(escapeXML(project.authorName))</p>\(teaser)
+            </div>
+        </body>
+        </html>
+        """
+    }
+
     /// EPUB-3-Navigationsdokument (nav epub:type="toc").
-    private static func generateNavHTML(project: Project) -> String {
+    private static func generateNavHTML(chapters: [Chapter]) -> String {
         var items = ""
-        if let chapters = project.chapters?.sorted(by: { $0.chapterNumber < $1.chapterNumber }) {
-            for chapter in chapters {
-                items += "            <li><a href=\"chapter\(chapter.chapterNumber).xhtml\">\(escapeXML(chapter.title))</a></li>\n"
-            }
+        for chapter in chapters {
+            items += "            <li><a href=\"chapter\(chapter.chapterNumber).xhtml\">\(escapeXML(chapter.title))</a></li>\n"
         }
         return xhtmlHeader(title: "Inhaltsverzeichnis") + """
 

@@ -62,13 +62,21 @@ enum PromptFactory {
         Konzept:
         \(concept)
 
-        Beschreibe ausführlich:
-        1. Ausgangslage und auslösendes Ereignis
-        2. Zentrale dramatische Frage
-        3. Mindestens drei Wendepunkte mit Begründung
-        4. Krise, finale Eskalation und Höhepunkt
-        5. Auflösung und Schlussbild
-        6. Nebenhandlungen und wie sie in den Hauptplot münden
+        Baue den Plot nach bewährter Bestseller-Dramaturgie in drei Akten:
+        - Eröffnungsbild und Alltag mit Riss (0–10%)
+        - Auslösendes Ereignis, das die Normalität zerstört (ca. 10%)
+        - Erster Wendepunkt – es gibt kein Zurück mehr (ca. 25%)
+        - Steigende Komplikationen mit wechselnden Teilerfolgen (25–50%)
+        - Mittelpunkt-Umkehr: ein Sieg oder eine Niederlage, die alles neu rahmt (50%)
+        - Die Schlinge zieht sich zu, der Preis steigt (50–75%)
+        - Tiefpunkt: Alles scheint verloren (ca. 75%)
+        - Entscheidung und finale Konfrontation (75–90%)
+        - Höhepunkt (ca. 90%) und Auflösung mit emotionalem Nachklang
+
+        Zusätzlich:
+        - Formuliere die zentrale dramatische Frage in einem Satz.
+        - Webe mindestens eine Nebenhandlung ein, die den Hauptplot am Ende verstärkt.
+        - Platziere offene Fragen (Open Loops), die erst spät beantwortet werden – sie halten den Leser im Buch.
 
         Schreibe als zusammenhängenden, klar gegliederten Text.
         """
@@ -98,6 +106,11 @@ enum PromptFactory {
         Plot:
         \(plot.truncated(to: 6000))
 
+        Regeln für Bestseller-Kapitelstruktur:
+        - JEDES Kapitel endet mit einem Haken: offene Frage, Bedrohung, Enthüllung oder folgenschwere Entscheidung.
+        - Variiere das Tempo: Auf intensive Kapitel folgt ein ruhigeres mit Charaktertiefe – nie zwei gleiche hintereinander.
+        - Jedes Kapitel hat genau ein klares Ziel und treibt den Hauptplot messbar voran. Keine Füllkapitel.
+
         Gib für JEDES Kapitel GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
         KAPITEL|Nummer|Titel|Ziel des Kapitels|Zentraler Konflikt
 
@@ -118,7 +131,11 @@ enum PromptFactory {
         Plotkontext:
         \(plotContext.truncated(to: 3000))
 
-        Plane 3 bis 5 Szenen. Gib für JEDE Szene GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
+        Plane 3 bis 5 Szenen. Die LETZTE Szene des Kapitels muss mit einem starken Haken
+        enden (Feld „Wendung am Szenenende" entsprechend zugespitzt) – der Leser darf das
+        Buch am Kapitelende nicht weglegen können.
+
+        Gib für JEDE Szene GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
         SZENE|Nummer|Perspektive|Ort|Zeit|Ziel der Szene|Hindernis|Wendung am Szenenende
 
         Keine weiteren Erklärungen.
@@ -215,6 +232,7 @@ enum PromptFactory {
         - Konkrete, spezifische Details statt generischer Beschreibungen (nicht „ein Auto“, sondern „der rostige Kombi“).
         - Variiere Satzlänge und Rhythmus: kurze Sätze für Tempo, längere für Atmosphäre.
         - VERBOTENE FLOSKELN: „ein Schauer lief ihr über den Rücken“, „sie atmete tief durch“, „die Zeit schien stillzustehen“, „nichts würde mehr sein wie zuvor“, „ein Lächeln umspielte seine Lippen“, inflationäres „plötzlich“.
+        - SOG-TECHNIKEN (Page-Turner): Halte stets mindestens eine offene Frage aktiv; beantworte alte Fragen erst, wenn neue aufgeworfen sind. Mikro-Spannung auch in ruhigen Momenten (Reibung zwischen Figuren, unausgesprochene Bedrohung, Zeitdruck). Nutze dramatische Ironie, wo der Leser mehr weiß als die Figur.
         - Der letzte Satz der Szene muss einen Grund zum Weiterlesen geben.
         \(genreCraft(genre))
         \(positionNote)
@@ -287,15 +305,31 @@ enum PromptFactory {
     }
 
     static func proofread(language: String, text: String) -> String {
-        """
+        let quoteRule = language == "Deutsch"
+            ? "Verwende durchgehend deutsche Anführungszeichen („…“). "
+            : "Achte auf konsistente, sprachtypische Anführungszeichen. "
+        return """
         Korrigiere den folgenden Romantext (Sprache: \(language)): Rechtschreibung, \
         Grammatik, Zeichensetzung, Tippfehler, doppelte Wörter, inkonsistente \
-        Anführungszeichen (verwende durchgehend „deutsche Anführungszeichen“ bei \
-        deutschen Texten). Ändere NICHT den Stil und NICHT den Inhalt. Szenentrenner \
-        (***) müssen exakt erhalten bleiben. \
+        Anführungszeichen. \(quoteRule)Ändere NICHT den Stil und NICHT den Inhalt. \
+        Szenentrenner (***) müssen exakt erhalten bleiben. \
         Gib NUR den vollständigen korrigierten Text aus, ohne Kommentare.
 
         TEXT:
+        \(text)
+        """
+    }
+
+    /// Einmalige Nachbesserung deutlich zu kurzer Szenen (Qualitäts-Gate).
+    static func expandScene(language: String, style: String, text: String, targetWords: Int) -> String {
+        """
+        Die folgende Romanszene ist zu kurz. Erweitere sie auf ca. \(targetWords) Wörter, \
+        OHNE die Handlung zu verändern: Vertiefe Sinneseindrücke, das Innenleben der \
+        Perspektivfigur und die Dialoge. Füge keine neuen Ereignisse oder Figuren hinzu. \
+        Sprache: \(language). Stil: \(style).
+        Gib NUR den vollständigen erweiterten Szenentext aus, ohne Kommentare.
+
+        SZENE:
         \(text)
         """
     }

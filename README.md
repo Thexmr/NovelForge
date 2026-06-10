@@ -75,14 +75,35 @@ Alle Schritte sind live im **Agenten-Monitor** sichtbar (Status, Dauer, Tokens, 
 - **Berichte**: KDP-Formatbericht, Produktionsprotokoll, KI-Offenlegung
 - Zielordner: `~/Documents/NovelForge/<Projekttitel>/` („Im Finder zeigen“ in der App)
 
-## Schreibqualität
+## Schreibqualität (Bestseller-Methodik)
 
-Der Draft Writer arbeitet mit festen Bestseller-Handwerksregeln: Szenenstruktur
-Ziel → Konflikt → Wendung, tiefe Perspektive, Subtext-Dialoge, Verbotsliste für
-KI-typische Floskeln, Genre-spezifische Vorgaben (Thriller, Romance, Fantasy,
-Horror, Historisch), besondere Anweisungen für die erste Szene (Amazon-Leseprobe!)
-und das Finale. Jede Szene erhält das wörtliche Ende der Vorszene für nahtlose
-Übergänge plus die Zusammenfassungen der bisherigen Handlung.
+- **Dramaturgie**: Der Plot wird nach bewährter 3-Akt-Beat-Struktur gebaut
+  (auslösendes Ereignis ~10 %, erster Wendepunkt ~25 %, Mittelpunkt-Umkehr 50 %,
+  Tiefpunkt ~75 %, Höhepunkt ~90 %) – inklusive Nebenhandlung und Open Loops.
+- **Kapitel-Hooks**: Jedes Kapitel endet planmäßig mit einem Haken (Frage,
+  Bedrohung, Enthüllung oder Entscheidung); das Tempo wechselt bewusst.
+- **Page-Turner-Techniken** im Szenen-Prompt: ständig mindestens eine offene
+  Frage, Mikro-Spannung in ruhigen Momenten, dramatische Ironie, Zeitdruck.
+- **Handwerk**: Szenenstruktur Ziel → Konflikt → Wendung, tiefe Perspektive,
+  Subtext-Dialoge, Verbotsliste für KI-Floskeln, Genre-Vorgaben (Thriller,
+  Romance, Fantasy, Horror, Historisch), Sonderbehandlung der ersten Szene
+  (Amazon-Leseprobe!) und des Finales.
+- **Nahtlose Übergänge**: Jede Szene erhält das wörtliche Ende der Vorszene
+  plus die Zusammenfassungen der bisherigen Handlung.
+- **Qualitäts-Gate**: Deutlich zu kurze Szenen werden automatisch einmal
+  vertieft und erweitert; verbleibende Abweichungen werden protokolliert.
+
+## Geschwindigkeit
+
+Unabhängige Arbeitsschritte laufen parallel (Szenenplanung, Kapitelrevision,
+Korrektorat – je 3 Anfragen gleichzeitig, lokales Ollama seriell). Die
+Rohfassung bleibt bewusst sequenziell, damit jede Szene auf der vorigen
+aufbaut. Token-Abrechnung und Kostenlimit gelten auch für parallele Anfragen.
+
+## CI
+
+GitHub Actions baut jeden Push auf einem macOS-Runner (`swift build`),
+siehe `.github/workflows/build.yml`.
 
 ## UI
 
