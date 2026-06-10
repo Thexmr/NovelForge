@@ -417,12 +417,72 @@ struct ProjectDetailView: View {
                     QualityMetricRow(label: "Konsistenz", score: scores.consistency)
                     QualityMetricRow(label: "KDP-Format", score: scores.kdp)
                 }
+
+                if !visibleReports.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Berichte aus der Produktion")
+                            .font(.headline)
+                        ForEach(visibleReports) { report in
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: severityIcon(report.severity))
+                                    .foregroundStyle(severityColor(report.severity))
+                                    .frame(width: 18)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(report.checkedArea) · \(report.checkType)")
+                                        .font(.caption)
+                                        .fontWeight(.medium)
+                                    Text(report.result)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    if !report.recommendation.isEmpty {
+                                        Text(report.recommendation)
+                                            .font(.caption2)
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Button {
+                    if let url = try? ExportEngine.exportDirectory(for: project) {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    }
+                } label: {
+                    Label("Exportordner im Finder öffnen", systemImage: "folder")
+                }
+                .buttonStyle(.bordered)
             }
             .padding(24)
             .frame(maxWidth: 760, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
         .navigationTitle(project.title)
+    }
+
+    /// Score-Einträge sind bereits als Metriken visualisiert – hier nur echte Befunde.
+    private var visibleReports: [QualityReport] {
+        (project.qualityReports ?? [])
+            .filter { $0.checkType != "Score" }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private func severityIcon(_ severity: Severity) -> String {
+        switch severity {
+        case .info: return "info.circle"
+        case .warning: return "exclamationmark.triangle"
+        case .error: return "xmark.octagon"
+        case .critical: return "exclamationmark.octagon.fill"
+        }
+    }
+
+    private func severityColor(_ severity: Severity) -> Color {
+        switch severity {
+        case .info: return .blue
+        case .warning: return .orange
+        case .error, .critical: return .red
+        }
     }
 }
 
