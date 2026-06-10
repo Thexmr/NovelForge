@@ -45,6 +45,12 @@ struct NewBookWizardView: View {
 
     @State private var validationMessage: String?
 
+    // Ideen-Generator
+    @State private var ideaSuggestions: [ParsedIdea] = []
+    @State private var isGeneratingIdeas = false
+    @State private var ideaError: String?
+    @State private var seedPremise = ""
+
     let languages = ["Deutsch", "Englisch", "Französisch", "Spanisch"]
     let genres = ["Thriller", "Roman", "Fantasy", "Science Fiction", "Krimi",
                   "Liebesroman", "Historischer Roman", "Horror", "Jugendbuch", "Abenteuer"]
@@ -153,21 +159,127 @@ struct NewBookWizardView: View {
     // MARK: - Schritte
 
     private var basicDataSection: some View {
-        Section("Basisdaten") {
-            TextField("Titel", text: $title)
-            TextField("Autorname oder Pseudonym", text: $authorName)
+        Group {
+            Section("Basisdaten") {
+                TextField("Titel", text: $title)
+                TextField("Autorname oder Pseudonym", text: $authorName)
 
-            Picker("Sprache", selection: $language) {
-                ForEach(languages, id: \.self) { Text($0).tag($0) }
+                Picker("Sprache", selection: $language) {
+                    ForEach(languages, id: \.self) { Text($0).tag($0) }
+                }
+
+                Picker("Genre", selection: $genre) {
+                    Text("Bitte wählen").tag("")
+                    ForEach(genres, id: \.self) { Text($0).tag($0) }
+                }
+
+                TextField("Subgenre (optional)", text: $subgenre)
             }
 
-            Picker("Genre", selection: $genre) {
-                Text("Bitte wählen").tag("")
-                ForEach(genres, id: \.self) { Text($0).tag($0) }
-            }
+            Section("Inspiration") {
+                ForEach(Array(ideaSuggestions.enumerated()), id: \.offset) { _, idea in
+                    HStack(alignment: .top, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(idea.title)
+                                .fontWeight(.semibold)
+                            Text(idea.genre)
+                                .font(.caption)
+                                .foregroundStyle(.tint)
+                            Text(idea.premise)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Übernehmen") {
+                            applyIdea(idea)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    .padding(.vertical, 2)
+                }
 
-            TextField("Subgenre (optional)", text: $subgenre)
+                if !seedPremise.isEmpty {
+                    Label("Ideenkern übernommen – fließt als Ausgangspunkt in die Konzeptentwicklung ein.",
+                          systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+
+                if let ideaError {
+                    Text(ideaError)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
+                Button {
+                    generateIdeas()
+                } label: {
+                    Label(isGeneratingIdeas ? "Ideen werden entwickelt …" : "Buchideen vorschlagen lassen",
+                          systemImage: isGeneratingIdeas ? "hourglass" : "lightbulb")
+                }
+                .disabled(isGeneratingIdeas || usableIdeaConfig() == nil)
+
+                if usableIdeaConfig() == nil {
+                    Text("Für den Ideen-Generator zuerst einen KI-Provider mit API-Key hinterlegen (Einstellungen → KI-Provider).")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
+    }
+
+    @MainActor
+    private func usableIdeaConfig() -> ProviderConfiguration? {
+        let store = ProviderSettingsStore.shared
+        for var config in store.configurations where config.isActive {
+            if !config.provider.requiresAPIKey || store.hasAPIKey(for: config.provider) {
+                config.apiKey = KeychainService.getAPIKey(for: config.provider)
+                return config
+            }
+        }
+        return nil
+    }
+
+    @MainActor
+    private func generateIdeas() {
+        guard let config = usableIdeaConfig() else { return }
+        isGeneratingIdeas = true
+        ideaError = nil
+
+        let request = GenerationRequest(
+            prompt: PromptFactory.bookIdeas(genre: genre, language: language),
+            systemPrompt: "Du bist ein Verlagslektor mit sicherem Gespür für verkäufliche, originelle Buchideen.",
+            model: config.defaultModel ?? config.provider.suggestedModels.first ?? "",
+            provider: config.provider,
+            maxTokens: 800,
+            temperature: 0.9
+        )
+
+        Task { @MainActor in
+            defer { isGeneratingIdeas = false }
+            do {
+                let response = try await ProviderGateway.shared.generateText(request: request, configuration: config)
+                ideaSuggestions = StructureParser.parseIdeas(response.text)
+                if ideaSuggestions.isEmpty {
+                    ideaError = "Keine Ideen erkannt – bitte erneut versuchen."
+                }
+            } catch let error as AIError {
+                ideaError = error.errorDescription
+            } catch {
+                ideaError = error.localizedDescription
+            }
+        }
+    }
+
+    @MainActor
+    private func applyIdea(_ idea: ParsedIdea) {
+        title = idea.title
+        if genres.contains(idea.genre) {
+            genre = idea.genre
+        } else if !idea.genre.isEmpty {
+            subgenre = idea.genre
+        }
+        seedPremise = idea.premise
     }
 
     private var styleSection: some View {
@@ -372,7 +484,7 @@ struct NewBookWizardView: View {
         project.costLimitUSD = costLimit
 
         let bookProfile = BookProfile(
-            premise: "",
+            premise: seedPremise,
             theme: "",
             targetAudience: targetAudience,
             tonality: tonality.isEmpty ? styleProfile : tonality,

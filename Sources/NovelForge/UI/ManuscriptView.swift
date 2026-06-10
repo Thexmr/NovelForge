@@ -6,6 +6,7 @@ struct ManuscriptView: View {
     @State private var selectedProject: Project?
     @State private var selectedChapter: Chapter?
     @State private var viewMode: ViewMode = .read
+    @State private var readingWholeBook = false
 
     enum ViewMode: String, CaseIterable {
         case read = "Lesen"
@@ -42,6 +43,19 @@ struct ManuscriptView: View {
                         ContentUnavailableView("Noch keine Kapitel", systemImage: "doc.text",
                                                description: Text("Kapitel entstehen während der Produktion."))
                     } else {
+                        VStack(spacing: 0) {
+                        Button {
+                            readingWholeBook = true
+                            selectedChapter = nil
+                        } label: {
+                            Label("Gesamtes Buch lesen", systemImage: "book")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .padding(10)
+
+                        Divider()
+
                         List(selection: $selectedChapter) {
                             ForEach(sortedChapters) { chapter in
                                 HStack {
@@ -61,6 +75,7 @@ struct ManuscriptView: View {
                                 .tag(chapter)
                             }
                         }
+                        }
                     }
                 } else {
                     ContentUnavailableView("Projekt wählen", systemImage: "books.vertical")
@@ -70,7 +85,9 @@ struct ManuscriptView: View {
 
             // Inhalt
             Group {
-                if let chapter = selectedChapter {
+                if readingWholeBook, let project = selectedProject {
+                    BookReaderView(project: project)
+                } else if let chapter = selectedChapter {
                     ChapterDetailView(chapter: chapter, viewMode: $viewMode)
                         .id(chapter.id) // erzwingt frischen Editor-Zustand beim Kapitelwechsel
                 } else {
@@ -82,6 +99,12 @@ struct ManuscriptView: View {
         .navigationTitle("Manuskript")
         .onChange(of: selectedProject) {
             selectedChapter = nil
+            readingWholeBook = false
+        }
+        .onChange(of: selectedChapter) {
+            if selectedChapter != nil {
+                readingWholeBook = false
+            }
         }
     }
 
@@ -95,6 +118,82 @@ struct ManuscriptView: View {
         case .revised: return "Überarbeitet"
         case .proofreading: return "Im Korrektorat"
         case .finalized: return "Final"
+        }
+    }
+}
+
+/// Liest das gesamte Buch als durchgehenden Lesefluss (Serifen-Typografie,
+/// zentrierte Szenentrenner, Lesezeit-Anzeige).
+struct BookReaderView: View {
+    let project: Project
+
+    private var chapters: [Chapter] {
+        (project.chapters ?? []).sorted { $0.chapterNumber < $1.chapterNumber }
+    }
+
+    private var readingTimeText: String {
+        let minutes = max(1, project.totalWordCount / 220)
+        if minutes >= 60 {
+            return "\(minutes / 60) h \(minutes % 60) min"
+        }
+        return "\(minutes) min"
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(project.title)
+                        .font(.system(.largeTitle, design: .serif))
+                        .fontWeight(.bold)
+                    Text("\(project.authorName) · \(FormattingHelpers.formatWordCount(project.totalWordCount)) Wörter · Lesezeit ca. \(readingTimeText)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.bottom, 16)
+
+                ForEach(chapters) { chapter in
+                    ChapterReaderSection(chapter: chapter)
+                }
+            }
+            .padding(32)
+            .frame(maxWidth: 720, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+    }
+}
+
+struct ChapterReaderSection: View {
+    let chapter: Chapter
+
+    private var paragraphs: [String] {
+        (chapter.bestText ?? "")
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(chapter.title)
+                .font(.system(.title, design: .serif))
+                .fontWeight(.semibold)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.top, 32)
+
+            ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, paragraph in
+                if paragraph.replacingOccurrences(of: " ", with: "") == "***" {
+                    Text("* * *")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 4)
+                } else {
+                    Text(paragraph)
+                        .font(.system(.body, design: .serif))
+                        .lineSpacing(7)
+                        .textSelection(.enabled)
+                }
+            }
         }
     }
 }

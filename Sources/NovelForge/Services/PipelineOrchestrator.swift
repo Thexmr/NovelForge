@@ -366,7 +366,8 @@ final class PipelineOrchestrator: ObservableObject {
                 language: project.language, style: project.styleProfile,
                 tonality: profile.tonality, audience: profile.targetAudience,
                 perspective: profile.narrativePerspective, tense: profile.tense,
-                pageCount: project.targetPageCount
+                pageCount: project.targetPageCount,
+                ideaSeed: profile.premise
             )
             let response = try await generate(
                 prompt: prompt,

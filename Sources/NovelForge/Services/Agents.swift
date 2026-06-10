@@ -24,16 +24,36 @@ enum AgentName {
 
 enum PromptFactory {
 
+    /// Drei kommerziell vielversprechende Buchideen für den Wizard.
+    static func bookIdeas(genre: String, language: String) -> String {
+        """
+        Entwickle 3 eigenständige, kommerziell vielversprechende Buchideen \
+        (Genre-Schwerpunkt: \(genre.isEmpty ? "frei wählbar" : genre), Sprache: \(language)). \
+        Jede Idee braucht einen frischen Dreh und einen klaren zentralen Konflikt – \
+        keine Klischee-Plots, keine Anlehnung an bestehende Werke.
+
+        Gib für JEDE Idee GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
+        IDEE|Titel|Genre|Prämisse in 2 Sätzen mit klarem Konflikt
+
+        Keine weiteren Erklärungen.
+        """
+    }
+
     static func concept(title: String, genre: String, subgenre: String?, language: String,
                         style: String, tonality: String, audience: String,
-                        perspective: String, tense: String, pageCount: Int) -> String {
+                        perspective: String, tense: String, pageCount: Int,
+                        ideaSeed: String) -> String {
         var genreLine = genre
         if let subgenre, !subgenre.isEmpty {
             genreLine += " / \(subgenre)"
         }
+        var seedBlock = ""
+        if !ideaSeed.isEmpty {
+            seedBlock = "\nIDEENKERN (verbindlicher Ausgangspunkt, weiterentwickeln statt ersetzen):\n\(ideaSeed)\n"
+        }
         return """
         Entwickle ein eigenständiges Buchkonzept (keine Nachahmung geschützter Werke).
-
+        \(seedBlock)
         Titel: \(title)
         Genre: \(genreLine)
         Sprache des Buches: \(language)
@@ -482,6 +502,12 @@ struct ParsedIssue {
     let recommendation: String
 }
 
+struct ParsedIdea {
+    let title: String
+    let genre: String
+    let premise: String
+}
+
 enum StructureParser {
 
     /// Zerlegt eine Zeile "MARKER|a|b|c" in ihre Felder. Toleriert führende
@@ -543,6 +569,16 @@ enum StructureParser {
                 fear: parts.count > 5 ? parts[5] : "",
                 weakness: parts.count > 6 ? parts[6] : ""
             ))
+        }
+        return result
+    }
+
+    static func parseIdeas(_ text: String) -> [ParsedIdea] {
+        var result: [ParsedIdea] = []
+        for line in text.components(separatedBy: .newlines) {
+            guard let parts = fields(in: line, marker: "IDEE"), parts.count >= 3 else { continue }
+            guard !parts[0].isEmpty else { continue }
+            result.append(ParsedIdea(title: parts[0], genre: parts[1], premise: parts[2]))
         }
         return result
     }
