@@ -220,8 +220,8 @@ enum PromptFactory {
         FIGUREN:
         \(charactersSummary.truncated(to: 1200))
 
-        BISHERIGE HANDLUNG (Zusammenfassungen):
-        \(storySoFar.isEmpty ? "Dies ist der Anfang des Buches." : storySoFar.truncated(to: 4000))
+        BISHERIGE HANDLUNG:
+        \(storySoFar.isEmpty ? "Dies ist der Anfang des Buches." : storySoFar.truncated(to: 8000))
         \(transition)
         HANDWERK (Bestseller-Standard, strikt einhalten):
         - Beginne mitten in der Bewegung – kein Aufwärmen, keine Wetter- oder Aufwach-Eröffnung.
@@ -232,6 +232,7 @@ enum PromptFactory {
         - Konkrete, spezifische Details statt generischer Beschreibungen (nicht „ein Auto“, sondern „der rostige Kombi“).
         - Variiere Satzlänge und Rhythmus: kurze Sätze für Tempo, längere für Atmosphäre.
         - VERBOTENE FLOSKELN: „ein Schauer lief ihr über den Rücken“, „sie atmete tief durch“, „die Zeit schien stillzustehen“, „nichts würde mehr sein wie zuvor“, „ein Lächeln umspielte seine Lippen“, inflationäres „plötzlich“.
+        - KEINE WIEDERHOLUNGEN: Greife keine Bilder, Metaphern, Formulierungen oder Szenenaufbauten aus der bisherigen Handlung wieder auf. Erkläre bereits etablierte Fakten nie ein zweites Mal. Jede Szene zeigt etwas Neues – neue Information, neuer Aspekt eines Schauplatzes, neue Beziehungsdynamik.
         - SOG-TECHNIKEN (Page-Turner): Halte stets mindestens eine offene Frage aktiv; beantworte alte Fragen erst, wenn neue aufgeworfen sind. Mikro-Spannung auch in ruhigen Momenten (Reibung zwischen Figuren, unausgesprochene Bedrohung, Zeitdruck). Nutze dramatische Ironie, wo der Leser mehr weiß als die Figur.
         - Der letzte Satz der Szene muss einen Grund zum Weiterlesen geben.
         \(genreCraft(genre))
@@ -243,9 +244,21 @@ enum PromptFactory {
     static func summarizeScene(text: String) -> String {
         """
         Fasse die folgende Romanszene in 2-3 Sätzen zusammen. Nenne Figuren, Ort, \
-        was passiert und was sich verändert hat. Gib NUR die Zusammenfassung aus.
+        was passiert, was sich verändert hat und welche neuen Fakten oder Enthüllungen \
+        etabliert wurden. Gib NUR die Zusammenfassung aus.
 
         \(text.truncated(to: 8000))
+        """
+    }
+
+    /// Verdichtet ein abgeschlossenes Kapitel für das Langstrecken-Gedächtnis.
+    static func condenseChapter(chapterNumber: Int, chapterTitle: String, sceneSummaries: String) -> String {
+        """
+        Verdichte die folgenden Szenen-Zusammenfassungen von Kapitel \(chapterNumber) \
+        („\(chapterTitle)“) auf maximal 2 Sätze: Was ist passiert, und welche neuen \
+        Fakten oder Wendungen wurden etabliert? Gib NUR die Verdichtung aus.
+
+        \(sceneSummaries.truncated(to: 4000))
         """
     }
 

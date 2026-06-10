@@ -629,7 +629,13 @@ final class PipelineOrchestrator: ObservableObject {
         // einsammeln (wichtig beim Fortsetzen).
         var storySoFar: [String] = []
         var previousSceneText: String?
+        // Langstrecken-Gedächtnis: verdichtete Zusammenfassung jedes abgeschlossenen
+        // Kapitels – verhindert Wiederholungen über hunderte Seiten.
+        var chapterDigests: [String] = []
         for chapter in chapters {
+            if let digest = chapter.summary, !digest.isEmpty {
+                chapterDigests.append("Kapitel \(chapter.chapterNumber) (\(chapter.title)): \(digest)")
+            }
             for scene in sortedScenes(chapter) where isSceneWritten(scene) {
                 if let summary = scene.summary, !summary.isEmpty {
                     storySoFar.append("Kap. \(chapter.chapterNumber), Szene \(scene.sceneNumber): \(summary)")
@@ -664,7 +670,17 @@ final class PipelineOrchestrator: ObservableObject {
                 currentAgent = "\(AgentName.draftWriter) – Kapitel \(chapter.chapterNumber), Szene \(scene.sceneNumber)"
 
                 do {
-                    let recentContext = storySoFar.suffix(12).joined(separator: "\n")
+                    // Hierarchischer Kontext: alle bisherigen Kapitel verdichtet
+                    // + die letzten Szenen im Detail.
+                    var contextParts: [String] = []
+                    if !chapterDigests.isEmpty {
+                        contextParts.append("BISHERIGE KAPITEL:\n" + chapterDigests.joined(separator: "\n"))
+                    }
+                    let recentScenes = storySoFar.suffix(6)
+                    if !recentScenes.isEmpty {
+                        contextParts.append("LETZTE SZENEN IM DETAIL:\n" + recentScenes.joined(separator: "\n"))
+                    }
+                    let recentContext = contextParts.joined(separator: "\n\n")
                     let prompt = PromptFactory.draftScene(
                         language: project.language, style: project.styleProfile,
                         tonality: profile.tonality, perspective: profile.narrativePerspective,
@@ -750,9 +766,43 @@ final class PipelineOrchestrator: ObservableObject {
             }
 
             chapter.status = .draftComplete
+
+            // Kapitel-Digest für das Langstrecken-Gedächtnis erzeugen (einmalig).
+            if (chapter.summary ?? "").isEmpty {
+                let digest = await condenseChapterSummary(chapter, project: project, config: config)
+                if !digest.isEmpty {
+                    chapter.summary = digest
+                    chapterDigests.append("Kapitel \(chapter.chapterNumber) (\(chapter.title)): \(digest)")
+                }
+            }
             try? modelContext?.save()
         }
         estimatedTimeRemaining = ""
+    }
+
+    /// Verdichtet die Szenen-Zusammenfassungen eines Kapitels auf 1-2 Sätze.
+    /// Fehler sind nicht fatal – dann dient der gekürzte Rohtext als Ersatz.
+    private func condenseChapterSummary(_ chapter: Chapter, project: Project,
+                                        config: ProviderConfiguration) async -> String {
+        let joined = sortedScenes(chapter).compactMap { $0.summary }.joined(separator: " ")
+        guard !joined.isEmpty else { return "" }
+
+        let job = beginJob(agent: AgentName.summarizer, phase: .drafting,
+                           project: project, chapter: chapter.chapterNumber)
+        do {
+            let response = try await generate(
+                prompt: PromptFactory.condenseChapter(chapterNumber: chapter.chapterNumber,
+                                                      chapterTitle: chapter.title,
+                                                      sceneSummaries: joined),
+                system: "Du verdichtest Kapitelzusammenfassungen präzise und faktentreu.",
+                maxTokens: 160, temperature: 0.2, config: config
+            )
+            completeJob(job, result: response.text, tokens: response.tokensUsed ?? 0)
+            return response.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            failJob(job, error: error)
+            return String(joined.prefix(350))
+        }
     }
 
     /// Erzeugt eine kompakte Szenenzusammenfassung. Fehler hier sind nicht fatal –

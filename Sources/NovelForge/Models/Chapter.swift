@@ -15,6 +15,9 @@ final class Chapter {
     var draftText: String?
     var revisedText: String?
     var finalText: String?
+    /// Verdichtete Kapitelzusammenfassung – Baustein des Langstrecken-Gedächtnisses
+    /// (verhindert Wiederholungen über hunderte Seiten).
+    var summary: String?
     var createdAt: Date
     var updatedAt: Date
     
