@@ -125,15 +125,66 @@ enum PromptFactory {
         """
     }
 
+    /// Genre-spezifische Handwerksregeln auf Bestseller-Niveau.
+    static func genreCraft(_ genre: String) -> String {
+        let g = genre.lowercased()
+        if g.contains("thriller") || g.contains("krimi") {
+            return "GENRE-HANDWERK: Hohes Tempo. Spannung durch Wissensvorsprung oder -rückstand des Lesers. Jede Szene endet mit einem Haken. Kurze Sätze in Actionmomenten."
+        }
+        if g.contains("liebes") || g.contains("romance") {
+            return "GENRE-HANDWERK: Emotionale Innenwelt im Zentrum. Anziehung UND Hindernis müssen in jeder Begegnung spürbar sein. Dialoge leben von dem, was NICHT gesagt wird."
+        }
+        if g.contains("fantasy") || g.contains("science") {
+            return "GENRE-HANDWERK: Die Welt durch konkrete Details im Handlungsfluss zeigen – niemals durch Erklärabsätze oder Infodumps. Regeln der Welt konsequent einhalten."
+        }
+        if g.contains("horror") {
+            return "GENRE-HANDWERK: Bedrohung andeuten statt zeigen. Atmosphäre über Sinneseindrücke und Stille aufbauen. Ruhe vor jeder Eskalation."
+        }
+        if g.contains("histor") {
+            return "GENRE-HANDWERK: Epochendetails beiläufig einweben (Gegenstände, Gerüche, Umgangsformen). Sprache zeitgemäß färben, ohne antiquiert zu wirken."
+        }
+        return "GENRE-HANDWERK: Erzeuge in jeder Szene einen klaren Spannungsbogen mit spürbarer Wendung."
+    }
+
     static func draftScene(language: String, style: String, tonality: String,
-                           perspective: String, tense: String,
+                           perspective: String, tense: String, genre: String,
                            bookTitle: String, chapterNumber: Int, chapterTitle: String,
                            chapterGoal: String, sceneNumber: Int,
                            sceneGoal: String, sceneLocation: String, sceneTime: String,
                            sceneObstacle: String, sceneTurn: String, scenePerspective: String,
                            charactersSummary: String, styleRules: String,
-                           storySoFar: String, targetWords: Int) -> String {
-        """
+                           storySoFar: String, previousSceneEnding: String,
+                           isFirstScene: Bool, isFinalScene: Bool,
+                           targetWords: Int) -> String {
+        var positionNote = ""
+        if isFirstScene {
+            positionNote = """
+
+            WICHTIG – ERSTE SZENE DES BUCHES:
+            Der erste Satz ist der wichtigste des gesamten Romans (Amazon-Leseprobe!). \
+            Er muss sofort fesseln: eine Störung der Normalität, eine Frage im Kopf des Lesers. \
+            Etabliere Hauptfigur und Stimmung auf der ersten Seite – ohne Vorgeplänkel.
+            """
+        } else if isFinalScene {
+            positionNote = """
+
+            WICHTIG – LETZTE SZENE DES BUCHES:
+            Löse den zentralen Konflikt emotional befriedigend auf. Greife ein Bild oder Motiv \
+            vom Anfang des Buches wieder auf. Der Schlusssatz muss nachhallen. Kein Cliffhanger.
+            """
+        }
+
+        var transition = ""
+        if !previousSceneEnding.isEmpty {
+            transition = """
+
+            WÖRTLICHES ENDE DER VORHERIGEN SZENE:
+            „…\(previousSceneEnding)“
+            Knüpfe nahtlos daran an – ohne das Geschehene zu wiederholen oder zusammenzufassen.
+            """
+        }
+
+        return """
         Schreibe Szene \(sceneNumber) aus Kapitel \(chapterNumber) ("\(chapterTitle)") des Romans "\(bookTitle)".
 
         SPRACHE: Schreibe ausschließlich auf \(language).
@@ -154,11 +205,20 @@ enum PromptFactory {
 
         BISHERIGE HANDLUNG (Zusammenfassungen):
         \(storySoFar.isEmpty ? "Dies ist der Anfang des Buches." : storySoFar.truncated(to: 4000))
-
-        Regeln:
-        - Zeigen statt erzählen, natürliche Dialoge, konkrete Sinneseindrücke.
-        - Schließe nahtlos an die bisherige Handlung an, keine Widersprüche.
-        - Keine Überschriften, keine Meta-Kommentare – gib NUR den Prosatext der Szene aus.
+        \(transition)
+        HANDWERK (Bestseller-Standard, strikt einhalten):
+        - Beginne mitten in der Bewegung – kein Aufwärmen, keine Wetter- oder Aufwach-Eröffnung.
+        - Szenenstruktur: Ziel → Konflikt → Wendung. Die Wendung verändert die Lage spürbar.
+        - Tiefe Perspektive: Bleibe kompromisslos im Kopf der Perspektivfigur. Keine Information, die sie nicht haben kann.
+        - Zeigen statt behaupten: Emotionen über Körperreaktion, Handlung und Dialog. Niemals benennen („sie war wütend“ ist verboten).
+        - Dialog mit Subtext: Figuren sagen selten direkt, was sie wollen. Jede Replik hat eine Absicht.
+        - Konkrete, spezifische Details statt generischer Beschreibungen (nicht „ein Auto“, sondern „der rostige Kombi“).
+        - Variiere Satzlänge und Rhythmus: kurze Sätze für Tempo, längere für Atmosphäre.
+        - VERBOTENE FLOSKELN: „ein Schauer lief ihr über den Rücken“, „sie atmete tief durch“, „die Zeit schien stillzustehen“, „nichts würde mehr sein wie zuvor“, „ein Lächeln umspielte seine Lippen“, inflationäres „plötzlich“.
+        - Der letzte Satz der Szene muss einen Grund zum Weiterlesen geben.
+        \(genreCraft(genre))
+        \(positionNote)
+        Keine Überschriften, keine Meta-Kommentare – gib NUR den Prosatext der Szene aus.
         """
     }
 
@@ -178,9 +238,11 @@ enum PromptFactory {
         Sprache: \(language). Stil: \(style), Tonalität: \(tonality).
 
         Verbessere Satzrhythmus, Wortwiederholungen, schwache Verben, Füllwörter und \
-        Dialogfluss. Behalte Handlung, Reihenfolge der Ereignisse, Perspektive und \
-        Umfang bei (±10%). Gib NUR den vollständigen überarbeiteten Kapiteltext aus, \
-        ohne Überschrift und ohne Kommentare.
+        Dialogfluss. Streiche Filterwörter (sehen, hören, spüren, bemerken), wo die \
+        Wahrnehmung direkt gezeigt werden kann. Behalte Handlung, Reihenfolge der \
+        Ereignisse, Perspektive und Umfang bei (±10%). Szenentrenner (***) müssen \
+        exakt erhalten bleiben. Gib NUR den vollständigen überarbeiteten Kapiteltext \
+        aus, ohne Überschrift und ohne Kommentare.
 
         TEXT:
         \(text)
@@ -205,11 +267,32 @@ enum PromptFactory {
         """
     }
 
+    static func kdpMetadata(title: String, author: String, genre: String,
+                            audience: String, synopsis: String, language: String) -> String {
+        """
+        Erstelle Amazon-KDP-Metadaten für das Buch "\(title)" von \(author).
+        Genre: \(genre) | Zielgruppe: \(audience) | Sprache: \(language)
+
+        Inhalt:
+        \(synopsis.truncated(to: 3000))
+
+        Antworte exakt in diesem Format:
+        VERKAUFSTEXT: [150-200 Wörter Amazon-Produktbeschreibung: packender Hook in der \
+        ersten Zeile, dann Konflikt und Einsatz, am Ende ein kaufauslösender Abschluss. \
+        Keine Spoiler. Keine verbotenen Begriffe wie "Bestseller" oder "kostenlos". Reiner Fließtext.]
+        KEYWORDS: [genau 7 Suchbegriffe, durch Kommas getrennt, je 1-3 Wörter; keine \
+        Autorennamen oder Titel fremder Werke, nicht nur "Buch" oder "Roman" allein]
+        KATEGORIEN: [3 passende Amazon-Kategorien, eine pro Zeile, Format: Oberkategorie > Unterkategorie]
+        """
+    }
+
     static func proofread(language: String, text: String) -> String {
         """
         Korrigiere den folgenden Romantext (Sprache: \(language)): Rechtschreibung, \
         Grammatik, Zeichensetzung, Tippfehler, doppelte Wörter, inkonsistente \
-        Anführungszeichen. Ändere NICHT den Stil und NICHT den Inhalt. \
+        Anführungszeichen (verwende durchgehend „deutsche Anführungszeichen“ bei \
+        deutschen Texten). Ändere NICHT den Stil und NICHT den Inhalt. Szenentrenner \
+        (***) müssen exakt erhalten bleiben. \
         Gib NUR den vollständigen korrigierten Text aus, ohne Kommentare.
 
         TEXT:
@@ -272,6 +355,48 @@ enum ConceptParser {
         result.mainConflict = sections["mainConflict"] ?? ""
         result.theme = sections["theme"] ?? ""
         result.audience = sections["audience"] ?? ""
+        return result
+    }
+}
+
+struct KDPMetadataResult {
+    var salesDescription = ""
+    var keywords = ""
+    var categories = ""
+}
+
+enum KDPMetadataParser {
+    static func parse(_ text: String) -> KDPMetadataResult {
+        let labels = ["VERKAUFSTEXT", "KEYWORDS", "KATEGORIEN"]
+        var sections: [String: String] = [:]
+        var currentLabel: String?
+
+        for rawLine in text.components(separatedBy: .newlines) {
+            let cleaned = rawLine
+                .replacingOccurrences(of: "*", with: "")
+                .replacingOccurrences(of: "#", with: "")
+                .trimmingCharacters(in: .whitespaces)
+
+            var matched = false
+            for label in labels {
+                if cleaned.uppercased().hasPrefix(label + ":") {
+                    let value = String(cleaned.dropFirst(label.count + 1)).trimmingCharacters(in: .whitespaces)
+                    sections[label] = value
+                    currentLabel = label
+                    matched = true
+                    break
+                }
+            }
+            if !matched, let label = currentLabel, !cleaned.isEmpty {
+                let existing = sections[label] ?? ""
+                sections[label] = existing.isEmpty ? cleaned : existing + "\n" + cleaned
+            }
+        }
+
+        var result = KDPMetadataResult()
+        result.salesDescription = sections["VERKAUFSTEXT"] ?? ""
+        result.keywords = sections["KEYWORDS"] ?? ""
+        result.categories = sections["KATEGORIEN"] ?? ""
         return result
     }
 }

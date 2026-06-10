@@ -131,7 +131,7 @@ final class PipelineOrchestrator: ObservableObject {
                 case .copyrightCheck:
                     runCopyrightCheck(project: project)
                 case .kdpFormatting:
-                    runKDPFormatting(project: project)
+                    try await runKDPFormatting(project: project, config: config)
                 case .export:
                     try runExport(project: project)
                 default:
@@ -546,29 +546,39 @@ final class PipelineOrchestrator: ObservableObject {
         totalScenes = allScenes.count
         completedScenes = allScenes.filter { isSceneWritten($0) }.count
 
-        // Kontinuität: vorhandene Zusammenfassungen einsammeln (wichtig beim Fortsetzen).
+        // Kontinuität: vorhandene Zusammenfassungen und den letzten Szenentext
+        // einsammeln (wichtig beim Fortsetzen).
         var storySoFar: [String] = []
+        var previousSceneText: String?
         for chapter in chapters {
             for scene in sortedScenes(chapter) where isSceneWritten(scene) {
                 if let summary = scene.summary, !summary.isEmpty {
                     storySoFar.append("Kap. \(chapter.chapterNumber), Szene \(scene.sceneNumber): \(summary)")
                 }
+                previousSceneText = scene.text
             }
         }
 
         let charactersSummary = compactCharacterSummary(bible)
 
-        for chapter in chapters {
+        for (chapterIndex, chapter) in chapters.enumerated() {
             currentChapter = chapter.chapterNumber
             let scenes = sortedScenes(chapter)
 
-            for scene in scenes {
+            for (sceneIndex, scene) in scenes.enumerated() {
                 try Task.checkCancellation()
-                if isSceneWritten(scene) { continue }
+                if isSceneWritten(scene) {
+                    previousSceneText = scene.text
+                    continue
+                }
 
                 currentScene = scene.sceneNumber
                 scene.status = .writing
                 let sceneStart = Date()
+
+                let isFirstScene = chapterIndex == 0 && sceneIndex == 0
+                let isFinalScene = chapterIndex == chapters.count - 1 && sceneIndex == scenes.count - 1
+                let previousEnding = previousSceneText.map { String($0.suffix(600)) } ?? ""
 
                 let job = beginJob(agent: AgentName.draftWriter, phase: .drafting, project: project,
                                    chapter: chapter.chapterNumber, scene: scene.sceneNumber)
@@ -579,7 +589,7 @@ final class PipelineOrchestrator: ObservableObject {
                     let prompt = PromptFactory.draftScene(
                         language: project.language, style: project.styleProfile,
                         tonality: profile.tonality, perspective: profile.narrativePerspective,
-                        tense: profile.tense, bookTitle: project.title,
+                        tense: profile.tense, genre: project.genre, bookTitle: project.title,
                         chapterNumber: chapter.chapterNumber, chapterTitle: chapter.title,
                         chapterGoal: chapter.goal, sceneNumber: scene.sceneNumber,
                         sceneGoal: scene.goal, sceneLocation: scene.location,
@@ -588,6 +598,8 @@ final class PipelineOrchestrator: ObservableObject {
                         charactersSummary: charactersSummary,
                         styleRules: bible.styleRules,
                         storySoFar: recentContext,
+                        previousSceneEnding: previousEnding,
+                        isFirstScene: isFirstScene, isFinalScene: isFinalScene,
                         targetWords: scene.targetWordCount
                     )
                     let maxTokens = min(4000, max(1200, scene.targetWordCount * 3))
@@ -600,6 +612,7 @@ final class PipelineOrchestrator: ObservableObject {
                     scene.text = response.text
                     scene.status = .written
                     scene.updatedAt = Date()
+                    previousSceneText = response.text
                     chapter.actualWordCount = sortedScenes(chapter).compactMap { $0.text?.wordCount }.reduce(0, +)
                     completeJob(job, result: "\(response.text.wordCount) Wörter", tokens: response.tokensUsed ?? 0)
 
@@ -662,7 +675,8 @@ final class PipelineOrchestrator: ObservableObject {
             try Task.checkCancellation()
 
             if chapter.draftText == nil || chapter.draftText?.isEmpty == true {
-                chapter.draftText = sortedScenes(chapter).compactMap { $0.text }.joined(separator: "\n\n")
+                // Szenen mit sichtbarem Szenentrenner zusammenfügen (Print-/eBook-Konvention).
+                chapter.draftText = sortedScenes(chapter).compactMap { $0.text }.joined(separator: "\n\n***\n\n")
             }
             // Bereits überarbeitet? (Fortsetzen)
             if let revised = chapter.revisedText, !revised.isEmpty { continue }
@@ -829,8 +843,42 @@ final class PipelineOrchestrator: ObservableObject {
 
     // MARK: - Phase 11: KDP-Formatierung / Qualitätsbewertung
 
-    private func runKDPFormatting(project: Project) {
+    private func runKDPFormatting(project: Project, config: ProviderConfiguration) async throws {
         project.status = .kdpFormatting
+
+        // KDP-Metadaten (Verkaufstext, Keywords, Kategorien) generieren – einmalig.
+        if let profile = project.bookProfile, profile.kdpDescription.isEmpty {
+            let metaJob = beginJob(agent: AgentName.kdpFormatter, phase: .kdpFormatting, project: project)
+            do {
+                let response = try await generate(
+                    prompt: PromptFactory.kdpMetadata(
+                        title: project.title, author: project.authorName,
+                        genre: project.genre, audience: profile.targetAudience,
+                        synopsis: profile.synopsis ?? profile.premise,
+                        language: project.language
+                    ),
+                    system: "Du bist ein erfahrener Buchmarketing-Texter für Amazon KDP. Deine Produktbeschreibungen verkaufen.",
+                    maxTokens: 1200, temperature: 0.7, config: config
+                )
+                let parsed = KDPMetadataParser.parse(response.text)
+                profile.kdpDescription = parsed.salesDescription.isEmpty ? response.text : parsed.salesDescription
+                profile.kdpKeywords = parsed.keywords
+                profile.kdpCategories = parsed.categories
+                completeJob(metaJob, result: response.text, tokens: response.tokensUsed ?? 0)
+            } catch {
+                failJob(metaJob, error: error)
+                // Marketing-Metadaten sind nicht produktionskritisch – nur bei
+                // Kostenlimit/Abbruch die Pipeline stoppen.
+                if error is CancellationError || (error as? AIError) == .quotaExceeded {
+                    throw error
+                }
+                addReport(project: project, area: "KDP-Metadaten", type: "Metadaten",
+                          result: "Metadaten konnten nicht generiert werden: \(error.localizedDescription)",
+                          severity: .warning,
+                          recommendation: "Phase erneut ausführen oder Metadaten manuell verfassen.")
+            }
+        }
+
         let job = beginJob(agent: AgentName.kdpFormatter, phase: .kdpFormatting, project: project)
 
         // Alte Score-Berichte ersetzen (bei Wiederholung keine Duplikate).

@@ -59,15 +59,30 @@ Alle Schritte sind live im **Agenten-Monitor** sichtbar (Status, Dauer, Tokens, 
 - Manuskripte und Projekte bleiben lokal (SwiftData).
 - Prompts gehen nur an den vom Nutzer gewählten Provider.
 
-## Export
+## Export (KDP-konform)
 
-- **EPUB 3** mit Navigationsdokument (nav), NCX-Fallback, korrektem
-  `mimetype`-Eintrag (erster, unkomprimierter ZIP-Eintrag) und BCP-47-Sprachcode
-- **PDF** mit echter Seitenumbruch-Logik (mehrseitige Kapitel), Titel-,
-  Copyright- und Inhaltsverzeichnis-Seiten
-- **DOCX** (WordprocessingML)
+- **EPUB 3** mit Verlags-Stylesheet (Blocksatz, Erstzeileneinzug, zentrierte
+  Szenentrenner), Navigationsdokument (nav), NCX-Fallback, korrektem
+  `mimetype`-Eintrag, BCP-47-Sprachcode und `dc:description`
+- **PDF im echten Buchsatz**: KDP-Trim-Größen (5×8, 5,5×8,5, 6×9 Zoll),
+  Spiegelränder mit Bundsteg nach offizieller KDP-Tabelle (abhängig von der
+  Seitenzahl), Blocksatz mit Erstzeileneinzug, Seitenzahlen, Kapitel- und
+  Szenentrenner-Satz, Titel-/Copyright-/Inhaltsseiten
+- **DOCX** mit echten Formatvorlagen (styles.xml: Title, Heading 1, Scene Break),
+  Blocksatz und Erstzeileneinzug
+- **KDP-Metadaten**: automatisch generierter Verkaufstext (Produktbeschreibung),
+  7 Keywords und Kategorie-Vorschläge – bereit zum Einfügen bei der Veröffentlichung
 - **Berichte**: KDP-Formatbericht, Produktionsprotokoll, KI-Offenlegung
 - Zielordner: `~/Documents/NovelForge/<Projekttitel>/` („Im Finder zeigen“ in der App)
+
+## Schreibqualität
+
+Der Draft Writer arbeitet mit festen Bestseller-Handwerksregeln: Szenenstruktur
+Ziel → Konflikt → Wendung, tiefe Perspektive, Subtext-Dialoge, Verbotsliste für
+KI-typische Floskeln, Genre-spezifische Vorgaben (Thriller, Romance, Fantasy,
+Horror, Historisch), besondere Anweisungen für die erste Szene (Amazon-Leseprobe!)
+und das Finale. Jede Szene erhält das wörtliche Ende der Vorszene für nahtlose
+Übergänge plus die Zusammenfassungen der bisherigen Handlung.
 
 ## UI
 

@@ -33,6 +33,7 @@ struct NewBookWizardView: View {
     @State private var epubFormat = true
     @State private var pdfFormat = false
     @State private var docxFormat = false
+    @State private var trimSize = TrimSize.sixByNine
 
     // Schritt 4: Provider
     @State private var selectedProvider = AIProvider.openAI
@@ -202,6 +203,16 @@ struct NewBookWizardView: View {
                 Toggle("PDF (Print: Paperback/Hardcover)", isOn: $pdfFormat)
                 Toggle("DOCX (bearbeitbares Manuskript)", isOn: $docxFormat)
             }
+            Section("Print-Format (KDP)") {
+                Picker("Trim-Größe", selection: $trimSize) {
+                    ForEach(TrimSize.allCases) { size in
+                        Text(size.displayName).tag(size)
+                    }
+                }
+                Text("Der PDF-Export verwendet Spiegelränder mit KDP-konformem Bundsteg, Blocksatz und Seitenzahlen.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -272,6 +283,7 @@ struct NewBookWizardView: View {
                 ReviewRow(label: "Perspektive", value: "\(narrativePerspective), \(tense)")
                 ReviewRow(label: "Umfang", value: "\(targetPageCount) Seiten · ca. \(FormattingHelpers.formatWordCount(targetPageCount * AppConstants.wordsPerPage)) Wörter")
                 ReviewRow(label: "Formate", value: selectedFormats.joined(separator: ", "))
+                ReviewRow(label: "Trim-Größe", value: trimSize.displayName)
                 ReviewRow(label: "Provider", value: selectedProvider.rawValue)
                 ReviewRow(label: "Modell", value: effectiveModel)
                 ReviewRow(label: "Kostenlimit", value: "\(Int(costLimit)) USD")
@@ -353,6 +365,7 @@ struct NewBookWizardView: View {
             outputFormats: selectedFormats
         )
         project.subgenre = subgenre.isEmpty ? nil : subgenre
+        project.trimSizeRaw = trimSize.rawValue
         project.preferredProviderRaw = selectedProvider.rawValue
         project.preferredModel = effectiveModel
         project.costLimitUSD = costLimit

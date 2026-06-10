@@ -222,8 +222,9 @@ struct ExportDetailView: View {
                 Divider()
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Berichte")
+                    Text("Veröffentlichung & Berichte")
                         .font(.headline)
+                    ExportFormatRow(format: .metadata, project: project)
                     ExportFormatRow(format: .report, project: project)
                     ExportFormatRow(format: .log, project: project)
                     ExportFormatRow(format: .disclosure, project: project)
@@ -279,6 +280,7 @@ enum ExportFormat: String {
     case epub = "EPUB"
     case pdf = "PDF"
     case docx = "DOCX"
+    case metadata = "KDP-Metadaten"
     case report = "KDP-Bericht"
     case log = "Produktionsprotokoll"
     case disclosure = "KI-Offenlegung"
@@ -288,6 +290,7 @@ enum ExportFormat: String {
         case .epub: return "book.fill"
         case .pdf: return "doc.fill"
         case .docx: return "doc.text.fill"
+        case .metadata: return "tag"
         case .report: return "chart.bar.doc.horizontal"
         case .log: return "list.clipboard"
         case .disclosure: return "checkmark.shield"
@@ -296,9 +299,10 @@ enum ExportFormat: String {
 
     var subtitle: String {
         switch self {
-        case .epub: return "eBook-Format für Amazon KDP"
-        case .pdf: return "Print-Format mit Seitenumbrüchen"
-        case .docx: return "Bearbeitbares Word-Dokument"
+        case .epub: return "eBook mit Verlags-Stylesheet für Amazon KDP"
+        case .pdf: return "KDP-konformer Buchsatz (Trim-Größe, Bundsteg, Seitenzahlen)"
+        case .docx: return "Bearbeitbares Word-Dokument mit Formatvorlagen"
+        case .metadata: return "Verkaufstext, 7 Keywords & Kategorien für die Veröffentlichung"
         case .report: return "Formatprüfung und Qualitätsbewertung"
         case .log: return "Alle Pipeline-Schritte im Detail"
         case .disclosure: return "Nachweis der KI-Unterstützung (KDP-Richtlinie)"
@@ -369,6 +373,9 @@ struct ExportFormatRow: View {
                     url = try ExportEngine.exportToPDF(project: project)
                 case .docx:
                     url = try ExportEngine.exportToDOCX(project: project)
+                case .metadata:
+                    url = try writeText(ExportEngine.generateKDPMetadataReport(project: project),
+                                        fileName: "KDP-Metadaten.txt")
                 case .report:
                     url = try writeText(ExportEngine.generateKDPReport(project: project),
                                         fileName: "KDP-Bericht.txt")

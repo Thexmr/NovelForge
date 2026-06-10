@@ -61,9 +61,61 @@ extension ProjectStatus {
     }
 }
 
+// MARK: - KDP-Druckformate
+
+/// Von Amazon KDP unterstützte Taschenbuch-Trim-Größen.
+enum TrimSize: String, CaseIterable, Identifiable {
+    case fiveByEight = "5x8"
+    case fiveFiveByEightFive = "5.5x8.5"
+    case sixByNine = "6x9"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .fiveByEight: return "5 × 8 Zoll (12,7 × 20,3 cm)"
+        case .fiveFiveByEightFive: return "5,5 × 8,5 Zoll (14 × 21,6 cm)"
+        case .sixByNine: return "6 × 9 Zoll (15,2 × 22,9 cm)"
+        }
+    }
+
+    var pageWidth: CGFloat {
+        switch self {
+        case .fiveByEight: return 360
+        case .fiveFiveByEightFive: return 396
+        case .sixByNine: return 432
+        }
+    }
+
+    var pageHeight: CGFloat {
+        switch self {
+        case .fiveByEight: return 576
+        case .fiveFiveByEightFive: return 612
+        case .sixByNine: return 648
+        }
+    }
+
+    /// Innenrand (Bundsteg) nach KDP-Vorgabe, abhängig von der Seitenzahl. In Punkt.
+    static func gutterPoints(forPageCount pages: Int) -> CGFloat {
+        let inches: CGFloat
+        switch pages {
+        case ..<151: inches = 0.375
+        case ..<301: inches = 0.5
+        case ..<501: inches = 0.625
+        case ..<701: inches = 0.75
+        default: inches = 0.875
+        }
+        return inches * 72.0
+    }
+}
+
 extension Project {
     var totalWordCount: Int {
         (chapters ?? []).reduce(0) { $0 + $1.computedWordCount }
+    }
+
+    var trimSize: TrimSize {
+        TrimSize(rawValue: trimSizeRaw) ?? .sixByNine
     }
 
     /// BCP-47-Sprachcode für Exportformate.
