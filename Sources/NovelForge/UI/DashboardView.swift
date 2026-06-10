@@ -3,74 +3,131 @@ import SwiftData
 
 struct DashboardView: View {
     @Query(sort: \Project.updatedAt, order: .reverse) var projects: [Project]
-    
+    @ObservedObject private var orchestrator = PipelineOrchestrator.shared
+    @State private var showingNewBookSheet = false
+
     var activeProjects: [Project] {
         projects.filter { $0.status != .completed && $0.status != .failed }
     }
-    
+
     var completedProjects: [Project] {
         projects.filter { $0.status == .completed }
     }
-    
+
+    var totalWords: Int {
+        projects.reduce(0) { $0 + $1.totalWordCount }
+    }
+
     var body: some View {
         ScrollView {
-            VStack(spacing: 20) {
+            VStack(alignment: .leading, spacing: 24) {
                 headerSection
+
+                if orchestrator.isRunning {
+                    runningBanner
+                }
+
                 statsSection
-                activeProductionsSection
-                completedProjectsSection
+
+                if projects.isEmpty {
+                    ContentUnavailableView {
+                        Label("Noch keine Buchprojekte", systemImage: "book")
+                    } description: {
+                        Text("Erstellen Sie Ihr erstes Buch – NovelForge übernimmt Konzept, Plot, Kapitel, Szenen, Rohfassung, Lektorat und Export vollautomatisch.")
+                    } actions: {
+                        Button("Erstes Buch erstellen") {
+                            showingNewBookSheet = true
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                    }
+                    .padding(.top, 40)
+                } else {
+                    activeProductionsSection
+                    completedProjectsSection
+                }
             }
-            .padding()
+            .padding(24)
+            .frame(maxWidth: 900, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
         .navigationTitle("Dashboard")
+        .sheet(isPresented: $showingNewBookSheet) {
+            NewBookWizardView()
+        }
     }
-    
+
     private var headerSection: some View {
-        HStack {
-            VStack(alignment: .leading) {
-                Text("NovelForge")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
-                Text("KI-gestützte Buchproduktion")
-                    .font(.subheadline)
+        VStack(alignment: .leading, spacing: 4) {
+            Text("NovelForge")
+                .font(.largeTitle)
+                .fontWeight(.bold)
+            Text("Autonome KI-Buchproduktion – von der Idee bis zum Export")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var runningBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "gearshape.2.fill")
+                .foregroundStyle(.tint)
+                .symbolEffect(.pulse)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Produktion läuft: \(orchestrator.currentProject?.title ?? "")")
+                    .font(.headline)
+                Text(orchestrator.currentAgent)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            VStack(alignment: .trailing, spacing: 4) {
+                Text("\(Int(orchestrator.progress * 100)) %")
+                    .font(.headline)
+                    .monospacedDigit()
+                ProgressView(value: orchestrator.progress)
+                    .frame(width: 140)
+            }
         }
+        .padding(16)
+        .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
     }
-    
+
     private var statsSection: some View {
-        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
-            StatCard(title: "Aktive Projekte", value: "\(activeProjects.count)", icon: "book.fill", color: .blue)
-            StatCard(title: "Abgeschlossen", value: "\(completedProjects.count)", icon: "checkmark.circle.fill", color: .green)
-            StatCard(title: "In Produktion", value: "\(activeProjects.filter { $0.status == .drafting }.count)", icon: "gear", color: .orange)
-            StatCard(title: "Fehler", value: "\(projects.filter { $0.status == .failed }.count)", icon: "exclamationmark.triangle.fill", color: .red)
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()),
+                            GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
+            StatCard(title: "Aktive Projekte", value: "\(activeProjects.count)",
+                     icon: "book.fill", color: .blue)
+            StatCard(title: "Abgeschlossen", value: "\(completedProjects.count)",
+                     icon: "checkmark.circle.fill", color: .green)
+            StatCard(title: "Geschriebene Wörter", value: FormattingHelpers.formatWordCount(totalWords),
+                     icon: "text.word.spacing", color: .purple)
+            StatCard(title: "Fehlgeschlagen", value: "\(projects.filter { $0.status == .failed }.count)",
+                     icon: "exclamationmark.triangle.fill", color: .red)
         }
     }
-    
+
     private var activeProductionsSection: some View {
         Group {
             if !activeProjects.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Aktuell in Produktion")
+                    Text("In Arbeit")
                         .font(.headline)
-                    
-                    ForEach(activeProjects.prefix(3)) { project in
+                    ForEach(activeProjects.prefix(4)) { project in
                         ProjectCard(project: project)
                     }
                 }
             }
         }
     }
-    
+
     private var completedProjectsSection: some View {
         Group {
             if !completedProjects.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Kürzlich abgeschlossen")
                         .font(.headline)
-                    
-                    ForEach(completedProjects.prefix(3)) { project in
+                    ForEach(completedProjects.prefix(4)) { project in
                         CompletedProjectCard(project: project)
                     }
                 }
@@ -84,52 +141,49 @@ struct StatCard: View {
     let value: String
     let icon: String
     let color: Color
-    
+
     var body: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Image(systemName: icon)
-                    .font(.title2)
-                    .foregroundStyle(color)
-                Spacer()
-            }
-            
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundStyle(color)
             Text(value)
-                .font(.title)
+                .font(.system(.title2, design: .rounded))
                 .fontWeight(.bold)
-            
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
             Text(title)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .padding()
-        .background(Color.gray.opacity(0.1))
-        .cornerRadius(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
 struct ProjectCard: View {
     let project: Project
-    
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
-                VStack(alignment: .leading) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(project.title)
                         .font(.headline)
-                    Text(project.authorName)
+                    Text("\(project.authorName) · \(project.genre)")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
                 StatusBadge(status: project.status)
             }
-            
-            ProgressView(value: calculateProgress(for: project))
+
+            ProgressView(value: project.status.progressFraction)
                 .progressViewStyle(.linear)
-            
+
             HStack {
-                Text("\(project.targetPageCount) Seiten Ziel")
+                Text("\(FormattingHelpers.formatWordCount(project.totalWordCount)) von ca. \(FormattingHelpers.formatWordCount(project.targetWordCount)) Wörtern")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -138,60 +192,256 @@ struct ProjectCard: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding()
-        .background(Color.gray.opacity(0.1))
-        .cornerRadius(12)
-    }
-    
-    private func calculateProgress(for project: Project) -> Double {
-        let statusOrder: [ProjectStatus] = [.created, .conceptDevelopment, .structurePlanning, .chapterPlanning, .scenePlanning, .drafting, .chapterRevision, .manuscriptRevision, .proofreading, .copyrightCheck, .kdpFormatting, .export, .completed]
-        guard let currentIndex = statusOrder.firstIndex(of: project.status) else { return 0 }
-        return Double(currentIndex) / Double(statusOrder.count - 1)
+        .padding(14)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
 struct CompletedProjectCard: View {
     let project: Project
-    
+
     var body: some View {
         HStack {
-            VStack(alignment: .leading) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(project.title)
                     .font(.headline)
-                Text(project.authorName)
+                Text("\(project.authorName) · \(FormattingHelpers.formatWordCount(project.totalWordCount)) Wörter · \(project.chapters?.count ?? 0) Kapitel")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Image(systemName: "checkmark.circle.fill")
+            Image(systemName: "checkmark.seal.fill")
+                .font(.title3)
                 .foregroundStyle(.green)
         }
-        .padding()
-        .background(Color.gray.opacity(0.1))
-        .cornerRadius(12)
+        .padding(14)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
 struct StatusBadge: View {
     let status: ProjectStatus
-    
+
     var color: Color {
         switch status {
         case .completed: return .green
         case .failed: return .red
         case .paused: return .orange
-        case .drafting: return .blue
-        default: return .gray
+        case .created: return .gray
+        default: return .blue
         }
     }
-    
+
     var body: some View {
-        Text(status.rawValue)
+        Text(status.displayName)
             .font(.caption)
+            .fontWeight(.medium)
             .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(color.opacity(0.2))
+            .padding(.vertical, 3)
+            .background(color.opacity(0.15), in: Capsule())
             .foregroundStyle(color)
-            .cornerRadius(8)
+    }
+}
+
+// MARK: - Projektliste
+
+struct ProjectsListView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \Project.updatedAt, order: .reverse) var projects: [Project]
+    @ObservedObject private var orchestrator = PipelineOrchestrator.shared
+    @State private var showingNewBookWizard = false
+    @State private var projectToDelete: Project?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if projects.isEmpty {
+                    ContentUnavailableView {
+                        Label("Keine Projekte", systemImage: "books.vertical")
+                    } description: {
+                        Text("Erstellen Sie ein neues Buchprojekt, um zu starten.")
+                    } actions: {
+                        Button("Neues Buch") { showingNewBookWizard = true }
+                            .buttonStyle(.borderedProminent)
+                    }
+                } else {
+                    List {
+                        ForEach(projects) { project in
+                            NavigationLink(value: project) {
+                                ProjectListRow(project: project)
+                            }
+                            .contextMenu {
+                                if project.status != .completed && !orchestrator.isRunning {
+                                    Button {
+                                        orchestrator.resumePipeline(project: project)
+                                    } label: {
+                                        Label(project.status == .created ? "Produktion starten" : "Produktion fortsetzen",
+                                              systemImage: "play.fill")
+                                    }
+                                }
+                                Button(role: .destructive) {
+                                    projectToDelete = project
+                                } label: {
+                                    Label("Projekt löschen", systemImage: "trash")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Projekte")
+            .navigationDestination(for: Project.self) { project in
+                ProjectDetailView(project: project)
+            }
+            .toolbar {
+                ToolbarItem {
+                    Button("Neues Buch", systemImage: "plus") {
+                        showingNewBookWizard = true
+                    }
+                }
+            }
+            .sheet(isPresented: $showingNewBookWizard) {
+                NewBookWizardView()
+            }
+            .confirmationDialog("Projekt \"\(projectToDelete?.title ?? "")\" wirklich löschen?",
+                                isPresented: Binding(
+                                    get: { projectToDelete != nil },
+                                    set: { if !$0 { projectToDelete = nil } })) {
+                Button("Endgültig löschen", role: .destructive) {
+                    if let project = projectToDelete {
+                        modelContext.delete(project)
+                        try? modelContext.save()
+                    }
+                    projectToDelete = nil
+                }
+                Button("Abbrechen", role: .cancel) {
+                    projectToDelete = nil
+                }
+            } message: {
+                Text("Alle Kapitel, Szenen und Berichte dieses Projekts werden gelöscht. Das kann nicht rückgängig gemacht werden.")
+            }
+        }
+    }
+}
+
+struct ProjectListRow: View {
+    let project: Project
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(project.title)
+                    .font(.headline)
+                Text("\(project.authorName) · \(project.genre) · \(project.language)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 4) {
+                StatusBadge(status: project.status)
+                Text("\(FormattingHelpers.formatWordCount(project.totalWordCount)) Wörter")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 6)
+    }
+}
+
+// MARK: - Projektdetail
+
+struct ProjectDetailView: View {
+    let project: Project
+    @ObservedObject private var orchestrator = PipelineOrchestrator.shared
+
+    private var scores: QualityScores {
+        QualityScores.compute(for: project)
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(project.title)
+                            .font(.largeTitle)
+                            .fontWeight(.bold)
+                        Text("\(project.authorName) · \(project.genre)")
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    StatusBadge(status: project.status)
+                }
+
+                if project.status != .completed && !orchestrator.isRunning {
+                    Button {
+                        orchestrator.resumePipeline(project: project)
+                    } label: {
+                        Label(project.status == .created ? "Produktion starten" : "Produktion fortsetzen",
+                              systemImage: "play.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                }
+
+                ProgressView(value: project.status.progressFraction) {
+                    Text("Gesamtfortschritt")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                    InfoTile(label: "Sprache", value: project.language)
+                    InfoTile(label: "Zielseiten", value: "\(project.targetPageCount)")
+                    InfoTile(label: "Wörter", value: FormattingHelpers.formatWordCount(project.totalWordCount))
+                    InfoTile(label: "Kapitel", value: "\(project.chapters?.count ?? 0)")
+                    InfoTile(label: "Provider", value: project.preferredProviderRaw)
+                    InfoTile(label: "Modell", value: project.preferredModel.isEmpty ? "–" : project.preferredModel)
+                }
+
+                if let profile = project.bookProfile, let logline = profile.logline, !logline.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Logline")
+                            .font(.headline)
+                        Text(logline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Qualitätsmetriken")
+                        .font(.headline)
+                    QualityMetricRow(label: "Struktur", score: scores.structure)
+                    QualityMetricRow(label: "Figuren", score: scores.characters)
+                    QualityMetricRow(label: "Stil", score: scores.style)
+                    QualityMetricRow(label: "Konsistenz", score: scores.consistency)
+                    QualityMetricRow(label: "KDP-Format", score: scores.kdp)
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: 760, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .navigationTitle(project.title)
+    }
+}
+
+struct InfoTile: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.callout)
+                .fontWeight(.medium)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
     }
 }

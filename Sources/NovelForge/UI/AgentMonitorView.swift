@@ -2,41 +2,58 @@ import SwiftUI
 import SwiftData
 
 struct AgentMonitorView: View {
-    @Query var jobs: [PipelineJob]
+    @Query(sort: \PipelineJob.createdAt, order: .reverse) var jobs: [PipelineJob]
     @State private var selectedStatus: JobStatusFilter = .all
-    
+
     enum JobStatusFilter: String, CaseIterable {
         case all = "Alle"
         case active = "Aktiv"
         case completed = "Abgeschlossen"
         case failed = "Fehlgeschlagen"
     }
-    
+
     var filteredJobs: [PipelineJob] {
         switch selectedStatus {
         case .all:
             return jobs
         case .active:
-            return jobs.filter { $0.status == .running || $0.status == .writing || $0.status == .checking }
+            return jobs.filter { $0.status == .running || $0.status == .writing || $0.status == .checking || $0.status == .revising }
         case .completed:
             return jobs.filter { $0.status == .completed }
         case .failed:
             return jobs.filter { $0.status == .failed }
         }
     }
-    
+
     var body: some View {
-        VStack {
-            Picker("Status", selection: $selectedStatus) {
-                ForEach(JobStatusFilter.allCases, id: \.self) { filter in
-                    Text(filter.rawValue).tag(filter)
+        VStack(spacing: 0) {
+            HStack {
+                Picker("Status", selection: $selectedStatus) {
+                    ForEach(JobStatusFilter.allCases, id: \.self) { filter in
+                        Text(filter.rawValue).tag(filter)
+                    }
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: 420)
+
+                Spacer()
+
+                Text("\(filteredJobs.count) Einträge")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            .pickerStyle(.segmented)
-            .padding()
-            
-            List(filteredJobs) { job in
-                AgentJobRow(job: job)
+            .padding(12)
+
+            Divider()
+
+            if filteredJobs.isEmpty {
+                ContentUnavailableView("Keine Agenten-Aktivität", systemImage: "cpu",
+                                       description: Text("Hier erscheinen alle Arbeitsschritte der KI-Agenten in Echtzeit."))
+            } else {
+                List(filteredJobs) { job in
+                    AgentJobRow(job: job)
+                }
             }
         }
         .navigationTitle("Agenten-Monitor")
@@ -45,28 +62,24 @@ struct AgentMonitorView: View {
 
 struct AgentJobRow: View {
     let job: PipelineJob
-    
+
     var statusColor: Color {
         switch job.status {
-        case .running, .writing, .checking: return .blue
+        case .running, .writing, .checking, .revising, .retrying: return .blue
         case .completed: return .green
         case .failed: return .red
         case .paused: return .orange
         default: return .gray
         }
     }
-    
+
     var body: some View {
-        HStack(spacing: 12) {
-            // Status indicator
+        HStack(alignment: .top, spacing: 12) {
             Circle()
                 .fill(statusColor)
                 .frame(width: 8, height: 8)
-                .overlay(
-                    Circle()
-                        .stroke(statusColor.opacity(0.3), lineWidth: 4)
-                )
-            
+                .padding(.top, 6)
+
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text(job.agentName)
@@ -77,213 +90,276 @@ struct AgentJobRow: View {
                         .foregroundStyle(statusColor)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)
-                        .background(statusColor.opacity(0.1))
-                        .cornerRadius(4)
+                        .background(statusColor.opacity(0.1), in: Capsule())
                 }
-                
-                HStack {
+
+                HStack(spacing: 6) {
+                    if let projectTitle = job.project?.title {
+                        Text(projectTitle)
+                            .fontWeight(.medium)
+                    }
                     Text(job.phase.rawValue)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    
                     if let chapter = job.chapterNumber {
-                        Text("• Kapitel \(chapter)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        Text("· Kapitel \(chapter)")
                     }
-                    
                     if let scene = job.sceneNumber {
-                        Text("• Szene \(scene)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        Text("· Szene \(scene)")
                     }
                 }
-                
-                if let start = job.startTime {
-                    HStack {
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                HStack(spacing: 10) {
+                    if let start = job.startTime {
                         Text("Start: \(start, style: .time)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        
                         if let end = job.endTime {
-                            let duration = end.timeIntervalSince(start)
-                            Text("Dauer: \(formatDuration(duration))")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                            Text("Dauer: \(FormattingHelpers.formatDuration(end.timeIntervalSince(start)))")
                         }
                     }
+                    if job.tokenUsage > 0 {
+                        Text("\(FormattingHelpers.formatWordCount(job.tokenUsage)) Tokens")
+                    }
+                    if job.errorCount > 0 {
+                        Text("Fehler: \(job.errorCount)")
+                            .foregroundStyle(.red)
+                    }
                 }
-                
-                if job.errorCount > 0 {
-                    Text("Fehler: \(job.errorCount)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+                if job.status == .failed, let result = job.result, !result.isEmpty {
+                    Text(result)
                         .font(.caption2)
                         .foregroundStyle(.red)
-                }
-                
-                if let lastHeartbeat = job.lastHeartbeat {
-                    Text("Letzter Heartbeat: \(lastHeartbeat, style: .relative)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
                 }
             }
         }
         .padding(.vertical, 4)
     }
-    
-    private func formatDuration(_ interval: TimeInterval) -> String {
-        let hours = Int(interval) / 3600
-        let minutes = (Int(interval) % 3600) / 60
-        if hours > 0 {
-            return "\(hours)h \(minutes)m"
-        }
-        return "\(minutes)m"
-    }
 }
+
+// MARK: - Export
 
 struct ExportView: View {
     @Query(sort: \Project.updatedAt, order: .reverse) var projects: [Project]
     @State private var selectedProject: Project?
-    @State private var showingExportSheet = false
-    @State private var exportURL: URL?
-    @State private var exportType: ExportType = .epub
-    
-    enum ExportType: String, CaseIterable {
-        case epub = "EPUB"
-        case pdf = "PDF"
-        case docx = "DOCX"
-        case report = "KDP-Bericht"
-        case log = "Protokoll"
+
+    /// Alle Projekte mit mindestens einem Kapitel sind exportierbar (auch Zwischenstände).
+    private var exportableProjects: [Project] {
+        projects.filter { !($0.chapters ?? []).isEmpty }
     }
-    
+
     var body: some View {
-        NavigationSplitView {
-            List(selection: $selectedProject) {
-                ForEach(projects.filter { $0.status == .completed || $0.status == .export }) { project in
-                    NavigationLink(value: project) {
-                        Text(project.title)
+        HSplitView {
+            Group {
+                if exportableProjects.isEmpty {
+                    ContentUnavailableView("Nichts zu exportieren", systemImage: "square.and.arrow.up",
+                                           description: Text("Sobald ein Projekt Kapitel enthält, erscheint es hier."))
+                } else {
+                    List(selection: $selectedProject) {
+                        ForEach(exportableProjects) { project in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(project.title)
+                                    .lineLimit(1)
+                                StatusBadge(status: project.status)
+                            }
+                            .tag(project)
+                        }
                     }
-                    .tag(project)
                 }
             }
-            .navigationTitle("Exportbereit")
-            .frame(minWidth: 200)
-        } detail: {
-            if let project = selectedProject {
-                ExportDetailView(project: project)
-            } else {
-                ContentUnavailableView("Projekt wählen", systemImage: "square.and.arrow.up")
+            .frame(minWidth: 200, idealWidth: 240, maxWidth: 300)
+
+            Group {
+                if let project = selectedProject {
+                    ExportDetailView(project: project)
+                } else {
+                    ContentUnavailableView("Projekt wählen", systemImage: "square.and.arrow.up")
+                }
             }
+            .frame(minWidth: 440, maxWidth: .infinity)
         }
+        .navigationTitle("Export")
     }
 }
 
 struct ExportDetailView: View {
     let project: Project
-    @State private var showingSavePanel = false
-    @State private var exportURL: URL?
-    @State private var selectedFormat: ExportView.ExportType = .epub
-    
+
+    private var scores: QualityScores {
+        QualityScores.compute(for: project)
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                // Project info
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text(project.title)
                         .font(.title)
                         .fontWeight(.bold)
-                    Text("\(project.authorName) • \(project.genre)")
+                    Text("\(project.authorName) · \(project.genre) · \(FormattingHelpers.formatWordCount(project.totalWordCount)) Wörter")
                         .foregroundStyle(.secondary)
                 }
-                
-                Divider()
-                
-                // Export formats
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Exportformate")
-                        .font(.headline)
-                    
-                    ForEach(ExportView.ExportType.allCases, id: \.self) { format in
-                        ExportFormatRow(format: format, project: project)
-                    }
+
+                if project.status != .completed {
+                    Label("Dieses Projekt ist noch nicht fertig produziert – Exporte enthalten den aktuellen Zwischenstand.",
+                          systemImage: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(10)
+                        .background(.yellow.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
                 }
-                
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Buchformate")
+                        .font(.headline)
+                    ExportFormatRow(format: .epub, project: project)
+                    ExportFormatRow(format: .pdf, project: project)
+                    ExportFormatRow(format: .docx, project: project)
+                }
+
                 Divider()
-                
-                // Reports
-                VStack(alignment: .leading, spacing: 12) {
+
+                VStack(alignment: .leading, spacing: 10) {
                     Text("Berichte")
                         .font(.headline)
-                    
-                    Button("KDP-Bericht anzeigen") {
-                        showReport(text: ExportEngine.generateKDPReport(project: project), title: "KDP-Bericht")
-                    }
-                    
-                    Button("Produktionsprotokoll anzeigen") {
-                        showReport(text: ExportEngine.generateProductionLog(project: project), title: "Produktionsprotokoll")
-                    }
-                    
-                    Button("KI-Offenlegungsbericht") {
-                        let disclosure = generateDisclosureReport(project: project)
-                        showReport(text: disclosure, title: "KI-Offenlegung")
-                    }
+                    ExportFormatRow(format: .report, project: project)
+                    ExportFormatRow(format: .log, project: project)
+                    ExportFormatRow(format: .disclosure, project: project)
                 }
-                
+
                 Divider()
-                
-                // Quality metrics
-                VStack(alignment: .leading, spacing: 12) {
+
+                VStack(alignment: .leading, spacing: 10) {
                     Text("Qualitätsmetriken")
                         .font(.headline)
-                    
-                    QualityMetricRow(label: "Struktur", score: 0.85)
-                    QualityMetricRow(label: "Figuren", score: 0.78)
-                    QualityMetricRow(label: "Stil", score: 0.82)
-                    QualityMetricRow(label: "Konsistenz", score: 0.90)
-                    QualityMetricRow(label: "KDP-Format", score: 0.95)
+                    QualityMetricRow(label: "Struktur", score: scores.structure)
+                    QualityMetricRow(label: "Figuren", score: scores.characters)
+                    QualityMetricRow(label: "Stil", score: scores.style)
+                    QualityMetricRow(label: "Konsistenz", score: scores.consistency)
+                    QualityMetricRow(label: "KDP-Format", score: scores.kdp)
+                    Text("Automatisch aus den Projektdaten berechnet.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+
+                if let issues = project.qualityReports?.filter({ $0.checkType == "Konsistenz" && $0.severity != .info }),
+                   !issues.isEmpty {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Konsistenz-Hinweise")
+                            .font(.headline)
+                        ForEach(issues) { issue in
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "exclamationmark.circle")
+                                    .foregroundStyle(issue.severity == .critical || issue.severity == .error ? .red : .orange)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(issue.result)
+                                        .font(.caption)
+                                    if !issue.recommendation.isEmpty {
+                                        Text(issue.recommendation)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
-            .padding()
+            .padding(24)
+            .frame(maxWidth: 760, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+    }
+}
+
+enum ExportFormat: String {
+    case epub = "EPUB"
+    case pdf = "PDF"
+    case docx = "DOCX"
+    case report = "KDP-Bericht"
+    case log = "Produktionsprotokoll"
+    case disclosure = "KI-Offenlegung"
+
+    var icon: String {
+        switch self {
+        case .epub: return "book.fill"
+        case .pdf: return "doc.fill"
+        case .docx: return "doc.text.fill"
+        case .report: return "chart.bar.doc.horizontal"
+        case .log: return "list.clipboard"
+        case .disclosure: return "checkmark.shield"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .epub: return "eBook-Format für Amazon KDP"
+        case .pdf: return "Print-Format mit Seitenumbrüchen"
+        case .docx: return "Bearbeitbares Word-Dokument"
+        case .report: return "Formatprüfung und Qualitätsbewertung"
+        case .log: return "Alle Pipeline-Schritte im Detail"
+        case .disclosure: return "Nachweis der KI-Unterstützung (KDP-Richtlinie)"
         }
     }
 }
 
 struct ExportFormatRow: View {
-    let format: ExportView.ExportType
+    let format: ExportFormat
     let project: Project
+
     @State private var isExporting = false
-    @State private var exportURL: URL?
-    
+    @State private var exportedURL: URL?
+    @State private var errorMessage: String?
+
     var body: some View {
-        HStack {
-            Image(systemName: iconForFormat(format))
-                .font(.title2)
-                .foregroundStyle(.blue)
-            
-            VStack(alignment: .leading) {
+        HStack(spacing: 12) {
+            Image(systemName: format.icon)
+                .font(.title3)
+                .foregroundStyle(.tint)
+                .frame(width: 28)
+
+            VStack(alignment: .leading, spacing: 2) {
                 Text(format.rawValue)
-                    .font(.headline)
-                Text(descriptionForFormat(format))
+                    .font(.callout)
+                    .fontWeight(.medium)
+                Text(format.subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if let error = errorMessage {
+                    Text(error)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                }
             }
-            
+
             Spacer()
-            
-            Button("Exportieren") {
-                exportFile()
+
+            if let url = exportedURL {
+                Button("Im Finder zeigen") {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+                .buttonStyle(.bordered)
+            }
+
+            Button(isExporting ? "Exportiere …" : "Exportieren") {
+                export()
             }
             .buttonStyle(.borderedProminent)
             .disabled(isExporting)
         }
-        .padding()
-        .background(Color(NSColor.controlBackgroundColor))
-        .cornerRadius(8)
+        .padding(12)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
     }
-    
-    private func exportFile() {
+
+    private func export() {
         isExporting = true
-        
+        errorMessage = nil
+
         Task { @MainActor in
+            defer { isExporting = false }
             do {
                 let url: URL
                 switch format {
@@ -294,67 +370,26 @@ struct ExportFormatRow: View {
                 case .docx:
                     url = try ExportEngine.exportToDOCX(project: project)
                 case .report:
-                    let report = ExportEngine.generateKDPReport(project: project)
-                    url = FileManager.default.temporaryDirectory.appendingPathComponent("\(project.title)_kdp_report.txt")
-                    try report.write(to: url, atomically: true, encoding: .utf8)
+                    url = try writeText(ExportEngine.generateKDPReport(project: project),
+                                        fileName: "KDP-Bericht.txt")
                 case .log:
-                    let log = ExportEngine.generateProductionLog(project: project)
-                    url = FileManager.default.temporaryDirectory.appendingPathComponent("\(project.title)_production_log.txt")
-                    try log.write(to: url, atomically: true, encoding: .utf8)
+                    url = try writeText(ExportEngine.generateProductionLog(project: project),
+                                        fileName: "Produktionsprotokoll.txt")
+                case .disclosure:
+                    url = try writeText(generateDisclosureReport(project: project),
+                                        fileName: "KI-Offenlegung.txt")
                 }
-                
-                exportURL = url
-                
-                // Open save panel
-                let savePanel = NSSavePanel()
-                savePanel.nameFieldStringValue = url.lastPathComponent
-                savePanel.canCreateDirectories = true
-                
-                if savePanel.runModal() == .OK, let destinationURL = savePanel.url {
-                    try FileManager.default.copyItem(at: url, to: destinationURL)
-                }
-                
+                exportedURL = url
             } catch {
-                print("Export failed: \(error)")
+                errorMessage = error.localizedDescription
             }
-            
-            isExporting = false
         }
     }
-    
-    private func iconForFormat(_ format: ExportView.ExportType) -> String {
-        switch format {
-        case .epub: return "book.fill"
-        case .pdf: return "doc.fill"
-        case .docx: return "doc.text.fill"
-        case .report: return "chart.bar.fill"
-        case .log: return "list.clipboard.fill"
-        }
-    }
-    
-    private func descriptionForFormat(_ format: ExportView.ExportType) -> String {
-        switch format {
-        case .epub: return "eBook-Format für Amazon KDP"
-        case .pdf: return "Print-Format für Paperback/Hardcover"
-        case .docx: return "Bearbeitbares Dokument"
-        case .report: return "KDP-Formatbericht und Qualitätsprüfung"
-        case .log: return "Vollständiges Produktionsprotokoll"
-        }
-    }
-}
 
-func showReport(text: String, title: String) {
-    let panel = NSSavePanel()
-    panel.nameFieldStringValue = "\(title).txt"
-    panel.canCreateDirectories = true
-    
-    if panel.runModal() == .OK, let url = panel.url {
-        do {
-            try text.write(to: url, atomically: true, encoding: .utf8)
-            NSWorkspace.shared.open(url)
-        } catch {
-            print("Failed to save report: \(error)")
-        }
+    private func writeText(_ text: String, fileName: String) throws -> URL {
+        let url = try ExportEngine.exportDirectory(for: project).appendingPathComponent(fileName)
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        return url
     }
 }
 
@@ -363,53 +398,55 @@ func generateDisclosureReport(project: Project) -> String {
     report += String(repeating: "=", count: 25) + "\n\n"
     report += "Projekt: \(project.title)\n"
     report += "Autor: \(project.authorName)\n"
-    report += "Erstellt am: \(Date())\n\n"
-    
+    report += "Erstellt am: \(Date().formattedString())\n\n"
+
     report += "Dieses Werk wurde mit Unterstützung von Künstlicher Intelligenz (KI) erstellt.\n\n"
-    
     report += "Verwendete KI-Tools:\n"
-    report += "- NovelForge (Buchproduktions-App)\n"
-    report += "- KI-Sprachmodelle für Textgenerierung\n\n"
-    
+    report += "- NovelForge (autonome Buchproduktions-Pipeline)\n"
+    report += "- Provider: \(project.preferredProviderRaw)"
+    if !project.preferredModel.isEmpty {
+        report += ", Modell: \(project.preferredModel)"
+    }
+    report += "\n\n"
+
     if let jobs = project.pipelineJobs {
         report += "Pipeline-Schritte: \(jobs.count)\n"
-        report += "Verwendete Agenten:\n"
-        let agents = Set(jobs.map { $0.agentName })
-        for agent in agents {
+        report += "Beteiligte Agenten:\n"
+        for agent in Set(jobs.map { $0.agentName }).sorted() {
             report += "- \(agent)\n"
         }
     }
-    
+
     report += "\nHinweis:\n"
     report += "Gemäß den Richtlinien von Amazon KDP und anderen Verlagsplattformen\n"
     report += "müssen KI-generierte Inhalte offengelegt werden.\n"
-    report += "Dieser Bericht dient als Nachweis für die KI-Unterstützung.\n"
-    
+    report += "Dieser Bericht dient als Nachweis der KI-Unterstützung.\n"
     return report
 }
 
 struct QualityMetricRow: View {
     let label: String
     let score: Double
-    
+
     var color: Color {
-        if score >= 0.9 { return .green }
-        if score >= 0.7 { return .yellow }
+        if score >= 0.85 { return .green }
+        if score >= 0.6 { return .yellow }
         return .orange
     }
-    
+
     var body: some View {
         HStack {
             Text(label)
             Spacer()
             ProgressView(value: score)
                 .progressViewStyle(.linear)
-                .frame(width: 150)
+                .frame(width: 160)
                 .tint(color)
-            Text("\(Int(score * 100))%")
+            Text("\(Int(score * 100)) %")
                 .font(.caption)
                 .foregroundStyle(color)
-                .frame(width: 40, alignment: .trailing)
+                .frame(width: 44, alignment: .trailing)
+                .monospacedDigit()
         }
     }
 }

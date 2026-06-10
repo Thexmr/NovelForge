@@ -2,10 +2,22 @@ import Foundation
 import SwiftData
 import SwiftUI
 
+/// Steuert die komplette autonome Buchproduktion.
+///
+/// Alle Phasen sind idempotent: bereits erledigte Arbeit (vorhandene Kapitel,
+/// geschriebene Szenen, überarbeitete/korrigierte Kapitel) wird übersprungen.
+/// Dadurch kann eine pausierte oder fehlgeschlagene Produktion jederzeit
+/// fortgesetzt werden, ohne Kosten doppelt zu verursachen.
 @MainActor
-class PipelineOrchestrator: ObservableObject {
+final class PipelineOrchestrator: ObservableObject {
     static let shared = PipelineOrchestrator()
-    
+
+    private enum StopMode {
+        case none, pause, cancel
+    }
+
+    // MARK: - Veröffentlichter Zustand für die UI
+
     @Published var currentProject: Project?
     @Published var currentPhase: PipelinePhase = .projectSetup
     @Published var progress: Double = 0.0
@@ -17,578 +29,918 @@ class PipelineOrchestrator: ObservableObject {
     @Published var lastError: String?
     @Published var totalScenes: Int = 0
     @Published var completedScenes: Int = 0
-    
+    @Published var totalTokensUsed: Int = 0
+    @Published var estimatedCostUSD: Double = 0
+
+    // MARK: - Intern
+
     private var modelContext: ModelContext?
-    private var startTime: Date?
     private var sceneTimes: [TimeInterval] = []
     private var backgroundTask: Task<Void, Never>?
-    private let agentRuntime = AgentRuntime.shared
-    private let providerGateway = ProviderGateway.shared
-    
+    private var heartbeatTask: Task<Void, Never>?
+    private var currentJob: PipelineJob?
+    private var stopMode: StopMode = .none
+    private let gateway = ProviderGateway.shared
+
     func configure(with context: ModelContext) {
         self.modelContext = context
     }
-    
+
+    // MARK: - Steuerung
+
     func startPipeline(project: Project, providerConfig: ProviderConfiguration) {
         guard !isRunning else { return }
-        
+
         isRunning = true
+        stopMode = .none
         currentProject = project
-        startTime = Date()
         lastError = nil
         sceneTimes = []
-        totalScenes = 0
-        completedScenes = 0
-        
+        totalTokensUsed = 0
+        estimatedCostUSD = 0
+        progress = 0
+        currentChapter = 0
+        currentScene = 0
+        estimatedTimeRemaining = ""
+
+        // Provider-Wahl am Projekt persistieren, damit Fortsetzen funktioniert.
+        project.preferredProviderRaw = providerConfig.provider.rawValue
+        if let model = providerConfig.defaultModel, !model.isEmpty {
+            project.preferredModel = model
+        }
+        if let limit = providerConfig.costLimit, limit > 0 {
+            project.costLimitUSD = limit
+        }
+
+        startHeartbeat()
         backgroundTask = Task { [weak self] in
-            await self?.executePipeline(project: project, config: providerConfig)
+            await self?.run(project: project, config: providerConfig)
         }
     }
-    
-    private func executePipeline(project: Project, config: ProviderConfiguration) async {
+
+    /// Pausiert die Produktion. Der Fortschritt bleibt vollständig erhalten.
+    func pausePipeline() {
+        guard isRunning else { return }
+        stopMode = .pause
+        backgroundTask?.cancel()
+    }
+
+    /// Bricht die Produktion ab und markiert das Projekt als fehlgeschlagen.
+    func cancelPipeline() {
+        guard isRunning else { return }
+        stopMode = .cancel
+        backgroundTask?.cancel()
+    }
+
+    /// Setzt ein pausiertes oder fehlgeschlagenes Projekt fort.
+    /// Dank idempotenter Phasen wird nur fehlende Arbeit nachgeholt.
+    func resumePipeline(project: Project) {
+        guard !isRunning else { return }
+        let config = ProviderSettingsStore.configuration(for: project)
+        startPipeline(project: project, providerConfig: config)
+    }
+
+    // MARK: - Hauptablauf
+
+    private func run(project: Project, config: ProviderConfiguration) async {
         do {
-            // Phase 1: Input Validation
-            try await executePhase(.projectSetup, project: project, config: config)
-            
-            // Phase 2: Concept Development
-            try await executePhase(.conceptDevelopment, project: project, config: config)
-            
-            // Phase 3: Structure Planning
-            try await executePhase(.structurePlanning, project: project, config: config)
-            
-            // Phase 4: Chapter Planning
-            try await executePhase(.chapterPlanning, project: project, config: config)
-            
-            // Phase 5: Scene Planning
-            try await executePhase(.scenePlanning, project: project, config: config)
-            
-            // Phase 6: Drafting
-            try await executeDraftingPhase(project: project, config: config)
-            
-            // Phase 7: Chapter Revision
-            try await executePhase(.chapterRevision, project: project, config: config)
-            
-            // Phase 8: Manuscript Revision
-            try await executePhase(.manuscriptRevision, project: project, config: config)
-            
-            // Phase 9: Proofreading
-            try await executePhase(.proofreading, project: project, config: config)
-            
-            // Phase 10: Copyright Check
-            try await executePhase(.copyrightCheck, project: project, config: config)
-            
-            // Phase 11: KDP Formatting
-            try await executePhase(.kdpFormatting, project: project, config: config)
-            
-            // Phase 12: Export
-            try await executePhase(.export, project: project, config: config)
-            
-            await MainActor.run {
-                project.status = .completed
-                self.progress = 1.0
-                self.isRunning = false
-                self.currentAgent = "Abgeschlossen"
-            }
-            
-        } catch {
-            await MainActor.run {
-                self.lastError = error.localizedDescription
-                if self.isRunning {
-                    project.status = .failed
+            for phase in PipelinePhase.executionOrder {
+                try Task.checkCancellation()
+                currentPhase = phase
+                updateProgress(phase: phase, subProgress: 0)
+
+                switch phase {
+                case .projectSetup:
+                    try runInputValidation(project: project)
+                case .conceptDevelopment:
+                    try await runConceptPhase(project: project, config: config)
+                case .structurePlanning:
+                    try await runStructurePhase(project: project, config: config)
+                case .chapterPlanning:
+                    try await runChapterPlanning(project: project, config: config)
+                case .scenePlanning:
+                    try await runScenePlanning(project: project, config: config)
+                case .drafting:
+                    try await runDrafting(project: project, config: config)
+                case .chapterRevision:
+                    try await runChapterRevision(project: project, config: config)
+                case .manuscriptRevision:
+                    try await runConsistencyCheck(project: project, config: config)
+                case .proofreading:
+                    try await runProofreading(project: project, config: config)
+                case .copyrightCheck:
+                    runCopyrightCheck(project: project)
+                case .kdpFormatting:
+                    runKDPFormatting(project: project)
+                case .export:
+                    try runExport(project: project)
+                default:
+                    break
                 }
-                self.isRunning = false
+
+                project.updatedAt = Date()
+                try? modelContext?.save()
+            }
+
+            project.status = .completed
+            progress = 1.0
+            currentAgent = "Abgeschlossen"
+            finish()
+
+        } catch is CancellationError {
+            handleStop(project: project)
+        } catch let error as AIError {
+            if stopMode != .none {
+                handleStop(project: project)
+                return
+            }
+            if let job = currentJob, job.status == .running {
+                failJob(job, error: error)
+            }
+            var message = error.errorDescription ?? "Unbekannter Fehler"
+            if let suggestion = error.recoverySuggestion {
+                message += " – \(suggestion)"
+            }
+            lastError = message
+            project.status = .failed
+            finish()
+        } catch {
+            if stopMode != .none {
+                handleStop(project: project)
+                return
+            }
+            if let job = currentJob, job.status == .running {
+                failJob(job, error: error)
+            }
+            lastError = error.localizedDescription
+            project.status = .failed
+            finish()
+        }
+    }
+
+    private func handleStop(project: Project) {
+        if let job = currentJob, job.status == .running {
+            job.status = .paused
+            job.endTime = Date()
+            currentJob = nil
+        }
+        project.status = (stopMode == .cancel) ? .failed : .paused
+        lastError = nil
+        currentAgent = (stopMode == .cancel) ? "Abgebrochen" : "Pausiert"
+        finish()
+    }
+
+    private func finish() {
+        isRunning = false
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
+        try? modelContext?.save()
+    }
+
+    private func startHeartbeat() {
+        heartbeatTask?.cancel()
+        heartbeatTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                guard let self, !Task.isCancelled else { return }
+                if let job = self.currentJob, job.status == .running {
+                    job.lastHeartbeat = Date()
+                }
             }
         }
     }
-    
-    private func executePhase(_ phase: PipelinePhase, project: Project, config: ProviderConfiguration) async throws {
-        await MainActor.run {
-            self.currentPhase = phase
-            self.updateProgress(phase)
-        }
-        
-        if project.pipelineJobs == nil {
-            project.pipelineJobs = []
-        }
-        if project.qualityReports == nil {
-            project.qualityReports = []
-        }
-        
-        let job = PipelineJob(agentName: phase.rawValue, phase: phase)
+
+    // MARK: - Job-Verwaltung
+
+    private func beginJob(agent: String, phase: PipelinePhase, project: Project,
+                          chapter: Int? = nil, scene: Int? = nil) -> PipelineJob {
+        let job = PipelineJob(agentName: agent, phase: phase, chapterNumber: chapter, sceneNumber: scene)
         job.status = .running
         job.startTime = Date()
+        job.lastHeartbeat = Date()
+        if project.pipelineJobs == nil { project.pipelineJobs = [] }
         project.pipelineJobs?.append(job)
         modelContext?.insert(job)
-        
-        let context = AgentContext(
-            project: project,
-            chapter: nil,
-            scene: nil,
-            storyBible: project.storyBible,
-            previousResults: [:],
+        currentJob = job
+        currentAgent = agent
+        return job
+    }
+
+    private func completeJob(_ job: PipelineJob, result: String? = nil, tokens: Int = 0) {
+        job.status = .completed
+        job.endTime = Date()
+        job.result = result.map { String($0.prefix(2000)) }
+        job.tokenUsage = tokens
+        currentJob = nil
+    }
+
+    private func failJob(_ job: PipelineJob, error: Error) {
+        job.status = .failed
+        job.endTime = Date()
+        job.errorCount += 1
+        job.result = error.localizedDescription
+        currentJob = nil
+    }
+
+    // MARK: - LLM-Aufruf mit Kosten-Tracking
+
+    private func generate(prompt: String, system: String, maxTokens: Int,
+                          temperature: Double, config: ProviderConfiguration) async throws -> GenerationResponse {
+        try Task.checkCancellation()
+
+        if let limit = config.costLimit, limit > 0, estimatedCostUSD >= limit {
+            throw AIError.quotaExceeded
+        }
+
+        let model = config.defaultModel ?? config.provider.suggestedModels.first ?? ""
+        let request = GenerationRequest(
+            prompt: prompt,
+            systemPrompt: system,
+            model: model,
             provider: config.provider,
-            model: config.defaultModel ?? "gpt-4o"
+            maxTokens: maxTokens,
+            temperature: temperature
         )
-        
+        let response = try await gateway.generateText(request: request, configuration: config)
+
+        if let tokens = response.tokensUsed {
+            totalTokensUsed += tokens
+            estimatedCostUSD += ModelPricing.estimatedCost(model: model, tokens: tokens)
+        }
+        return response
+    }
+
+    // MARK: - Phase 1: Eingabevalidierung (lokal, ohne KI)
+
+    private func runInputValidation(project: Project) throws {
+        let job = beginJob(agent: AgentName.input, phase: .projectSetup, project: project)
+
+        let validation = InputValidator.validateProject(project)
+        guard validation.isValid else {
+            let message = validation.errors.joined(separator: "; ")
+            failJob(job, error: AIError.systemError(message))
+            throw AIError.systemError(message)
+        }
+
+        completeJob(job, result: "Projekt validiert: \(project.title) (\(project.genre), \(project.targetPageCount) Seiten)")
+    }
+
+    // MARK: - Phase 2: Konzeptentwicklung
+
+    private func runConceptPhase(project: Project, config: ProviderConfiguration) async throws {
+        guard let profile = project.bookProfile else {
+            throw AIError.systemError("Buchprofil fehlt")
+        }
+        // Bereits erledigt? (Fortsetzen)
+        if let logline = profile.logline, !logline.isEmpty { return }
+
+        project.status = .conceptDevelopment
+        let job = beginJob(agent: AgentName.concept, phase: .conceptDevelopment, project: project)
         do {
-            switch phase {
-            case .projectSetup:
-                let agent = InputAgent()
-                await MainActor.run { self.currentAgent = agent.name }
-                let result = try await agentRuntime.executeAgent(agent, context: context, job: job)
-                if !result.success {
-                    throw AIError.systemError("Input validation failed")
-                }
-                
-            case .conceptDevelopment:
-                let agent = ConceptAgent()
-                await MainActor.run { self.currentAgent = agent.name }
-                let result = try await agentRuntime.executeAgent(agent, context: context, job: job)
-                if let bookProfile = project.bookProfile {
-                    bookProfile.premise = result.output
-                }
-                
-            case .structurePlanning:
-                let plotAgent = PlotArchitectAgent()
-                await MainActor.run { self.currentAgent = plotAgent.name }
-                _ = try await agentRuntime.executeAgent(plotAgent, context: context, job: job)
-                
-                let charAgent = CharacterArchitectAgent()
-                await MainActor.run { self.currentAgent = charAgent.name }
-                let charResult = try await agentRuntime.executeAgent(charAgent, context: context, job: job)
-                
-                await parseCharacters(from: charResult.output, storyBible: project.storyBible)
-                
-            case .chapterPlanning:
-                try await planChapters(project: project, config: config)
-                
-            case .scenePlanning:
-                try await planScenes(project: project, config: config)
-                
-            case .chapterRevision:
-                try await reviseChapters(project: project, config: config)
-                
-            case .manuscriptRevision:
-                try await reviseManuscript(project: project, config: config)
-                
-            case .proofreading:
-                try await proofreadManuscript(project: project, config: config)
-                
-            case .copyrightCheck:
-                try await checkCopyright(project: project, config: config)
-                
-            case .kdpFormatting:
-                try await formatForKDP(project: project, config: config)
-                
-            case .export:
-                try await exportProject(project: project)
-                
-            default:
-                break
+            let prompt = PromptFactory.concept(
+                title: project.title, genre: project.genre, subgenre: project.subgenre,
+                language: project.language, style: project.styleProfile,
+                tonality: profile.tonality, audience: profile.targetAudience,
+                perspective: profile.narrativePerspective, tense: profile.tense,
+                pageCount: project.targetPageCount
+            )
+            let response = try await generate(
+                prompt: prompt,
+                system: "Du bist ein erfahrener Verlagslektor und entwickelst originelle, tragfähige Buchkonzepte.",
+                maxTokens: 1500, temperature: 0.8, config: config
+            )
+
+            let parsed = ConceptParser.parse(response.text)
+            if !parsed.premise.isEmpty { profile.premise = parsed.premise }
+            profile.logline = parsed.logline.isEmpty ? String(response.text.prefix(200)) : parsed.logline
+            profile.synopsis = parsed.synopsis.isEmpty ? response.text : parsed.synopsis
+            if !parsed.theme.isEmpty { profile.theme = parsed.theme }
+            if profile.targetAudience.isEmpty && !parsed.audience.isEmpty {
+                profile.targetAudience = parsed.audience
             }
-            
-            job.status = .completed
-            job.endTime = Date()
-            project.updatedAt = Date()
-            try? modelContext?.save()
-            
+
+            completeJob(job, result: response.text, tokens: response.tokensUsed ?? 0)
         } catch {
-            job.status = .failed
-            job.endTime = Date()
-            job.errorCount += 1
+            failJob(job, error: error)
             throw error
         }
     }
-    
-    private func executeDraftingPhase(project: Project, config: ProviderConfiguration) async throws {
-        await MainActor.run {
-            self.currentPhase = .drafting
+
+    // MARK: - Phase 3: Strukturplanung (Plot + Figuren)
+
+    private func runStructurePhase(project: Project, config: ProviderConfiguration) async throws {
+        guard let bible = project.storyBible, let profile = project.bookProfile else {
+            throw AIError.systemError("Story Bible oder Buchprofil fehlt")
         }
-        
-        guard let chapters = project.chapters?.sorted(by: { $0.chapterNumber < $1.chapterNumber }) else {
-            throw AIError.systemError("Keine Kapitel zum Schreiben")
+        project.status = .structurePlanning
+
+        if bible.styleRules.isEmpty {
+            bible.styleRules = "Stilprofil: \(project.styleProfile). Tonalität: \(profile.tonality). "
+                + "Erzählperspektive: \(profile.narrativePerspective), Zeitform: \(profile.tense). "
+                + "Sprache: \(project.language)."
         }
-        
-        let totalSceneCount = chapters.compactMap { $0.scenes?.count }.reduce(0, +)
-        
-        await MainActor.run {
-            self.totalScenes = totalSceneCount
-            self.completedScenes = 0
-        }
-        
-        for (index, chapter) in chapters.enumerated() {
-            await MainActor.run {
-                self.currentChapter = chapter.chapterNumber
-            }
-            
-            guard let scenes = chapter.scenes?.sorted(by: { $0.sceneNumber < $1.sceneNumber }) else {
-                chapter.status = .draftComplete
-                continue
-            }
-            
-            for scene in scenes {
-                // Check if cancelled
-                if Task.isCancelled {
-                    throw AIError.systemError("Pipeline wurde abgebrochen")
-                }
-                
-                await MainActor.run {
-                    self.currentScene = scene.sceneNumber
-                    scene.status = .writing
-                }
-                
-                let sceneStart = Date()
-                
-                let job = PipelineJob(
-                    agentName: "Draft Writer",
-                    phase: .drafting,
-                    chapterNumber: chapter.chapterNumber,
-                    sceneNumber: scene.sceneNumber
-                )
-                job.startTime = sceneStart
-                project.pipelineJobs?.append(job)
-                modelContext?.insert(job)
-                
-                let context = AgentContext(
-                    project: project,
-                    chapter: chapter,
-                    scene: scene,
-                    storyBible: project.storyBible,
-                    previousResults: ["previous_summary": getPreviousSummary(project: project, currentChapter: chapter.chapterNumber)],
-                    provider: config.provider,
-                    model: config.defaultModel ?? "gpt-4o"
-                )
-                
-                let agent = DraftWriterAgent()
-                await MainActor.run {
-                    self.currentAgent = "\(agent.name) - Kapitel \(chapter.chapterNumber), Szene \(scene.sceneNumber)"
-                }
-                
-                do {
-                    let result = try await agentRuntime.executeAgent(agent, context: context, job: job)
-                    scene.text = result.output
-                    scene.status = .written
-                    
-                    // Update word count
-                    chapter.actualWordCount = (chapter.scenes?.compactMap { $0.text?.wordCount }.reduce(0, +)) ?? 0
-                    
-                    // Track timing
-                    let duration = Date().timeIntervalSince(sceneStart)
-                    sceneTimes.append(duration)
-                    
-                    await MainActor.run {
-                        self.completedScenes += 1
-                        let subProgress = Double(self.completedScenes) / Double(self.totalScenes)
-                        self.updateProgress(.drafting, subProgress: subProgress)
-                        self.updateEstimatedTime(
-                            chaptersLeft: chapters.count - index - 1,
-                            scenesLeft: scenes.count - scene.sceneNumber
-                        )
-                    }
-                    
-                    // Save after each scene
-                    try? modelContext?.save()
-                    
-                } catch {
-                    scene.status = .needsRevision
-                    job.status = .failed
-                    job.errorCount += 1
-                    throw error
-                }
-            }
-            
-            chapter.status = .draftComplete
-        }
-    }
-    
-    private func planChapters(project: Project, config: ProviderConfiguration) async throws {
-        let estimatedChapters = max(10, project.targetPageCount / 15)
-        
-        if project.chapters == nil {
-            project.chapters = []
-        }
-        
-        for i in 1...estimatedChapters {
-            let chapter = Chapter(
-                chapterNumber: i,
-                title: "Kapitel \(i)",
-                goal: "",
-                targetWordCount: project.targetWordCount / estimatedChapters
-            )
-            chapter.project = project
-            project.chapters?.append(chapter)
-            modelContext?.insert(chapter)
-        }
-        
-        try? modelContext?.save()
-        project.status = .chapterPlanning
-    }
-    
-    private func planScenes(project: Project, config: ProviderConfiguration) async throws {
-        guard let chapters = project.chapters else { return }
-        
-        for chapter in chapters {
-            if chapter.scenes == nil {
-                chapter.scenes = []
-            }
-            
-            let sceneCount = Int.random(in: 3...6)
-            
-            for i in 1...sceneCount {
-                let scene = StoryScene(
-                    sceneNumber: i,
-                    perspective: "",
-                    location: "",
-                    goal: "",
-                    targetWordCount: chapter.targetWordCount / sceneCount
-                )
-                scene.chapter = chapter
-                chapter.scenes?.append(scene)
-                modelContext?.insert(scene)
-            }
-            
-            chapter.status = .scenesPlanned
-        }
-        
-        try? modelContext?.save()
-    }
-    
-    private func reviseChapters(project: Project, config: ProviderConfiguration) async throws {
-        guard let chapters = project.chapters else { return }
-        
-        for chapter in chapters {
-            if Task.isCancelled { break }
-            
-            let fullText = chapter.scenes?.compactMap { $0.text }.joined(separator: "\n\n") ?? ""
-            chapter.draftText = fullText
-            chapter.revisedText = fullText
-            chapter.status = .revised
-        }
-        
-        try? modelContext?.save()
-    }
-    
-    private func reviseManuscript(project: Project, config: ProviderConfiguration) async throws {
-        project.status = .manuscriptRevision
-        try? modelContext?.save()
-    }
-    
-    private func proofreadManuscript(project: Project, config: ProviderConfiguration) async throws {
-        guard let chapters = project.chapters else { return }
-        
-        for (index, chapter) in chapters.enumerated() {
-            if Task.isCancelled { break }
-            
-            guard let text = chapter.revisedText else { continue }
-            
-            await MainActor.run {
-                self.currentChapter = chapter.chapterNumber
-                self.currentAgent = "Proofreader - Kapitel \(chapter.chapterNumber)"
-            }
-            
-            let job = PipelineJob(
-                agentName: "Proofreader",
-                phase: .proofreading,
-                chapterNumber: chapter.chapterNumber
-            )
-            job.startTime = Date()
-            project.pipelineJobs?.append(job)
-            modelContext?.insert(job)
-            
-            let context = AgentContext(
-                project: project,
-                chapter: chapter,
-                scene: nil,
-                storyBible: project.storyBible,
-                previousResults: ["text_to_proofread": text],
-                provider: config.provider,
-                model: config.defaultModel ?? "gpt-4o-mini"
-            )
-            
-            let agent = ProofreaderAgent()
-            
+
+        // Plot
+        if bible.plotPoints.isEmpty {
+            let job = beginJob(agent: AgentName.plot, phase: .structurePlanning, project: project)
             do {
-                let result = try await agentRuntime.executeAgent(agent, context: context, job: job)
-                chapter.finalText = result.output
-                chapter.status = .finalized
-                job.status = .completed
-                job.endTime = Date()
-                
-                let subProgress = Double(index + 1) / Double(chapters.count)
-                await MainActor.run {
-                    self.updateProgress(.proofreading, subProgress: subProgress)
-                }
-                
+                let prompt = PromptFactory.plot(
+                    title: project.title, genre: project.genre, style: project.styleProfile,
+                    concept: profile.synopsis ?? profile.premise,
+                    pageCount: project.targetPageCount,
+                    chapterCount: estimatedChapterCount(for: project)
+                )
+                let response = try await generate(
+                    prompt: prompt,
+                    system: "Du bist ein Plot-Architekt für Romane. Du baust schlüssige, spannende Handlungsbögen.",
+                    maxTokens: 3500, temperature: 0.7, config: config
+                )
+                bible.plotPoints = response.text
+                bible.updatedAt = Date()
+                completeJob(job, result: response.text, tokens: response.tokensUsed ?? 0)
             } catch {
-                job.status = .failed
-                job.endTime = Date()
-                job.errorCount += 1
+                failJob(job, error: error)
                 throw error
             }
         }
-        
-        project.status = .proofreading
-        try? modelContext?.save()
-    }
-    
-    private func checkCopyright(project: Project, config: ProviderConfiguration) async throws {
-        let report = QualityReport(
-            checkedArea: "Copyright",
-            checkType: "Risikoanalyse",
-            result: "Keine offensichtlichen Verstöße erkannt",
-            severity: .info,
-            recommendation: "Interne Prüfung - keine juristische Garantie"
-        )
-        project.qualityReports?.append(report)
-        modelContext?.insert(report)
-        try? modelContext?.save()
-    }
-    
-    private func formatForKDP(project: Project, config: ProviderConfiguration) async throws {
-        await MainActor.run {
-            self.currentAgent = "KDP Formatter"
-        }
-        
-        // Generate front matter
-        let year = Calendar.current.component(.year, from: Date())
-        var frontMatter = ""
-        frontMatter += "\\begin{titlepage}\n"
-        frontMatter += "\\centering\n"
-        frontMatter += "\\vspace*{2cm}\n"
-        frontMatter += "{\\Huge \\(project.title)}\\par\n"
-        frontMatter += "\\vspace{1cm}\n"
-        frontMatter += "{\\Large \\(project.authorName)}\\par\n"
-        frontMatter += "\\vfill\n"
-        frontMatter += "{\\small \\(year)}\\par\n"
-        frontMatter += "\\end{titlepage}\n"
-        frontMatter += "\\newpage\n"
-        frontMatter += "\\thispagestyle{empty}\n"
-        frontMatter += "\\begin{center}\n"
-        frontMatter += "\\copyright\\ \\(year) \\(project.authorName)\\par\n"
-        frontMatter += "\\vspace{1cm}\n"
-        frontMatter += "Alle Rechte vorbehalten.\\par\n"
-        frontMatter += "\\end{center}\n"
-        frontMatter += "\\newpage\n"
-        
-        // Table of contents
-        frontMatter += "\\tableofcontents\n"
-        frontMatter += "\\newpage\n"
-        
-        project.status = .kdpFormatting
-        try? modelContext?.save()
-    }
-    
-    private func exportProject(project: Project) async throws {
-        await MainActor.run {
-            self.currentAgent = "Export"
-        }
-        
-        do {
-            if project.outputFormats.contains("EPUB") {
-                _ = try ExportEngine.exportToEPUB(project: project)
-            }
-            if project.outputFormats.contains("PDF") {
-                _ = try ExportEngine.exportToPDF(project: project)
-            }
-            if project.outputFormats.contains("DOCX") {
-                _ = try ExportEngine.exportToDOCX(project: project)
-            }
-            
-            project.status = .export
-            try? modelContext?.save()
-            
-        } catch {
-            throw AIError.systemError("Export fehlgeschlagen: \\(error.localizedDescription)")
-        }
-    }
-    
-    private func parseCharacters(from output: String, storyBible: StoryBible?) async {
-        guard let storyBible = storyBible else { return }
-        
-        if storyBible.characters == nil {
-            storyBible.characters = []
-        }
-        
-        let lines = output.components(separatedBy: .newlines)
-        var currentName = ""
-        
-        for line in lines {
-            if line.hasPrefix("Name:") || line.hasPrefix("- Name:") || line.contains("**Name:**") {
-                currentName = line.replacingOccurrences(of: "Name:", with: "")
-                    .replacingOccurrences(of: "-", with: "")
-                    .replacingOccurrences(of: "**", with: "")
-                    .trimmingCharacters(in: .whitespaces)
-                
-                if !currentName.isEmpty {
-                    let character = CharacterProfile(name: currentName, role: "Nebenfigur")
-                    character.storyBible = storyBible
-                    storyBible.characters?.append(character)
+
+        // Figuren
+        if (bible.characters ?? []).isEmpty {
+            let job = beginJob(agent: AgentName.character, phase: .structurePlanning, project: project)
+            do {
+                let prompt = PromptFactory.characters(
+                    title: project.title, genre: project.genre, plot: bible.plotPoints
+                )
+                let response = try await generate(
+                    prompt: prompt,
+                    system: "Du bist ein Charakter-Entwickler. Du erschaffst vielschichtige, glaubwürdige Figuren.",
+                    maxTokens: 3000, temperature: 0.7, config: config
+                )
+
+                let parsed = StructureParser.parseCharacters(response.text)
+                if bible.characters == nil { bible.characters = [] }
+                for item in parsed {
+                    let character = CharacterProfile(name: item.name, role: item.role)
+                    character.age = item.age
+                    character.occupation = item.occupation
+                    character.goal = item.goal
+                    character.fear = item.fear
+                    character.weakness = item.weakness
+                    character.storyBible = bible
+                    bible.characters?.append(character)
                     modelContext?.insert(character)
+                }
+                bible.updatedAt = Date()
+                completeJob(job, result: "\(parsed.count) Figuren angelegt", tokens: response.tokensUsed ?? 0)
+            } catch {
+                failJob(job, error: error)
+                throw error
+            }
+        }
+    }
+
+    // MARK: - Phase 4: Kapitelplanung
+
+    private func runChapterPlanning(project: Project, config: ProviderConfiguration) async throws {
+        // Bereits geplant? (Fortsetzen) – verhindert auch doppelte Kapitel.
+        if !(project.chapters ?? []).isEmpty {
+            project.status = .chapterPlanning
+            return
+        }
+        guard let bible = project.storyBible else {
+            throw AIError.systemError("Story Bible fehlt")
+        }
+
+        project.status = .chapterPlanning
+        let chapterCount = estimatedChapterCount(for: project)
+        let wordsPerChapter = max(1, project.targetWordCount / chapterCount)
+
+        let job = beginJob(agent: AgentName.chapterPlanner, phase: .chapterPlanning, project: project)
+        do {
+            let prompt = PromptFactory.chapterPlan(
+                title: project.title, genre: project.genre, plot: bible.plotPoints,
+                chapterCount: chapterCount, wordsPerChapter: wordsPerChapter
+            )
+            let response = try await generate(
+                prompt: prompt,
+                system: "Du bist ein Strukturplaner für Romane. Du hältst dich exakt an das geforderte Ausgabeformat.",
+                maxTokens: 3000, temperature: 0.6, config: config
+            )
+
+            var planned = StructureParser.parseChapters(response.text)
+            if planned.isEmpty {
+                // Fallback: generische Kapitel, damit die Pipeline nie stehen bleibt.
+                planned = (1...chapterCount).map {
+                    PlannedChapter(number: $0, title: "Kapitel \($0)",
+                                   goal: "Setze den Plot konsequent fort.", conflict: "")
+                }
+            }
+
+            if project.chapters == nil { project.chapters = [] }
+            for item in planned {
+                let chapter = Chapter(
+                    chapterNumber: item.number,
+                    title: item.title,
+                    goal: item.goal,
+                    targetWordCount: max(1, project.targetWordCount / planned.count)
+                )
+                chapter.conflict = item.conflict
+                chapter.project = project
+                project.chapters?.append(chapter)
+                modelContext?.insert(chapter)
+            }
+
+            completeJob(job, result: "\(planned.count) Kapitel geplant", tokens: response.tokensUsed ?? 0)
+        } catch {
+            failJob(job, error: error)
+            throw error
+        }
+    }
+
+    // MARK: - Phase 5: Szenenplanung
+
+    private func runScenePlanning(project: Project, config: ProviderConfiguration) async throws {
+        guard let bible = project.storyBible, let profile = project.bookProfile else {
+            throw AIError.systemError("Story Bible oder Buchprofil fehlt")
+        }
+        project.status = .scenePlanning
+
+        let chapters = sortedChapters(project)
+        for (index, chapter) in chapters.enumerated() {
+            try Task.checkCancellation()
+            // Bereits geplant? (Fortsetzen)
+            if !(chapter.scenes ?? []).isEmpty {
+                continue
+            }
+
+            currentChapter = chapter.chapterNumber
+            let job = beginJob(agent: AgentName.scenePlanner, phase: .scenePlanning,
+                               project: project, chapter: chapter.chapterNumber)
+            do {
+                let prompt = PromptFactory.scenePlan(
+                    bookTitle: project.title,
+                    chapterNumber: chapter.chapterNumber, chapterTitle: chapter.title,
+                    chapterGoal: chapter.goal, chapterConflict: chapter.conflict,
+                    perspective: profile.narrativePerspective,
+                    plotContext: bible.plotPoints,
+                    targetWords: chapter.targetWordCount
+                )
+                let response = try await generate(
+                    prompt: prompt,
+                    system: "Du bist ein Szenenplaner für Romane. Du hältst dich exakt an das geforderte Ausgabeformat.",
+                    maxTokens: 1200, temperature: 0.6, config: config
+                )
+
+                var planned = StructureParser.parseScenes(response.text)
+                if planned.isEmpty {
+                    planned = (1...4).map {
+                        PlannedScene(number: $0, perspective: profile.narrativePerspective,
+                                     location: "", time: "",
+                                     goal: "Führe das Kapitelziel weiter: \(chapter.goal)",
+                                     obstacle: "", turn: "")
+                    }
+                }
+
+                if chapter.scenes == nil { chapter.scenes = [] }
+                for item in planned {
+                    let scene = StoryScene(
+                        sceneNumber: item.number,
+                        perspective: item.perspective.isEmpty ? profile.narrativePerspective : item.perspective,
+                        location: item.location,
+                        goal: item.goal,
+                        targetWordCount: max(1, chapter.targetWordCount / planned.count)
+                    )
+                    scene.time = item.time
+                    scene.obstacle = item.obstacle
+                    scene.cliffhanger = item.turn
+                    scene.chapter = chapter
+                    chapter.scenes?.append(scene)
+                    modelContext?.insert(scene)
+                }
+                chapter.status = .scenesPlanned
+
+                completeJob(job, result: "\(planned.count) Szenen geplant", tokens: response.tokensUsed ?? 0)
+                updateProgress(phase: .scenePlanning, subProgress: Double(index + 1) / Double(chapters.count))
+                try? modelContext?.save()
+            } catch {
+                failJob(job, error: error)
+                throw error
+            }
+        }
+    }
+
+    // MARK: - Phase 6: Rohfassung (Szene für Szene, mit Kontinuität)
+
+    private func runDrafting(project: Project, config: ProviderConfiguration) async throws {
+        guard let profile = project.bookProfile, let bible = project.storyBible else {
+            throw AIError.systemError("Buchprofil oder Story Bible fehlt")
+        }
+        project.status = .drafting
+
+        let chapters = sortedChapters(project)
+        guard !chapters.isEmpty else {
+            throw AIError.systemError("Keine Kapitel zum Schreiben vorhanden")
+        }
+
+        let allScenes = chapters.flatMap { sortedScenes($0) }
+        totalScenes = allScenes.count
+        completedScenes = allScenes.filter { isSceneWritten($0) }.count
+
+        // Kontinuität: vorhandene Zusammenfassungen einsammeln (wichtig beim Fortsetzen).
+        var storySoFar: [String] = []
+        for chapter in chapters {
+            for scene in sortedScenes(chapter) where isSceneWritten(scene) {
+                if let summary = scene.summary, !summary.isEmpty {
+                    storySoFar.append("Kap. \(chapter.chapterNumber), Szene \(scene.sceneNumber): \(summary)")
                 }
             }
         }
-        
-        try? modelContext?.save()
-    }
-    
-    private func getPreviousSummary(project: Project, currentChapter: Int) -> String {
-        guard let chapters = project.chapters?.sorted(by: { $0.chapterNumber < $1.chapterNumber }),
-              currentChapter > 1 else {
-            return "Anfang des Buches"
+
+        let charactersSummary = compactCharacterSummary(bible)
+
+        for chapter in chapters {
+            currentChapter = chapter.chapterNumber
+            let scenes = sortedScenes(chapter)
+
+            for scene in scenes {
+                try Task.checkCancellation()
+                if isSceneWritten(scene) { continue }
+
+                currentScene = scene.sceneNumber
+                scene.status = .writing
+                let sceneStart = Date()
+
+                let job = beginJob(agent: AgentName.draftWriter, phase: .drafting, project: project,
+                                   chapter: chapter.chapterNumber, scene: scene.sceneNumber)
+                currentAgent = "\(AgentName.draftWriter) – Kapitel \(chapter.chapterNumber), Szene \(scene.sceneNumber)"
+
+                do {
+                    let recentContext = storySoFar.suffix(12).joined(separator: "\n")
+                    let prompt = PromptFactory.draftScene(
+                        language: project.language, style: project.styleProfile,
+                        tonality: profile.tonality, perspective: profile.narrativePerspective,
+                        tense: profile.tense, bookTitle: project.title,
+                        chapterNumber: chapter.chapterNumber, chapterTitle: chapter.title,
+                        chapterGoal: chapter.goal, sceneNumber: scene.sceneNumber,
+                        sceneGoal: scene.goal, sceneLocation: scene.location,
+                        sceneTime: scene.time, sceneObstacle: scene.obstacle,
+                        sceneTurn: scene.cliffhanger, scenePerspective: scene.perspective,
+                        charactersSummary: charactersSummary,
+                        styleRules: bible.styleRules,
+                        storySoFar: recentContext,
+                        targetWords: scene.targetWordCount
+                    )
+                    let maxTokens = min(4000, max(1200, scene.targetWordCount * 3))
+                    let response = try await generate(
+                        prompt: prompt,
+                        system: "Du bist ein professioneller Romanautor. Du schreibst lebendige, atmosphärische Prosa mit natürlichen Dialogen.",
+                        maxTokens: maxTokens, temperature: 0.85, config: config
+                    )
+
+                    scene.text = response.text
+                    scene.status = .written
+                    scene.updatedAt = Date()
+                    chapter.actualWordCount = sortedScenes(chapter).compactMap { $0.text?.wordCount }.reduce(0, +)
+                    completeJob(job, result: "\(response.text.wordCount) Wörter", tokens: response.tokensUsed ?? 0)
+
+                    // Kontext-Zusammenfassung für die folgenden Szenen.
+                    let summary = await summarizeScene(response.text, project: project,
+                                                       chapter: chapter, scene: scene, config: config)
+                    scene.summary = summary
+                    storySoFar.append("Kap. \(chapter.chapterNumber), Szene \(scene.sceneNumber): \(summary)")
+
+                    sceneTimes.append(Date().timeIntervalSince(sceneStart))
+                    completedScenes += 1
+                    updateProgress(phase: .drafting,
+                                   subProgress: totalScenes > 0 ? Double(completedScenes) / Double(totalScenes) : 1)
+                    updateEstimatedTime()
+                    try? modelContext?.save()
+                } catch {
+                    scene.status = .needsRevision
+                    failJob(job, error: error)
+                    throw error
+                }
+            }
+
+            chapter.status = .draftComplete
+            try? modelContext?.save()
         }
-        
-        let prevChapter = chapters.first { $0.chapterNumber == currentChapter - 1 }
-        let summaries = prevChapter?.scenes?.compactMap { $0.summary }.joined(separator: " ") ?? ""
-        return summaries.isEmpty ? "Anfang des Buches" : summaries
+        estimatedTimeRemaining = ""
     }
-    
-    private func updateProgress(_ phase: PipelinePhase, subProgress: Double = 0.0) {
-        var totalWeight = 0.0
-        for p in PipelinePhase.allCases {
-            if p == phase { break }
-            totalWeight += p.weight
+
+    /// Erzeugt eine kompakte Szenenzusammenfassung. Fehler hier sind nicht fatal –
+    /// dann dient der Szenenanfang als Ersatz.
+    private func summarizeScene(_ text: String, project: Project, chapter: Chapter,
+                                scene: StoryScene, config: ProviderConfiguration) async -> String {
+        let job = beginJob(agent: AgentName.summarizer, phase: .drafting, project: project,
+                           chapter: chapter.chapterNumber, scene: scene.sceneNumber)
+        do {
+            let response = try await generate(
+                prompt: PromptFactory.summarizeScene(text: text),
+                system: "Du fasst Romanszenen präzise und knapp zusammen.",
+                maxTokens: 250, temperature: 0.3, config: config
+            )
+            completeJob(job, result: response.text, tokens: response.tokensUsed ?? 0)
+            return response.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            failJob(job, error: error)
+            let fallback = text.replacingOccurrences(of: "\n", with: " ")
+            return String(fallback.prefix(300))
         }
-        totalWeight += phase.weight * subProgress
-        progress = min(totalWeight, 1.0)
     }
-    
-    private func updateEstimatedTime(chaptersLeft: Int, scenesLeft: Int) {
-        guard !sceneTimes.isEmpty else { return }
-        let avgSceneTime = sceneTimes.reduce(0, +) / Double(sceneTimes.count)
-        let totalScenesLeft = chaptersLeft * 5 + scenesLeft
-        let totalSeconds = avgSceneTime * Double(totalScenesLeft)
-        
-        let hours = Int(totalSeconds) / 3600
-        let minutes = (Int(totalSeconds) % 3600) / 60
-        
-        if hours > 0 {
-            estimatedTimeRemaining = "\(hours)h \(minutes)min"
+
+    // MARK: - Phase 7: Kapitelrevision
+
+    private func runChapterRevision(project: Project, config: ProviderConfiguration) async throws {
+        guard let profile = project.bookProfile else {
+            throw AIError.systemError("Buchprofil fehlt")
+        }
+        project.status = .chapterRevision
+
+        let chapters = sortedChapters(project)
+        for (index, chapter) in chapters.enumerated() {
+            try Task.checkCancellation()
+
+            if chapter.draftText == nil || chapter.draftText?.isEmpty == true {
+                chapter.draftText = sortedScenes(chapter).compactMap { $0.text }.joined(separator: "\n\n")
+            }
+            // Bereits überarbeitet? (Fortsetzen)
+            if let revised = chapter.revisedText, !revised.isEmpty { continue }
+            guard let draft = chapter.draftText, !draft.isEmpty else { continue }
+
+            currentChapter = chapter.chapterNumber
+            let job = beginJob(agent: AgentName.reviser, phase: .chapterRevision,
+                               project: project, chapter: chapter.chapterNumber)
+            do {
+                let prompt = PromptFactory.reviseChapter(
+                    language: project.language, style: project.styleProfile,
+                    tonality: profile.tonality, chapterNumber: chapter.chapterNumber,
+                    chapterTitle: chapter.title, text: draft
+                )
+                let maxTokens = min(12000, max(3000, draft.wordCount * 3))
+                let response = try await generate(
+                    prompt: prompt,
+                    system: "Du bist ein erfahrener Lektor. Du verbesserst Prosa, ohne Handlung oder Stimme zu verändern.",
+                    maxTokens: maxTokens, temperature: 0.4, config: config
+                )
+
+                // Schutz vor abgeschnittenen/leeren Antworten: nie Text verlieren.
+                if response.text.wordCount >= draft.wordCount / 2 {
+                    chapter.revisedText = response.text
+                } else {
+                    chapter.revisedText = draft
+                    addReport(project: project, area: "Kapitel \(chapter.chapterNumber)",
+                              type: "Revision", result: "Revisionsantwort unvollständig – Rohfassung übernommen",
+                              severity: .warning,
+                              recommendation: "Kapitel manuell prüfen oder Revision erneut ausführen.")
+                }
+                chapter.status = .revised
+                chapter.updatedAt = Date()
+                completeJob(job, result: "Kapitel \(chapter.chapterNumber) überarbeitet", tokens: response.tokensUsed ?? 0)
+
+                updateProgress(phase: .chapterRevision, subProgress: Double(index + 1) / Double(chapters.count))
+                try? modelContext?.save()
+            } catch {
+                failJob(job, error: error)
+                throw error
+            }
+        }
+    }
+
+    // MARK: - Phase 8: Gesamtlektorat / Konsistenzprüfung
+
+    private func runConsistencyCheck(project: Project, config: ProviderConfiguration) async throws {
+        project.status = .manuscriptRevision
+        // Bereits geprüft? (Fortsetzen)
+        if (project.qualityReports ?? []).contains(where: { $0.checkType == "Konsistenz" }) { return }
+        guard let bible = project.storyBible else { return }
+
+        let summaries = sortedChapters(project).map { chapter -> String in
+            let sceneSummaries = sortedScenes(chapter).compactMap { $0.summary }.joined(separator: " ")
+            return "Kapitel \(chapter.chapterNumber) (\(chapter.title)): \(sceneSummaries)"
+        }.joined(separator: "\n")
+
+        guard !summaries.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        let job = beginJob(agent: AgentName.consistency, phase: .manuscriptRevision, project: project)
+        do {
+            let response = try await generate(
+                prompt: PromptFactory.consistencyCheck(
+                    bookTitle: project.title, summaries: summaries,
+                    characters: compactCharacterSummary(bible)
+                ),
+                system: "Du bist ein Kontinuitätsprüfer für Romane. Du findest Widersprüche und Logikfehler.",
+                maxTokens: 2000, temperature: 0.2, config: config
+            )
+
+            let issues = StructureParser.parseIssues(response.text)
+            for issue in issues {
+                addReport(project: project, area: issue.area, type: "Konsistenz",
+                          result: issue.message, severity: issue.severity,
+                          recommendation: issue.recommendation)
+            }
+            if issues.isEmpty {
+                addReport(project: project, area: "Gesamtmanuskript", type: "Konsistenz",
+                          result: "Keine Widersprüche gefunden", severity: .info,
+                          recommendation: "")
+            }
+            completeJob(job, result: "\(issues.count) Hinweise", tokens: response.tokensUsed ?? 0)
+        } catch {
+            failJob(job, error: error)
+            throw error
+        }
+    }
+
+    // MARK: - Phase 9: Korrektorat
+
+    private func runProofreading(project: Project, config: ProviderConfiguration) async throws {
+        project.status = .proofreading
+
+        let chapters = sortedChapters(project)
+        for (index, chapter) in chapters.enumerated() {
+            try Task.checkCancellation()
+            // Bereits korrigiert? (Fortsetzen)
+            if let final = chapter.finalText, !final.isEmpty { continue }
+            guard let text = chapter.revisedText ?? chapter.draftText, !text.isEmpty else { continue }
+
+            currentChapter = chapter.chapterNumber
+            let job = beginJob(agent: AgentName.proofreader, phase: .proofreading,
+                               project: project, chapter: chapter.chapterNumber)
+            do {
+                let maxTokens = min(12000, max(3000, text.wordCount * 3))
+                let response = try await generate(
+                    prompt: PromptFactory.proofread(language: project.language, text: text),
+                    system: "Du bist ein professioneller Korrektor. Du korrigierst nur Fehler, nie den Stil.",
+                    maxTokens: maxTokens, temperature: 0.1, config: config
+                )
+
+                if response.text.wordCount >= text.wordCount / 2 {
+                    chapter.finalText = response.text
+                } else {
+                    chapter.finalText = text
+                    addReport(project: project, area: "Kapitel \(chapter.chapterNumber)",
+                              type: "Korrektorat", result: "Korrektoratsantwort unvollständig – vorige Fassung übernommen",
+                              severity: .warning,
+                              recommendation: "Kapitel manuell prüfen.")
+                }
+                chapter.status = .finalized
+                chapter.actualWordCount = chapter.computedWordCount
+                chapter.updatedAt = Date()
+                completeJob(job, result: "Kapitel \(chapter.chapterNumber) korrigiert", tokens: response.tokensUsed ?? 0)
+
+                updateProgress(phase: .proofreading, subProgress: Double(index + 1) / Double(chapters.count))
+                try? modelContext?.save()
+            } catch {
+                failJob(job, error: error)
+                throw error
+            }
+        }
+    }
+
+    // MARK: - Phase 10: Copyright-Prüfung (lokal)
+
+    private func runCopyrightCheck(project: Project) {
+        project.status = .copyrightCheck
+        let job = beginJob(agent: AgentName.copyright, phase: .copyrightCheck, project: project)
+
+        var findings: [String] = []
+        let inputCheck = CopyrightChecker.checkInput(title: project.title, style: project.styleProfile)
+        findings.append(contentsOf: inputCheck.warnings)
+        if let premise = project.bookProfile?.premise {
+            findings.append(contentsOf: CopyrightChecker.checkPlot(premise))
+        }
+        for chapter in sortedChapters(project) {
+            findings.append(contentsOf: CopyrightChecker.checkPlot(chapter.title))
+        }
+
+        if findings.isEmpty {
+            addReport(project: project, area: "Copyright", type: "Risikoanalyse",
+                      result: "Keine offensichtlichen Risiken erkannt", severity: .info,
+                      recommendation: "Interne Prüfung – keine juristische Garantie.")
         } else {
-            estimatedTimeRemaining = "\(minutes)min"
+            for finding in findings {
+                addReport(project: project, area: "Copyright", type: "Risikoanalyse",
+                          result: finding, severity: .warning,
+                          recommendation: "Formulierung prüfen und ggf. anpassen.")
+            }
+        }
+        completeJob(job, result: findings.isEmpty ? "Unauffällig" : "\(findings.count) Hinweise")
+    }
+
+    // MARK: - Phase 11: KDP-Formatierung / Qualitätsbewertung
+
+    private func runKDPFormatting(project: Project) {
+        project.status = .kdpFormatting
+        let job = beginJob(agent: AgentName.kdpFormatter, phase: .kdpFormatting, project: project)
+
+        // Alte Score-Berichte ersetzen (bei Wiederholung keine Duplikate).
+        if let stale = project.qualityReports?.filter({ $0.checkType == "Score" }) {
+            for report in stale { modelContext?.delete(report) }
+            project.qualityReports?.removeAll { $0.checkType == "Score" }
+        }
+
+        let scores = QualityScores.compute(for: project)
+        let entries: [(String, Double)] = [
+            ("Struktur", scores.structure),
+            ("Figuren", scores.characters),
+            ("Stil", scores.style),
+            ("Konsistenz", scores.consistency),
+            ("KDP-Format", scores.kdp)
+        ]
+        for (name, value) in entries {
+            addReport(project: project, area: name, type: "Score",
+                      result: String(format: "%.0f%%", value * 100),
+                      severity: value >= 0.7 ? .info : .warning,
+                      recommendation: value >= 0.7 ? "" : "Bereich \(name) prüfen.")
+        }
+
+        completeJob(job, result: ExportEngine.generateKDPReport(project: project))
+    }
+
+    // MARK: - Phase 12: Export
+
+    private func runExport(project: Project) throws {
+        project.status = .export
+        let job = beginJob(agent: AgentName.exporter, phase: .export, project: project)
+
+        do {
+            var exported: [String] = []
+            let formats = Set(project.outputFormats)
+            if formats.contains("EPUB") {
+                exported.append(try ExportEngine.exportToEPUB(project: project).path)
+            }
+            if formats.contains("PDF") {
+                exported.append(try ExportEngine.exportToPDF(project: project).path)
+            }
+            if formats.contains("DOCX") {
+                exported.append(try ExportEngine.exportToDOCX(project: project).path)
+            }
+            completeJob(job, result: exported.isEmpty ? "Keine Formate ausgewählt" : exported.joined(separator: "\n"))
+        } catch {
+            failJob(job, error: error)
+            throw AIError.systemError("Export fehlgeschlagen: \(error.localizedDescription)")
         }
     }
-    
-    func pausePipeline() {
-        backgroundTask?.cancel()
-        isRunning = false
-        currentProject?.status = .paused
-        try? modelContext?.save()
+
+    // MARK: - Hilfsfunktionen
+
+    private func estimatedChapterCount(for project: Project) -> Int {
+        max(10, project.targetPageCount / 15)
     }
-    
-    func resumePipeline() {
-        guard let project = currentProject else { return }
-        guard project.status == .paused || project.status == .failed else { return }
-        
-        // TODO: Implement proper state restoration
-        // For now, just allow restarting from the beginning
-        isRunning = false
-        lastError = "Bitte starten Sie die Pipeline neu. Die Fortsetzung wird in einem zukünftigen Update implementiert."
+
+    private func sortedChapters(_ project: Project) -> [Chapter] {
+        (project.chapters ?? []).sorted { $0.chapterNumber < $1.chapterNumber }
     }
-    
-    func cancelPipeline() {
-        backgroundTask?.cancel()
-        isRunning = false
-        currentProject?.status = .failed
-        try? modelContext?.save()
+
+    private func sortedScenes(_ chapter: Chapter) -> [StoryScene] {
+        (chapter.scenes ?? []).sorted { $0.sceneNumber < $1.sceneNumber }
+    }
+
+    private func isSceneWritten(_ scene: StoryScene) -> Bool {
+        guard let text = scene.text, !text.isEmpty else { return false }
+        return scene.status == .written || scene.status == .finalized || scene.status == .checking
+    }
+
+    private func compactCharacterSummary(_ bible: StoryBible) -> String {
+        (bible.characters ?? []).prefix(8).map { character in
+            var line = "\(character.name) (\(character.role))"
+            if !character.goal.isEmpty { line += " – Ziel: \(character.goal)" }
+            if !character.weakness.isEmpty { line += ", Schwäche: \(character.weakness)" }
+            return line
+        }.joined(separator: "\n")
+    }
+
+    private func addReport(project: Project, area: String, type: String, result: String,
+                           severity: Severity, recommendation: String) {
+        let report = QualityReport(checkedArea: area, checkType: type, result: result,
+                                   severity: severity, recommendation: recommendation)
+        if project.qualityReports == nil { project.qualityReports = [] }
+        report.project = project
+        project.qualityReports?.append(report)
+        modelContext?.insert(report)
+    }
+
+    private func updateProgress(phase: PipelinePhase, subProgress: Double) {
+        var total = 0.0
+        for item in PipelinePhase.executionOrder {
+            if item == phase { break }
+            total += item.weight
+        }
+        total += phase.weight * min(max(subProgress, 0), 1)
+        progress = min(total, 1.0)
+    }
+
+    private func updateEstimatedTime() {
+        guard !sceneTimes.isEmpty, totalScenes > completedScenes else {
+            estimatedTimeRemaining = ""
+            return
+        }
+        let recent = sceneTimes.suffix(10)
+        let avg = recent.reduce(0, +) / Double(recent.count)
+        let remaining = avg * Double(totalScenes - completedScenes)
+
+        let hours = Int(remaining) / 3600
+        let minutes = (Int(remaining) % 3600) / 60
+        estimatedTimeRemaining = hours > 0 ? "\(hours) h \(minutes) min" : "\(max(minutes, 1)) min"
     }
 }

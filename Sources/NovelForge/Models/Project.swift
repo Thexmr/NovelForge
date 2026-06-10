@@ -16,7 +16,12 @@ final class Project {
     var status: ProjectStatus
     var createdAt: Date
     var updatedAt: Date
-    
+
+    // Provider-Einstellungen des Projekts (für autonome Produktion & Fortsetzen)
+    var preferredProviderRaw: String = "OpenAI"
+    var preferredModel: String = ""
+    var costLimitUSD: Double = 0
+
     @Relationship(deleteRule: .cascade) var bookProfile: BookProfile?
     @Relationship(deleteRule: .cascade) var chapters: [Chapter]?
     @Relationship(deleteRule: .cascade) var storyBible: StoryBible?

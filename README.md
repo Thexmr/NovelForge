@@ -1,86 +1,102 @@
-# NovelForge - KI-gestützte Buchproduktion für macOS
+# NovelForge – Autonome KI-Buchproduktion für macOS
 
-Eine native macOS-Anwendung zur autonomen KI-Buchproduktion mit professioneller Pipeline-Struktur.
+Eine native macOS-App (SwiftUI + SwiftData), die Bücher vollautomatisch produziert:
+von der Idee über Konzept, Plot, Figuren, Kapitel- und Szenenplanung bis zu
+Rohfassung, Revision, Korrektorat und Export – mit einem einzigen Klick.
 
-## Features
+## Funktionsweise
 
-### Kernfunktionen
-- **Native macOS-App** mit SwiftUI
-- **15 Pipeline-Phasen** von Konzept bis Export
-- **16 spezialisierte KI-Agenten** für verschiedene Aufgaben
-- **Story Bible** für permanente Konsistenz
-- **Mehrsprachigkeit** (Deutsch, Englisch, Französisch, Spanisch)
-- **Professioneller Export** (EPUB, PDF, DOCX)
-- **KDP-Kompatible Formatierung**
+Nach dem 5-Schritte-Assistenten („Neues Buch“) startet die Pipeline sofort und
+arbeitet alle Phasen autonom ab. Jede Phase ist **idempotent**: Bereits erledigte
+Arbeit (geplante Kapitel, geschriebene Szenen, überarbeitete Kapitel) wird beim
+Fortsetzen übersprungen. Pausieren, Fortsetzen und ein hartes Kostenlimit sind
+jederzeit möglich – ohne doppelte API-Kosten.
 
 ### Pipeline-Phasen
-1. Projektanlage & Input-Validierung
-2. Konzeptentwicklung (Prämisse, Logline, Exposé)
-3. Strukturplanung (Plot, Figuren, Welt)
-4. Kapitelplanung
-5. Szenenplanung
-6. Rohfassung schreiben (szene für szene)
-7. Kapitelrevision
-8. Gesamtmanuskript-Revision
-9. Stil- und Sprachrevision
-10. Korrektorat
-11. Konsistenzprüfung
-12. Copyright-Risiko-Prüfung
-13. KDP-Formatierung
-14. Export
-15. Abschlussbericht
 
-### KI-Provider
-- **OpenAI** (GPT-4o, GPT-4o-mini, GPT-4-turbo)
-- **Ollama** (lokale Modelle)
-- **Anthropic Claude** (vorbereitet)
-- **Kimi/K2 Cloud** (vorbereitet)
-- **Benutzerdefinierte APIs** (vorbereitet)
+1. **Projektanlage & Input-Validierung** (lokal, inkl. Copyright-Heuristik)
+2. **Konzeptentwicklung** – Prämisse, Logline, Exposé, Thema (KI, strukturiert geparst)
+3. **Strukturplanung** – vollständiger Plot + Figurenensemble in der Story Bible
+4. **Kapitelplanung** – KI plant Titel, Ziel und Konflikt jedes Kapitels
+5. **Szenenplanung** – KI plant 3–5 Szenen pro Kapitel (Perspektive, Ort, Ziel, Hindernis, Wendung)
+6. **Rohfassung** – Szene für Szene, mit fortlaufenden Kontext-Zusammenfassungen
+   für Kontinuität über das gesamte Buch
+7. **Kapitelrevision** – KI-Lektorat pro Kapitel (mit Schutz vor Textverlust)
+8. **Gesamtlektorat** – Konsistenzprüfung über alle Kapitel (Zeitlinie, Figuren, Logik)
+9. **Korrektorat** – Rechtschreibung/Grammatik pro Kapitel
+10. **Copyright-Prüfung** – lokale Risikoanalyse
+11. **KDP-Formatierung** – Qualitätsbewertung (Struktur, Figuren, Stil, Konsistenz, Format)
+12. **Export** – EPUB, PDF, DOCX nach `~/Documents/NovelForge/<Titel>/`
 
-### Sicherheit
-- API-Keys in macOS Keychain
-- Keine unverschlüsselte Speicherung
-- Lokale Datenverarbeitung möglich
-- Transparente Datenschutzoptionen
+### Die 14 Agenten
 
-## Architektur
+Input Agent · Concept Agent · Plot Architect · Character Architect ·
+Chapter Planner · Scene Planner · Draft Writer · Context Summarizer ·
+Chapter Reviser · Consistency Checker · Proofreader · Copyright Checker ·
+KDP Formatter · Export Agent
 
-### Datenmodell
-- **Project**: Buchprojekt mit Metadaten
-- **BookProfile**: Konzept und Zielgruppe
-- **StoryBible**: Zentrale Wissensdatenbank
-- **CharacterProfile**: Figuren mit Entwicklung
-- **LocationProfile**: Schauplätze
-- **Chapter**: Kapitel mit Versionen
-- **Scene**: Szenen mit Status
-- **PipelineJob**: Aufgaben mit Heartbeat
-- **QualityReport**: Qualitätsprüfungen
+Alle Schritte sind live im **Agenten-Monitor** sichtbar (Status, Dauer, Tokens, Fehler).
 
-### Services
-- **ProviderGateway**: Einheitliche KI-Anbindung
-- **AgentRuntime**: Agentenausführung
-- **PipelineOrchestrator**: Pipeline-Steuerung
-- **ExportEngine**: Export-Formatierung
-- **KeychainService**: Sichere API-Key-Speicherung
+## KI-Provider
 
-### UI
-- **Dashboard**: Übersicht und Statistiken
-- **NewBookWizard**: 5-Schritte-Assistent
-- **PipelineTimeline**: Fortschrittsanzeige
-- **ManuscriptView**: 3-Ansichts-Modi
-- **StoryBibleView**: Zentrale Datenbank
-- **AgentMonitor**: Echtzeit-Überwachung
-- **ExportView**: Formatauswahl und Berichte
-- **SettingsView**: Umfassende Einstellungen
+| Provider | Status | Hinweise |
+|---|---|---|
+| OpenAI | ✅ implementiert | gpt-4o, gpt-4o-mini, gpt-4-turbo |
+| Anthropic Claude | ✅ implementiert | claude-opus-4-8, claude-sonnet-4-6, claude-haiku-4-5 (Messages API) |
+| Ollama (lokal) | ✅ implementiert | kostenlos, z.B. llama3.1, qwen2.5 |
+| Kimi/Moonshot | ✅ implementiert | OpenAI-kompatibel |
+| Benutzerdefiniert | ✅ implementiert | beliebige OpenAI-kompatible Endpunkte |
 
-## Technische Details
+- Automatische Wiederholversuche mit Backoff bei Rate Limits und Netzwerkfehlern
+- Token-Zählung und laufende **Kostenschätzung** mit hartem Limit pro Projekt
+- Verbindungstest pro Provider in den Einstellungen
 
-### Voraussetzungen
-- macOS 14.0+
-- Swift 5.9+
-- Xcode 15.0+
+## Sicherheit
 
-### Installation
+- API-Keys liegen **ausschließlich in der macOS Keychain** – sie werden nie in
+  UserDefaults oder Projektdateien geschrieben (die Provider-Konfiguration wird
+  ohne Key serialisiert).
+- Manuskripte und Projekte bleiben lokal (SwiftData).
+- Prompts gehen nur an den vom Nutzer gewählten Provider.
+
+## Export
+
+- **EPUB 3** mit Navigationsdokument (nav), NCX-Fallback, korrektem
+  `mimetype`-Eintrag (erster, unkomprimierter ZIP-Eintrag) und BCP-47-Sprachcode
+- **PDF** mit echter Seitenumbruch-Logik (mehrseitige Kapitel), Titel-,
+  Copyright- und Inhaltsverzeichnis-Seiten
+- **DOCX** (WordprocessingML)
+- **Berichte**: KDP-Formatbericht, Produktionsprotokoll, KI-Offenlegung
+- Zielordner: `~/Documents/NovelForge/<Projekttitel>/` („Im Finder zeigen“ in der App)
+
+## UI
+
+- **Dashboard** – Statistiken, Live-Produktionsbanner, zuletzt abgeschlossene Bücher
+- **Projekte** – Liste mit Status, Fortschritt, Kontextmenü (Starten/Fortsetzen/Löschen),
+  Detailansicht mit Qualitätsmetriken
+- **Produktion** – Live-Fortschritt mit Phasen-Checkliste, Kapitel/Szenen-Zähler,
+  Token-/Kostenanzeige, Restzeitschätzung, Pause & Abbruch
+- **Agenten-Monitor** – alle Pipeline-Schritte in Echtzeit, filterbar
+- **Manuskript** – Lesen (Serifen-Typografie) / Bearbeiten / Vergleichen (Rohfassung vs. final)
+- **Story Bible** – Figuren, Orte, Plot, Stilregeln
+- **Export** – Formate, Berichte, automatisch berechnete Qualitätsmetriken
+- **Einstellungen** – Vorgaben, Erscheinungsbild (wird live angewendet),
+  Provider-Verwaltung, Datenschutz
+
+## Qualitätsmetriken
+
+Werden automatisch aus echten Projektdaten berechnet (keine Platzhalter):
+
+- **Struktur** – Anteil Kapitel mit Ziel und geplanten Szenen
+- **Figuren** – Vollständigkeit des Figurenensembles
+- **Stil** – Anteil Szenen innerhalb ±25 % der Zielwortzahl
+- **Konsistenz** – abzüglich gefundener Widersprüche aus dem Gesamtlektorat
+- **KDP-Format** – Abweichung vom Zielumfang
+
+## Technik
+
+- macOS 14.0+, Swift 5.9+, SwiftUI, SwiftData
+- Keine externen Abhängigkeiten
 
 ```bash
 cd NovelForge
@@ -89,117 +105,32 @@ swift run NovelForge
 ```
 
 ### Projektstruktur
+
 ```
-NovelForge/
-├── Sources/NovelForge/
-│   ├── Models/
-│   │   ├── Project.swift
-│   │   ├── StoryBible.swift
-│   │   ├── Chapter.swift
-│   │   ├── Pipeline.swift
-│   │   └── Provider.swift
-│   ├── Services/
-│   │   ├── ProviderGateway.swift
-│   │   ├── Agents.swift
-│   │   ├── PipelineOrchestrator.swift
-│   │   ├── ExportEngine.swift
-│   │   └── KeychainService.swift
-│   ├── UI/
-│   │   ├── ContentView.swift
-│   │   ├── DashboardView.swift
-│   │   ├── NewBookWizardView.swift
-│   │   ├── ManuscriptView.swift
-│   │   ├── AgentMonitorView.swift
-│   │   └── SettingsView.swift
-│   ├── Utils/
-│   │   └── Helpers.swift
-│   └── NovelForgeApp.swift
-└── Package.swift
+Sources/NovelForge/
+├── Models/          Project, StoryBible, Chapter, Pipeline, Provider
+├── Services/        ProviderGateway, Agents (Prompts+Parser), PipelineOrchestrator,
+│                    ExportEngine, KeychainService, ProviderStore
+├── UI/              ContentView, DashboardView, NewBookWizardView,
+│                    ManuscriptView, AgentMonitorView, SettingsView
+└── Utils/           Helpers (Validierung, Qualitätsmetriken, Formatierung)
 ```
-
-## Entwicklungsreihenfolge
-
-1. ✅ Projekt- und Datenmodell
-2. ✅ Provider Gateway (OpenAI, Ollama)
-3. ✅ Pipeline-Orchestrator
-4. ✅ Agenten (Input, Concept, Plot, Character, Draft, Proofreader)
-5. ✅ SwiftUI Interface
-6. ✅ Export Engine (EPUB, PDF, DOCX)
-7. ⚠️ Qualitätssystem (Scores, Berichte)
-8. ⏳ Autonomer Produktionsmodus
-
-## MVP-Status
-
-### Implementiert
-- [x] Native macOS-App mit SwiftUI
-- [x] Projektanlage und Verwaltung
-- [x] OpenAI und Ollama Provider
-- [x] Konzept-, Plot- und Figuren-Agenten
-- [x] Kapitel- und Szenenplanung
-- [x] Draft Writer mit Kontext
-- [x] Continuity Agent
-- [x] Proofreader Agent
-- [x] Manuskriptansicht (Lesen/Bearbeiten/Vergleichen)
-- [x] Fortschrittsanzeige
-- [x] Heartbeat-System
-- [x] EPUB/PDF/DOCX Export
-- [x] KDP-Basisbericht
-- [x] Story Bible
-- [x] Einstellungen
-- [x] Keychain-Integration
-- [x] Fehlerbehandlung
-
-### Geplant
-- [ ] Voll autonomer Produktionsmodus
-- [ ] Kimi/K2 Cloud Integration
-- [ ] Anthropic Claude Integration
-- [ ] Komplexe Ähnlichkeitssuche
-- [ ] Teamfunktionen
-- [ ] Cloud-Sync
-- [ ] Automatische Update-Prüfung
-
-## Qualitätsmetriken
-
-Die App verwendet interne Scores:
-- **Struktur-Score**: Plotlogik und Kapitelstruktur
-- **Figuren-Score**: Motivation und Entwicklung
-- **Stil-Score**: Stiltreue und Satzrhythmus
-- **Konsistenz-Score**: Widerspruchsfreiheit
-- **KDP-Score**: Exportqualität
-
-## Datenschutz
-
-- Projekte und Manuskripte: **Lokal**
-- API-Keys: **macOS Keychain**
-- Prompts: **An Provider gesendet**
-- Keine versteckte Datenweitergabe
-- Optionale Deaktivierung von Cloud-Verarbeitung
-
-## Lizenz
-
-Copyright © 2024. Alle Rechte vorbehalten.
-
-## Hinweis
-
-Diese App kann ein professionell aufgebautes, sauber formatiertes und geprüftes Manuskript erzeugen, aber **keinen kommerziellen Erfolg oder Bestseller-Status garantieren**.
-
-Die finale Veröffentlichung bei Amazon KDP bleibt beim Nutzer. Die App führt keine automatische Veröffentlichung durch.
 
 ## Fehlerbehandlung
 
-Die App erkennt und kategorisiert Fehler:
-- API-Key-Fehler
-- Provider-Ausfälle
-- Netzwerkprobleme
-- Rate Limits
-- Modellfehler
-- Ollama-Verbindungsprobleme
-- Dateifehler
-- Kontextüberschreitungen
-- Systemfehler
+Jeder Fehler wird kategorisiert (API-Key, Provider, Netzwerk, Rate Limit,
+Kostenlimit, Ollama, Kontextlänge …) und mit konkreter Handlungsempfehlung
+angezeigt. Schlägt eine Produktion fehl, bleibt der gesamte Fortschritt
+erhalten und kann mit einem Klick fortgesetzt werden.
 
-Jede Fehlermeldung enthält:
-- Was ist passiert?
-- Warum ist es passiert?
-- Was kann der Nutzer tun?
-- Welcher Provider/Modell ist betroffen?
+## Hinweis
+
+NovelForge erzeugt ein professionell strukturiertes, geprüftes und formatiertes
+Manuskript – garantiert aber keinen kommerziellen Erfolg. Die Veröffentlichung
+(z. B. bei Amazon KDP) bleibt beim Nutzer; die App veröffentlicht nichts
+automatisch. Die Copyright-Prüfung ist eine interne Heuristik ohne juristische
+Garantie.
+
+## Lizenz
+
+Copyright © 2026. Alle Rechte vorbehalten.

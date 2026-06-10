@@ -1,254 +1,297 @@
 import Foundation
 
-@preconcurrency protocol ProviderGatewayProtocol: Sendable {
-    func generateText(request: GenerationRequest) async throws -> GenerationResponse
-    func listModels(provider: AIProvider) async throws -> [AIModel]
-    func testConnection(configuration: ProviderConfiguration) async -> Bool
-    func estimateCost(prompt: String, model: AIModel) -> Double?
-}
-
-@preconcurrency actor ProviderGateway: ProviderGatewayProtocol {
+/// Einheitliche Anbindung aller KI-Provider.
+/// Die Konfiguration (API-Key, Basis-URL, Modell) wird pro Aufruf übergeben –
+/// es gibt keinen versteckten globalen Zustand mehr.
+actor ProviderGateway {
     static let shared = ProviderGateway()
-    
-    private var activeProviders: [ProviderConfiguration] = []
-    private var urlSession: URLSession
-    private var retryCount: Int = 3
-    private var retryDelay: UInt64 = 2_000_000_000 // 2 seconds
-    
+
+    private let urlSession: URLSession
+    private let maxRetries = 3
+
     init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 300
         config.timeoutIntervalForResource = 600
         self.urlSession = URLSession(configuration: config)
     }
-    
-    func setActiveProviders(_ providers: [ProviderConfiguration]) {
-        self.activeProviders = providers.filter { $0.isActive }.sorted { $0.priority < $1.priority }
-    }
-    
-    func generateText(request: GenerationRequest) async throws -> GenerationResponse {
-        var lastError: AIError?
-        
-        for provider in activeProviders where provider.provider == request.provider {
-            do {
-                let response = try await executeWithRetry(request: request, configuration: provider)
-                return response
-            } catch let error as AIError {
-                lastError = error
-                if error == .quotaExceeded || error == .apiKeyInvalid {
-                    continue // Try next provider
-                }
-                throw error
-            }
-        }
-        
-        if let error = lastError {
-            throw error
-        }
-        
-        throw AIError.providerUnavailable
-    }
-    
-    private func executeWithRetry(request: GenerationRequest, configuration: ProviderConfiguration) async throws -> GenerationResponse {
-        var attempts = 0
-        
-        while attempts < retryCount {
+
+    // MARK: - Public API
+
+    func generateText(request: GenerationRequest, configuration: ProviderConfiguration) async throws -> GenerationResponse {
+        var attempt = 0
+        while true {
+            try Task.checkCancellation()
             do {
                 return try await executeRequest(request: request, configuration: configuration)
             } catch let error as AIError {
-                attempts += 1
-                if attempts >= retryCount {
-                    throw error
-                }
-                if error == .rateLimitExceeded || error == .networkError {
-                    try await Task.sleep(nanoseconds: retryDelay * UInt64(attempts))
-                    continue
-                }
-                throw error
+                attempt += 1
+                let retryable = (error == .rateLimitExceeded || error == .networkError || error == .providerUnavailable)
+                guard retryable && attempt < maxRetries else { throw error }
+                // Exponentielles Backoff: 2s, 4s
+                try await Task.sleep(nanoseconds: UInt64(attempt) * 2_000_000_000)
             }
         }
-        
-        throw AIError.unknown
     }
-    
+
+    /// Verbindungstest. Gibt nil bei Erfolg zurück, sonst eine Fehlerbeschreibung.
+    func testConnection(configuration: ProviderConfiguration) async -> String? {
+        let model = configuration.defaultModel ?? configuration.provider.suggestedModels.first ?? ""
+        let request = GenerationRequest(
+            prompt: "Antworte nur mit OK.",
+            systemPrompt: nil,
+            model: model,
+            provider: configuration.provider,
+            maxTokens: 10,
+            temperature: 0.0
+        )
+        do {
+            _ = try await executeRequest(request: request, configuration: configuration)
+            return nil
+        } catch let error as AIError {
+            return error.errorDescription
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    // MARK: - Dispatch
+
     private func executeRequest(request: GenerationRequest, configuration: ProviderConfiguration) async throws -> GenerationResponse {
         switch configuration.provider {
         case .openAI:
-            return try await executeOpenAIRequest(request: request, configuration: configuration)
-        case .ollamaLocal, .ollamaCloud:
-            return try await executeOllamaRequest(request: request, configuration: configuration)
+            return try await executeOpenAICompatible(request: request, configuration: configuration,
+                                                     fallbackBaseURL: "https://api.openai.com/v1")
+        case .kimi:
+            return try await executeOpenAICompatible(request: request, configuration: configuration,
+                                                     fallbackBaseURL: "https://api.moonshot.ai/v1")
+        case .custom:
+            guard let base = configuration.baseURL, !base.isEmpty else { throw AIError.baseURLMissing }
+            return try await executeOpenAICompatible(request: request, configuration: configuration,
+                                                     fallbackBaseURL: base)
         case .anthropic:
             return try await executeAnthropicRequest(request: request, configuration: configuration)
-        case .kimi:
-            return try await executeKimiRequest(request: request, configuration: configuration)
-        case .custom:
-            return try await executeCustomRequest(request: request, configuration: configuration)
+        case .ollamaLocal, .ollamaCloud:
+            return try await executeOllamaRequest(request: request, configuration: configuration)
         }
     }
-    
-    private func executeOpenAIRequest(request: GenerationRequest, configuration: ProviderConfiguration) async throws -> GenerationResponse {
+
+    // MARK: - OpenAI-kompatible APIs (OpenAI, Kimi/Moonshot, Custom)
+
+    private func executeOpenAICompatible(request: GenerationRequest,
+                                         configuration: ProviderConfiguration,
+                                         fallbackBaseURL: String) async throws -> GenerationResponse {
         guard let apiKey = configuration.apiKey, !apiKey.isEmpty else {
             throw AIError.apiKeyInvalid
         }
-        
-        let baseURL = configuration.baseURL ?? "https://api.openai.com/v1"
-        guard let url = URL(string: "\(baseURL)/chat/completions") else {
-            throw AIError.systemError("Invalid URL")
+
+        var base = (configuration.baseURL?.isEmpty == false) ? configuration.baseURL! : fallbackBaseURL
+        if base.hasSuffix("/") { base.removeLast() }
+        guard let url = URL(string: "\(base)/chat/completions") else {
+            throw AIError.systemError("Ungültige URL: \(base)")
         }
-        
+
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
+
         let body: [String: Any] = [
             "model": request.model,
             "messages": [
-                ["role": "system", "content": request.systemPrompt ?? "Du bist ein professioneller Buchautor und Editor."],
+                ["role": "system", "content": request.systemPrompt ?? "Du bist ein professioneller Buchautor und Lektor."],
                 ["role": "user", "content": request.prompt]
             ],
             "max_tokens": request.maxTokens ?? 4000,
-            "temperature": request.temperature,
-            "stream": request.stream
+            "temperature": request.temperature
         ]
-        
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
-        
-        let (data, response) = try await urlSession.data(for: urlRequest)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AIError.networkError
-        }
-        
+
+        let (data, httpResponse) = try await perform(urlRequest)
+
         switch httpResponse.statusCode {
         case 200:
             let result = try JSONDecoder().decode(OpenAIResponse.self, from: data)
             guard let choice = result.choices.first else {
-                throw AIError.systemError("No response content")
+                throw AIError.systemError("Leere Antwort vom Provider")
             }
             return GenerationResponse(
                 text: choice.message.content,
                 tokensUsed: result.usage?.total_tokens,
-                finishReason: choice.finish_reason,
-                error: nil
+                finishReason: choice.finish_reason
             )
-        case 401:
+        case 400:
+            let message = decodeErrorMessage(from: data) ?? "HTTP 400"
+            if message.lowercased().contains("context") || message.lowercased().contains("length") {
+                throw AIError.contextTooLong
+            }
+            throw AIError.systemError(message)
+        case 401, 403:
             throw AIError.apiKeyInvalid
+        case 402:
+            throw AIError.quotaExceeded
+        case 404:
+            throw AIError.modelUnavailable
         case 429:
             throw AIError.rateLimitExceeded
         case 500...599:
             throw AIError.providerUnavailable
         default:
-            throw AIError.systemError("HTTP \(httpResponse.statusCode)")
+            throw AIError.systemError("HTTP \(httpResponse.statusCode): \(decodeErrorMessage(from: data) ?? "")")
         }
     }
-    
-    private func executeOllamaRequest(request: GenerationRequest, configuration: ProviderConfiguration) async throws -> GenerationResponse {
-        let baseURL = configuration.baseURL ?? "http://localhost:11434"
-        guard let url = URL(string: "\(baseURL)/api/generate") else {
-            throw AIError.systemError("Invalid URL")
+
+    // MARK: - Anthropic Claude (Messages API)
+
+    private func executeAnthropicRequest(request: GenerationRequest,
+                                         configuration: ProviderConfiguration) async throws -> GenerationResponse {
+        guard let apiKey = configuration.apiKey, !apiKey.isEmpty else {
+            throw AIError.apiKeyInvalid
         }
-        
+
+        var base = (configuration.baseURL?.isEmpty == false) ? configuration.baseURL! : "https://api.anthropic.com"
+        if base.hasSuffix("/") { base.removeLast() }
+        guard let url = URL(string: "\(base)/v1/messages") else {
+            throw AIError.systemError("Ungültige URL: \(base)")
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        urlRequest.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        // Hinweis: bewusst ohne temperature – neuere Claude-Modelle (Opus 4.7+)
+        // lehnen Sampling-Parameter mit HTTP 400 ab.
+        let body: [String: Any] = [
+            "model": request.model,
+            "max_tokens": request.maxTokens ?? 4096,
+            "system": request.systemPrompt ?? "Du bist ein professioneller Buchautor und Lektor.",
+            "messages": [
+                ["role": "user", "content": request.prompt]
+            ]
+        ]
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, httpResponse) = try await perform(urlRequest)
+
+        switch httpResponse.statusCode {
+        case 200:
+            let result = try JSONDecoder().decode(AnthropicResponse.self, from: data)
+            let text = result.content.first(where: { $0.type == "text" })?.text ?? ""
+            let tokens = (result.usage?.input_tokens ?? 0) + (result.usage?.output_tokens ?? 0)
+            return GenerationResponse(
+                text: text,
+                tokensUsed: tokens > 0 ? tokens : nil,
+                finishReason: result.stop_reason
+            )
+        case 400:
+            let message = decodeErrorMessage(from: data) ?? "HTTP 400"
+            if message.lowercased().contains("context") || message.lowercased().contains("token") {
+                throw AIError.contextTooLong
+            }
+            throw AIError.systemError(message)
+        case 401, 403:
+            throw AIError.apiKeyInvalid
+        case 404:
+            throw AIError.modelUnavailable
+        case 413:
+            throw AIError.contextTooLong
+        case 429:
+            throw AIError.rateLimitExceeded
+        case 500...599:
+            throw AIError.providerUnavailable
+        default:
+            throw AIError.systemError("HTTP \(httpResponse.statusCode): \(decodeErrorMessage(from: data) ?? "")")
+        }
+    }
+
+    // MARK: - Ollama
+
+    private func executeOllamaRequest(request: GenerationRequest,
+                                      configuration: ProviderConfiguration) async throws -> GenerationResponse {
+        var base = (configuration.baseURL?.isEmpty == false) ? configuration.baseURL! : "http://localhost:11434"
+        if base.hasSuffix("/") { base.removeLast() }
+        guard let url = URL(string: "\(base)/api/generate") else {
+            throw AIError.systemError("Ungültige URL: \(base)")
+        }
+
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
+        if let apiKey = configuration.apiKey, !apiKey.isEmpty {
+            urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
+
+        var options: [String: Any] = ["temperature": request.temperature]
+        if let maxTokens = request.maxTokens {
+            options["num_predict"] = maxTokens
+        }
         let body: [String: Any] = [
             "model": request.model,
             "prompt": request.prompt,
             "system": request.systemPrompt ?? "",
             "stream": false,
-            "options": [
-                "temperature": request.temperature
-            ]
+            "options": options
         ]
-        
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
-        
+
         do {
-            let (data, response) = try await urlSession.data(for: urlRequest)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw AIError.networkError
-            }
-            
-            if httpResponse.statusCode == 404 {
+            let (data, httpResponse) = try await perform(urlRequest)
+
+            switch httpResponse.statusCode {
+            case 200:
+                let result = try JSONDecoder().decode(OllamaResponse.self, from: data)
+                return GenerationResponse(
+                    text: result.response,
+                    tokensUsed: result.eval_count,
+                    finishReason: result.done ? "stop" : nil
+                )
+            case 404:
                 throw AIError.modelUnavailable
-            }
-            
-            guard httpResponse.statusCode == 200 else {
+            default:
                 throw AIError.systemError("Ollama HTTP \(httpResponse.statusCode)")
             }
-            
-            let result = try JSONDecoder().decode(OllamaResponse.self, from: data)
-            return GenerationResponse(
-                text: result.response,
-                tokensUsed: result.eval_count,
-                finishReason: result.done ? "stop" : nil,
-                error: nil
-            )
+        } catch let error as AIError {
+            if error == .networkError || error == .providerUnavailable {
+                throw AIError.ollamaNotRunning
+            }
+            throw error
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func perform(_ urlRequest: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        do {
+            let (data, response) = try await urlSession.data(for: urlRequest)
+            guard let http = response as? HTTPURLResponse else {
+                throw AIError.networkError
+            }
+            return (data, http)
         } catch let error as AIError {
             throw error
+        } catch let error as URLError {
+            switch error.code {
+            case .cancelled:
+                throw CancellationError()
+            case .cannotConnectToHost, .cannotFindHost, .badURL:
+                throw AIError.providerUnavailable
+            default:
+                throw AIError.networkError
+            }
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
-            throw AIError.ollamaNotRunning
+            throw AIError.networkError
         }
     }
-    
-    private func executeAnthropicRequest(request: GenerationRequest, configuration: ProviderConfiguration) async throws -> GenerationResponse {
-        // Implementierung für Anthropic Claude
-        throw AIError.providerUnavailable
-    }
-    
-    private func executeKimiRequest(request: GenerationRequest, configuration: ProviderConfiguration) async throws -> GenerationResponse {
-        // Implementierung für Kimi/K2 Cloud
-        throw AIError.providerUnavailable
-    }
-    
-    private func executeCustomRequest(request: GenerationRequest, configuration: ProviderConfiguration) async throws -> GenerationResponse {
-        // Implementierung für benutzerdefinierte OpenAI-kompatible APIs
-        throw AIError.providerUnavailable
-    }
-    
-    func listModels(provider: AIProvider) async throws -> [AIModel] {
-        switch provider {
-        case .openAI:
-            return [
-                AIModel(name: "gpt-4o", provider: .openAI, contextLength: 128000, capabilities: [.text, .code, .image, .tools], costPer1KTokens: 0.005, isLocal: false, isFavorite: false),
-                AIModel(name: "gpt-4o-mini", provider: .openAI, contextLength: 128000, capabilities: [.text, .code, .image], costPer1KTokens: 0.00015, isLocal: false, isFavorite: false),
-                AIModel(name: "gpt-4-turbo", provider: .openAI, contextLength: 128000, capabilities: [.text, .code, .tools, .longContext], costPer1KTokens: 0.01, isLocal: false, isFavorite: false)
-            ]
-        case .ollamaLocal, .ollamaCloud:
-            return [
-                AIModel(name: "llama3.1", provider: .ollamaLocal, contextLength: 128000, capabilities: [.text, .code], costPer1KTokens: 0.0, isLocal: true, isFavorite: false),
-                AIModel(name: "mistral-nemo", provider: .ollamaLocal, contextLength: 128000, capabilities: [.text, .code], costPer1KTokens: 0.0, isLocal: true, isFavorite: false),
-                AIModel(name: "qwen2.5", provider: .ollamaLocal, contextLength: 128000, capabilities: [.text, .code], costPer1KTokens: 0.0, isLocal: true, isFavorite: false)
-            ]
-        default:
-            return []
+
+    private func decodeErrorMessage(from data: Data) -> String? {
+        if let envelope = try? JSONDecoder().decode(APIErrorEnvelope.self, from: data) {
+            return envelope.error?.message
         }
-    }
-    
-    func testConnection(configuration: ProviderConfiguration) async -> Bool {
-        do {
-            let request = GenerationRequest(
-                prompt: "Test",
-                systemPrompt: nil,
-                model: configuration.defaultModel ?? "gpt-4o-mini",
-                provider: configuration.provider,
-                maxTokens: 10,
-                temperature: 0.0,
-                stream: false
-            )
-            _ = try await executeRequest(request: request, configuration: configuration)
-            return true
-        } catch {
-            return false
-        }
-    }
-    
-    nonisolated func estimateCost(prompt: String, model: AIModel) -> Double? {
-        guard let costPer1K = model.costPer1KTokens else { return nil }
-        let estimatedTokens = prompt.count / 4 // Grobe Schätzung: 4 Zeichen pro Token
-        return Double(estimatedTokens) / 1000.0 * costPer1K
+        return String(data: data, encoding: .utf8).map { String($0.prefix(300)) }
     }
 }
 
@@ -272,8 +315,30 @@ struct OpenAIUsage: Codable {
     let total_tokens: Int
 }
 
+struct AnthropicResponse: Codable {
+    struct ContentBlock: Codable {
+        let type: String
+        let text: String?
+    }
+    struct Usage: Codable {
+        let input_tokens: Int?
+        let output_tokens: Int?
+    }
+    let content: [ContentBlock]
+    let usage: Usage?
+    let stop_reason: String?
+}
+
 struct OllamaResponse: Codable {
     let response: String
     let done: Bool
     let eval_count: Int?
+}
+
+struct APIErrorEnvelope: Codable {
+    struct Inner: Codable {
+        let message: String?
+        let type: String?
+    }
+    let error: Inner?
 }

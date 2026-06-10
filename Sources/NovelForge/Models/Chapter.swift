@@ -34,8 +34,20 @@ final class Chapter {
         self.updatedAt = Date()
     }
     
+    /// Bester verfügbarer Text: final > überarbeitet > Rohfassung > zusammengesetzte Szenen.
+    var bestText: String? {
+        if let text = finalText, !text.isEmpty { return text }
+        if let text = revisedText, !text.isEmpty { return text }
+        if let text = draftText, !text.isEmpty { return text }
+        let joined = (scenes ?? [])
+            .sorted { $0.sceneNumber < $1.sceneNumber }
+            .compactMap { $0.text }
+            .joined(separator: "\n\n")
+        return joined.isEmpty ? nil : joined
+    }
+
     var computedWordCount: Int {
-        return finalText?.wordCount ?? revisedText?.wordCount ?? draftText?.wordCount ?? 0
+        return bestText?.wordCount ?? 0
     }
 }
 

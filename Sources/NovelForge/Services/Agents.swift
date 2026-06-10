@@ -1,386 +1,402 @@
 import Foundation
 
-protocol Agent {
-    var name: String { get }
-    var description: String { get }
-    func execute(context: AgentContext) async throws -> AgentResult
+/// Namen der spezialisierten Agenten – erscheinen im Agenten-Monitor und im Protokoll.
+enum AgentName {
+    static let input = "Input Agent"
+    static let concept = "Concept Agent"
+    static let plot = "Plot Architect"
+    static let character = "Character Architect"
+    static let chapterPlanner = "Chapter Planner"
+    static let scenePlanner = "Scene Planner"
+    static let draftWriter = "Draft Writer"
+    static let summarizer = "Context Summarizer"
+    static let reviser = "Chapter Reviser"
+    static let consistency = "Consistency Checker"
+    static let proofreader = "Proofreader"
+    static let copyright = "Copyright Checker"
+    static let kdpFormatter = "KDP Formatter"
+    static let exporter = "Export Agent"
 }
 
-struct AgentContext {
-    let project: Project
-    let chapter: Chapter?
-    let scene: StoryScene?
-    let storyBible: StoryBible?
-    let previousResults: [String: String]
-    let provider: AIProvider
-    let model: String
-}
+// MARK: - Prompt-Vorlagen
+// Alle Prompts arbeiten mit reinen Strings (keine SwiftData-Objekte),
+// damit sie threadsicher außerhalb des MainActors verwendet werden können.
 
-struct AgentResult {
-    let success: Bool
-    let output: String
-    let updatedContext: [String: String]
-    let qualityIssues: [QualityIssue]
-}
+enum PromptFactory {
 
-struct QualityIssue {
-    let severity: Severity
-    let message: String
-    let suggestion: String
-}
+    static func concept(title: String, genre: String, subgenre: String?, language: String,
+                        style: String, tonality: String, audience: String,
+                        perspective: String, tense: String, pageCount: Int) -> String {
+        var genreLine = genre
+        if let subgenre, !subgenre.isEmpty {
+            genreLine += " / \(subgenre)"
+        }
+        return """
+        Entwickle ein eigenständiges Buchkonzept (keine Nachahmung geschützter Werke).
 
-actor AgentRuntime {
-    static let shared = AgentRuntime()
-    private var activeAgents: [String: Task<AgentResult, Error>] = [:]
-    private var heartbeatInterval: TimeInterval = 30
-    
-    func executeAgent(_ agent: Agent, context: AgentContext, job: PipelineJob) async throws -> AgentResult {
-        let taskId = "\(agent.name)-\(job.id.uuidString)"
-        
-        // Start heartbeat
-        let heartbeatTask = Task {
-            while !Task.isCancelled {
-                await updateHeartbeat(job: job)
-                try await Task.sleep(nanoseconds: UInt64(heartbeatInterval * 1_000_000_000))
-            }
-        }
-        
-        defer {
-            heartbeatTask.cancel()
-            activeAgents.removeValue(forKey: taskId)
-        }
-        
-        do {
-            let result = try await agent.execute(context: context)
-            await completeJob(job: job, result: result)
-            return result
-        } catch {
-            await failJob(job: job, error: error)
-            throw error
-        }
-    }
-    
-    private func updateHeartbeat(job: PipelineJob) async {
-        job.lastHeartbeat = Date()
-    }
-    
-    private func completeJob(job: PipelineJob, result: AgentResult) async {
-        job.status = .completed
-        job.endTime = Date()
-        job.result = result.output
-    }
-    
-    private func failJob(job: PipelineJob, error: Error) async {
-        job.status = .failed
-        job.endTime = Date()
-        job.errorCount += 1
-        job.result = error.localizedDescription
-    }
-}
+        Titel: \(title)
+        Genre: \(genreLine)
+        Sprache des Buches: \(language)
+        Stilprofil: \(style)
+        Tonalität: \(tonality)
+        Zielgruppe: \(audience)
+        Erzählperspektive: \(perspective), Zeitform: \(tense)
+        Zielumfang: ca. \(pageCount) Seiten
 
-// MARK: - Specialized Agents
-
-struct InputAgent: Agent {
-    let name = "Input Agent"
-    let description = "Prüft und normalisiert Nutzereingaben"
-    
-    func execute(context: AgentContext) async throws -> AgentResult {
-        var warnings: [String] = []
-        var blocked: [String] = []
-        
-        // Validate title
-        if context.project.title.isEmpty {
-            throw AIError.systemError("Titel ist erforderlich")
-        }
-        
-        // Validate author
-        if context.project.authorName.isEmpty {
-            throw AIError.systemError("Autorname ist erforderlich")
-        }
-        
-        // Validate page count
-        if context.project.targetPageCount < 50 || context.project.targetPageCount > 500 {
-            throw AIError.systemError("Seitenzahl muss zwischen 50 und 500 liegen")
-        }
-        
-        // Check for risky copyright inputs
-        let riskyTerms = ["bestsellerautor", "kopiere", "fortsetzung von", "wie j.k. rowling", "wie stephen king"]
-        let input = "\(context.project.title) \(context.project.styleProfile)".lowercased()
-        for term in riskyTerms {
-            if input.contains(term) {
-                blocked.append("Riskante Copyright-Vorgabe erkannt: '\(term)'")
-            }
-        }
-        
-        let output = """
-        Projekt validiert:
-        - Titel: \(context.project.title)
-        - Autor: \(context.project.authorName)
-        - Genre: \(context.project.genre)
-        - Sprache: \(context.project.language)
-        - Zielseiten: \(context.project.targetPageCount)
-        - Stil: \(context.project.styleProfile)
-        - Warnungen: \(warnings.joined(separator: ", "))
-        - Blockiert: \(blocked.joined(separator: ", "))
-        """
-        
-        return AgentResult(
-            success: blocked.isEmpty,
-            output: output,
-            updatedContext: ["input_validated": "true"],
-            qualityIssues: blocked.map { QualityIssue(severity: .error, message: $0, suggestion: "Verwenden Sie abstrakte Stilprofile statt konkreter Autoren.") }
-        )
-    }
-}
-
-struct ConceptAgent: Agent {
-    let name = "Concept Agent"
-    let description = "Erstellt Prämisse, Logline und Exposé"
-    
-    func execute(context: AgentContext) async throws -> AgentResult {
-        let prompt = """
-        Erstelle ein Buchkonzept für:
-        Titel: \(context.project.title)
-        Genre: \(context.project.genre)
-        Sprache: \(context.project.language)
-        Stil: \(context.project.styleProfile)
-        Zielseiten: \(context.project.targetPageCount)
-        
-        Gib zurück im Format:
+        Antworte ausschließlich in diesem Format (Labels exakt so verwenden):
         PRÄMISSE: [1-2 Sätze]
         LOGLINE: [Ein Satz]
-        EXPOSE: [3-5 Sätze]
-        HAUPTKONFLIKT: [1 Satz]
-        THEMA: [1-2 Wörter]
-        ZIELGRUPPE: [Beschreibung]
-        TONALITÄT: \(context.project.styleProfile)
+        EXPOSÉ: [5-8 Sätze, die den kompletten Handlungsbogen umreißen]
+        HAUPTKONFLIKT: [1-2 Sätze]
+        THEMA: [1-3 Wörter]
+        ZIELGRUPPE: [Kurze Beschreibung]
         """
-        
-        let request = GenerationRequest(
-            prompt: prompt,
-            systemPrompt: "Du bist ein erfahrener Buchautor und erstellst überzeugende Buchkonzepte. Die Idee muss eigenständig sein und keine geschützten Werke nachahmen.",
-            model: context.model,
-            provider: context.provider,
-            maxTokens: 2000,
-            temperature: 0.8,
-            stream: false
-        )
-        
-        let response = try await ProviderGateway.shared.generateText(request: request)
-        
-        return AgentResult(
-            success: true,
-            output: response.text,
-            updatedContext: ["concept": response.text],
-            qualityIssues: []
-        )
+    }
+
+    static func plot(title: String, genre: String, style: String, concept: String,
+                     pageCount: Int, chapterCount: Int) -> String {
+        """
+        Erstelle den vollständigen Plot für den Roman "\(title)".
+        Genre: \(genre) | Stil: \(style) | Umfang: ca. \(pageCount) Seiten in \(chapterCount) Kapiteln.
+
+        Konzept:
+        \(concept)
+
+        Beschreibe ausführlich:
+        1. Ausgangslage und auslösendes Ereignis
+        2. Zentrale dramatische Frage
+        3. Mindestens drei Wendepunkte mit Begründung
+        4. Krise, finale Eskalation und Höhepunkt
+        5. Auflösung und Schlussbild
+        6. Nebenhandlungen und wie sie in den Hauptplot münden
+
+        Schreibe als zusammenhängenden, klar gegliederten Text.
+        """
+    }
+
+    static func characters(title: String, genre: String, plot: String) -> String {
+        """
+        Entwickle das Figurenensemble für den Roman "\(title)" (Genre: \(genre)).
+
+        Plot:
+        \(plot.truncated(to: 4000))
+
+        Erstelle den Protagonisten, den Antagonisten und 3-5 wichtige Nebenfiguren.
+        Gib für JEDE Figur GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
+        FIGUR|Name|Rolle|Alter|Beruf|Ziel|Angst|Schwäche
+
+        Danach darfst du zu jeder Figur 2-3 Sätze Hintergrund ergänzen.
+        """
+    }
+
+    static func chapterPlan(title: String, genre: String, plot: String,
+                            chapterCount: Int, wordsPerChapter: Int) -> String {
+        """
+        Plane die Kapitelstruktur für den Roman "\(title)" (Genre: \(genre)).
+        Es sollen GENAU \(chapterCount) Kapitel mit je ca. \(wordsPerChapter) Wörtern sein.
+
+        Plot:
+        \(plot.truncated(to: 6000))
+
+        Gib für JEDES Kapitel GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
+        KAPITEL|Nummer|Titel|Ziel des Kapitels|Zentraler Konflikt
+
+        Keine weiteren Erklärungen. Die Kapitel müssen den kompletten Plot von Anfang bis Auflösung abdecken.
+        """
+    }
+
+    static func scenePlan(bookTitle: String, chapterNumber: Int, chapterTitle: String,
+                          chapterGoal: String, chapterConflict: String,
+                          perspective: String, plotContext: String, targetWords: Int) -> String {
+        """
+        Plane die Szenen für Kapitel \(chapterNumber) ("\(chapterTitle)") des Romans "\(bookTitle)".
+        Kapitelziel: \(chapterGoal)
+        Kapitelkonflikt: \(chapterConflict)
+        Standard-Erzählperspektive: \(perspective)
+        Gesamtumfang des Kapitels: ca. \(targetWords) Wörter.
+
+        Plotkontext:
+        \(plotContext.truncated(to: 3000))
+
+        Plane 3 bis 5 Szenen. Gib für JEDE Szene GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
+        SZENE|Nummer|Perspektive|Ort|Zeit|Ziel der Szene|Hindernis|Wendung am Szenenende
+
+        Keine weiteren Erklärungen.
+        """
+    }
+
+    static func draftScene(language: String, style: String, tonality: String,
+                           perspective: String, tense: String,
+                           bookTitle: String, chapterNumber: Int, chapterTitle: String,
+                           chapterGoal: String, sceneNumber: Int,
+                           sceneGoal: String, sceneLocation: String, sceneTime: String,
+                           sceneObstacle: String, sceneTurn: String, scenePerspective: String,
+                           charactersSummary: String, styleRules: String,
+                           storySoFar: String, targetWords: Int) -> String {
+        """
+        Schreibe Szene \(sceneNumber) aus Kapitel \(chapterNumber) ("\(chapterTitle)") des Romans "\(bookTitle)".
+
+        SPRACHE: Schreibe ausschließlich auf \(language).
+        STIL: \(style); Tonalität: \(tonality); Erzählperspektive: \(scenePerspective.isEmpty ? perspective : scenePerspective); Zeitform: \(tense).
+        STILREGELN: \(styleRules.truncated(to: 600))
+
+        KAPITELZIEL: \(chapterGoal)
+        SZENE:
+        - Ort: \(sceneLocation)
+        - Zeit: \(sceneTime)
+        - Ziel: \(sceneGoal)
+        - Hindernis: \(sceneObstacle)
+        - Wendung am Ende: \(sceneTurn)
+        - Zielumfang: ca. \(targetWords) Wörter
+
+        FIGUREN:
+        \(charactersSummary.truncated(to: 1200))
+
+        BISHERIGE HANDLUNG (Zusammenfassungen):
+        \(storySoFar.isEmpty ? "Dies ist der Anfang des Buches." : storySoFar.truncated(to: 4000))
+
+        Regeln:
+        - Zeigen statt erzählen, natürliche Dialoge, konkrete Sinneseindrücke.
+        - Schließe nahtlos an die bisherige Handlung an, keine Widersprüche.
+        - Keine Überschriften, keine Meta-Kommentare – gib NUR den Prosatext der Szene aus.
+        """
+    }
+
+    static func summarizeScene(text: String) -> String {
+        """
+        Fasse die folgende Romanszene in 2-3 Sätzen zusammen. Nenne Figuren, Ort, \
+        was passiert und was sich verändert hat. Gib NUR die Zusammenfassung aus.
+
+        \(text.truncated(to: 8000))
+        """
+    }
+
+    static func reviseChapter(language: String, style: String, tonality: String,
+                              chapterNumber: Int, chapterTitle: String, text: String) -> String {
+        """
+        Überarbeite Kapitel \(chapterNumber) ("\(chapterTitle)") eines Romans.
+        Sprache: \(language). Stil: \(style), Tonalität: \(tonality).
+
+        Verbessere Satzrhythmus, Wortwiederholungen, schwache Verben, Füllwörter und \
+        Dialogfluss. Behalte Handlung, Reihenfolge der Ereignisse, Perspektive und \
+        Umfang bei (±10%). Gib NUR den vollständigen überarbeiteten Kapiteltext aus, \
+        ohne Überschrift und ohne Kommentare.
+
+        TEXT:
+        \(text)
+        """
+    }
+
+    static func consistencyCheck(bookTitle: String, summaries: String, characters: String) -> String {
+        """
+        Prüfe die folgende Kapitelübersicht des Romans "\(bookTitle)" auf Widersprüche: \
+        Zeitlinie, Figurenwissen, Orte, Logik der Ereignisse, offene Handlungsfäden.
+
+        FIGUREN:
+        \(characters.truncated(to: 1500))
+
+        HANDLUNGSÜBERSICHT:
+        \(summaries.truncated(to: 10000))
+
+        Gib für jedes gefundene Problem GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
+        PROBLEM|Schweregrad (Info/Warnung/Fehler/Kritisch)|Bereich|Beschreibung|Empfehlung
+
+        Wenn es keine Probleme gibt, antworte mit: KEINE PROBLEME
+        """
+    }
+
+    static func proofread(language: String, text: String) -> String {
+        """
+        Korrigiere den folgenden Romantext (Sprache: \(language)): Rechtschreibung, \
+        Grammatik, Zeichensetzung, Tippfehler, doppelte Wörter, inkonsistente \
+        Anführungszeichen. Ändere NICHT den Stil und NICHT den Inhalt. \
+        Gib NUR den vollständigen korrigierten Text aus, ohne Kommentare.
+
+        TEXT:
+        \(text)
+        """
     }
 }
 
-struct PlotArchitectAgent: Agent {
-    let name = "Plot Architect"
-    let description = "Erstellt den Gesamtplot und Kapitelstruktur"
-    
-    func execute(context: AgentContext) async throws -> AgentResult {
-        let estimatedChapters = max(10, context.project.targetPageCount / 15)
-        
-        let prompt = """
-        Erstelle einen detaillierten Plot für das Buch "\(context.project.title)".
-        Genre: \(context.project.genre)
-        Stil: \(context.project.styleProfile)
-        Zielseiten: \(context.project.targetPageCount) (~\(estimatedChapters) Kapitel)
-        
-        Konzept: \(context.previousResults["concept"] ?? "")
-        
-        Definiere:
-        1. Anfang und Auslöser
-        2. Zentrale Frage
-        3. Wendepunkte (mindestens 3)
-        4. Krise und finale Eskalation
-        5. Höhepunkt und Auflösung
-        6. Kapitelübersicht mit Seitenverteilung
-        
-        Format:
-        PLOT: [Detaillierte Beschreibung]
-        KAPITEL: [Nummer - Titel - Seiten - Ziel]
-        """
-        
-        let request = GenerationRequest(
-            prompt: prompt,
-            systemPrompt: "Du bist ein Plot-Architekt für Romane. Erstelle strukturierte, spannende Plots mit klarem Spannungsbogen.",
-            model: context.model,
-            provider: context.provider,
-            maxTokens: 4000,
-            temperature: 0.7,
-            stream: false
-        )
-        
-        let response = try await ProviderGateway.shared.generateText(request: request)
-        
-        return AgentResult(
-            success: true,
-            output: response.text,
-            updatedContext: ["plot": response.text],
-            qualityIssues: []
-        )
-    }
+// MARK: - Parser für strukturierte Agenten-Antworten
+
+struct ConceptResult {
+    var premise = ""
+    var logline = ""
+    var synopsis = ""
+    var mainConflict = ""
+    var theme = ""
+    var audience = ""
 }
 
-struct CharacterArchitectAgent: Agent {
-    let name = "Character Architect"
-    let description = "Erstellt Figurenprofile"
-    
-    func execute(context: AgentContext) async throws -> AgentResult {
-        let prompt = """
-        Erstelle Figuren für "\(context.project.title)".
-        Genre: \(context.project.genre)
-        Plot: \(context.previousResults["plot"] ?? "")
-        
-        Erstelle:
-        1. Hauptfigur (Protagonist)
-        2. Gegenspieler (Antagonist)
-        3. 3-5 Nebenfiguren
-        
-        Für jede Figur:
-        - Name, Rolle, Alter, Beruf
-        - Ziel, Angst, Schwäche
-        - Innere Konflikte und äußere Ziele
-        - Entwicklungsbogen
-        - Beziehungen zu anderen Figuren
-        - Sprachmuster
-        """
-        
-        let request = GenerationRequest(
-            prompt: prompt,
-            systemPrompt: "Du bist ein Charakter-Entwickler. Erstelle tiefe, glaubwürdige Figuren mit klaren Motivationen.",
-            model: context.model,
-            provider: context.provider,
-            maxTokens: 4000,
-            temperature: 0.7,
-            stream: false
-        )
-        
-        let response = try await ProviderGateway.shared.generateText(request: request)
-        
-        return AgentResult(
-            success: true,
-            output: response.text,
-            updatedContext: ["characters": response.text],
-            qualityIssues: []
-        )
-    }
-}
+enum ConceptParser {
+    private static let labelMap: [String: String] = [
+        "PRÄMISSE": "premise", "PRAEMISSE": "premise", "PREMISE": "premise",
+        "LOGLINE": "logline",
+        "EXPOSÉ": "synopsis", "EXPOSE": "synopsis", "SYNOPSIS": "synopsis",
+        "HAUPTKONFLIKT": "mainConflict",
+        "THEMA": "theme", "THEME": "theme",
+        "ZIELGRUPPE": "audience"
+    ]
 
-struct DraftWriterAgent: Agent {
-    let name = "Draft Writer"
-    let description = "Schreibt einzelne Szenen"
-    
-    func execute(context: AgentContext) async throws -> AgentResult {
-        guard let scene = context.scene, let chapter = context.chapter else {
-            throw AIError.systemError("Keine Szene oder Kapitel im Kontext")
+    static func parse(_ text: String) -> ConceptResult {
+        var sections: [String: String] = [:]
+        var currentKey: String?
+
+        for rawLine in text.components(separatedBy: .newlines) {
+            let cleaned = rawLine
+                .replacingOccurrences(of: "*", with: "")
+                .replacingOccurrences(of: "#", with: "")
+                .trimmingCharacters(in: .whitespaces)
+
+            var matched = false
+            for (label, key) in labelMap {
+                if cleaned.uppercased().hasPrefix(label + ":") {
+                    let value = String(cleaned.dropFirst(label.count + 1)).trimmingCharacters(in: .whitespaces)
+                    sections[key] = value
+                    currentKey = key
+                    matched = true
+                    break
+                }
+            }
+            if !matched, let key = currentKey, !cleaned.isEmpty {
+                let existing = sections[key] ?? ""
+                sections[key] = existing.isEmpty ? cleaned : existing + "\n" + cleaned
+            }
         }
-        
-        let prompt = """
-        Schreibe Szene \(scene.sceneNumber) aus Kapitel \(chapter.chapterNumber): "\(chapter.title)"
-        
-        Szenen-Details:
-        - Perspektive: \(scene.perspective)
-        - Ort: \(scene.location)
-        - Zeit: \(scene.time)
-        - Ziel: \(scene.goal)
-        - Hindernis: \(scene.obstacle)
-        - Zielwortzahl: \(scene.targetWordCount)
-        
-        Stil: \(context.project.styleProfile)
-        Sprache: \(context.project.language)
-        
-        Story Bible Auszug:
-        \(context.storyBible?.styleRules ?? "")
-        
-        Vorherige Zusammenfassung:
-        \(context.previousResults["previous_summary"] ?? "Anfang des Buches")
-        
-        Wichtig:
-        - Halte den Stil konsequent
-        - Zeige, erzähle nicht
-        - Jede Szene muss etwas verändern
-        - Keine Füllszenen
-        """
-        
-        let request = GenerationRequest(
-            prompt: prompt,
-            systemPrompt: "Du bist ein professioneller Romanautor. Schreibe lebendige, atmosphärische Szenen mit natürlichen Dialogen.",
-            model: context.model,
-            provider: context.provider,
-            maxTokens: min(scene.targetWordCount * 2, 4000),
-            temperature: 0.85,
-            stream: false
-        )
-        
-        let response = try await ProviderGateway.shared.generateText(request: request)
-        
-        let wordCount = response.text.wordCount
-        let tolerance = Double(scene.targetWordCount) * 0.2
-        var issues: [QualityIssue] = []
-        
-        if abs(wordCount - scene.targetWordCount) > Int(tolerance) {
-            issues.append(QualityIssue(
-                severity: .warning,
-                message: "Wortzahl außerhalb der Toleranz: \(wordCount) statt \(scene.targetWordCount)",
-                suggestion: "Szene anpassen oder neu schreiben"
+
+        var result = ConceptResult()
+        result.premise = sections["premise"] ?? ""
+        result.logline = sections["logline"] ?? ""
+        result.synopsis = sections["synopsis"] ?? ""
+        result.mainConflict = sections["mainConflict"] ?? ""
+        result.theme = sections["theme"] ?? ""
+        result.audience = sections["audience"] ?? ""
+        return result
+    }
+}
+
+struct PlannedChapter {
+    let number: Int
+    let title: String
+    let goal: String
+    let conflict: String
+}
+
+struct PlannedScene {
+    let number: Int
+    let perspective: String
+    let location: String
+    let time: String
+    let goal: String
+    let obstacle: String
+    let turn: String
+}
+
+struct ParsedCharacter {
+    let name: String
+    let role: String
+    let age: String
+    let occupation: String
+    let goal: String
+    let fear: String
+    let weakness: String
+}
+
+struct ParsedIssue {
+    let severity: Severity
+    let area: String
+    let message: String
+    let recommendation: String
+}
+
+enum StructureParser {
+
+    /// Zerlegt eine Zeile "MARKER|a|b|c" in ihre Felder. Toleriert führende
+    /// Aufzählungszeichen und Markdown-Reste.
+    private static func fields(in line: String, marker: String) -> [String]? {
+        guard let range = line.range(of: marker + "|") else { return nil }
+        let payload = String(line[range.upperBound...])
+        return payload.components(separatedBy: "|").map {
+            $0.trimmingCharacters(in: .whitespaces)
+                .replacingOccurrences(of: "**", with: "")
+        }
+    }
+
+    static func parseChapters(_ text: String) -> [PlannedChapter] {
+        var result: [PlannedChapter] = []
+        for line in text.components(separatedBy: .newlines) {
+            guard let parts = fields(in: line, marker: "KAPITEL"), parts.count >= 2 else { continue }
+            let title = parts.count > 1 ? parts[1] : ""
+            guard !title.isEmpty else { continue }
+            result.append(PlannedChapter(
+                number: result.count + 1, // fortlaufend nummerieren, Modell-Nummern können lückenhaft sein
+                title: title,
+                goal: parts.count > 2 ? parts[2] : "",
+                conflict: parts.count > 3 ? parts[3] : ""
             ))
         }
-        
-        return AgentResult(
-            success: true,
-            output: response.text,
-            updatedContext: ["scene_text": response.text, "word_count": "\(wordCount)"],
-            qualityIssues: issues
-        )
+        return result
     }
-}
 
-struct ProofreaderAgent: Agent {
-    let name = "Proofreader"
-    let description = "Prüft Rechtschreibung, Grammatik und Zeichensetzung"
-    
-    func execute(context: AgentContext) async throws -> AgentResult {
-        guard let text = context.previousResults["text_to_proofread"] else {
-            throw AIError.systemError("Kein Text zum Korrekturlesen")
+    static func parseScenes(_ text: String) -> [PlannedScene] {
+        var result: [PlannedScene] = []
+        for line in text.components(separatedBy: .newlines) {
+            guard let parts = fields(in: line, marker: "SZENE"), parts.count >= 2 else { continue }
+            result.append(PlannedScene(
+                number: result.count + 1,
+                perspective: parts.count > 1 ? parts[1] : "",
+                location: parts.count > 2 ? parts[2] : "",
+                time: parts.count > 3 ? parts[3] : "",
+                goal: parts.count > 4 ? parts[4] : "",
+                obstacle: parts.count > 5 ? parts[5] : "",
+                turn: parts.count > 6 ? parts[6] : ""
+            ))
         }
-        
-        let prompt = """
-        Korrigiere den folgenden Text. Beachte:
-        - Rechtschreibung
-        - Grammatik
-        - Zeichensetzung
-        - Tippfehler
-        - Doppelte Wörter
-        - Inkonsistente Anführungszeichen
-        
-        Text:
-        \(text)
-        
-        Gib nur den korrigierten Text zurück, ohne Erklärungen.
-        """
-        
-        let request = GenerationRequest(
-            prompt: prompt,
-            systemPrompt: "Du bist ein professioneller Korrektor. Korrigiere nur offensichtliche Fehler, ändere den Stil nicht.",
-            model: context.model,
-            provider: context.provider,
-            maxTokens: text.count + 1000,
-            temperature: 0.1,
-            stream: false
-        )
-        
-        let response = try await ProviderGateway.shared.generateText(request: request)
-        
-        return AgentResult(
-            success: true,
-            output: response.text,
-            updatedContext: ["proofread_text": response.text],
-            qualityIssues: []
-        )
+        return result
+    }
+
+    static func parseCharacters(_ text: String) -> [ParsedCharacter] {
+        var result: [ParsedCharacter] = []
+        for line in text.components(separatedBy: .newlines) {
+            guard let parts = fields(in: line, marker: "FIGUR"), !parts.isEmpty else { continue }
+            let name = parts[0]
+            guard !name.isEmpty else { continue }
+            result.append(ParsedCharacter(
+                name: name,
+                role: parts.count > 1 ? parts[1] : "Nebenfigur",
+                age: parts.count > 2 ? parts[2] : "",
+                occupation: parts.count > 3 ? parts[3] : "",
+                goal: parts.count > 4 ? parts[4] : "",
+                fear: parts.count > 5 ? parts[5] : "",
+                weakness: parts.count > 6 ? parts[6] : ""
+            ))
+        }
+        return result
+    }
+
+    static func parseIssues(_ text: String) -> [ParsedIssue] {
+        var result: [ParsedIssue] = []
+        for line in text.components(separatedBy: .newlines) {
+            guard let parts = fields(in: line, marker: "PROBLEM"), parts.count >= 2 else { continue }
+            let severityText = parts[0].lowercased()
+            let severity: Severity
+            if severityText.contains("krit") {
+                severity = .critical
+            } else if severityText.contains("fehler") || severityText.contains("hoch") {
+                severity = .error
+            } else if severityText.contains("warn") || severityText.contains("mittel") {
+                severity = .warning
+            } else {
+                severity = .info
+            }
+            result.append(ParsedIssue(
+                severity: severity,
+                area: parts.count > 1 ? parts[1] : "Allgemein",
+                message: parts.count > 2 ? parts[2] : parts[1],
+                recommendation: parts.count > 3 ? parts[3] : ""
+            ))
+        }
+        return result
     }
 }

@@ -47,21 +47,47 @@ enum PipelinePhase: String, Codable, CaseIterable {
     case export = "Export"
     case completed = "Abgeschlossen"
     
+    /// Reihenfolge, in der die Pipeline die Phasen tatsächlich abarbeitet.
+    static var executionOrder: [PipelinePhase] {
+        [.projectSetup, .conceptDevelopment, .structurePlanning, .chapterPlanning,
+         .scenePlanning, .drafting, .chapterRevision, .manuscriptRevision,
+         .proofreading, .copyrightCheck, .kdpFormatting, .export]
+    }
+
+    // Gewichte summieren sich über executionOrder exakt zu 1.0.
     var weight: Double {
         switch self {
-        case .projectSetup: return 0.02
+        case .projectSetup: return 0.01
         case .conceptDevelopment: return 0.05
-        case .structurePlanning: return 0.10
+        case .structurePlanning: return 0.09
         case .chapterPlanning: return 0.08
         case .scenePlanning: return 0.08
         case .drafting: return 0.40
-        case .chapterRevision: return 0.10
-        case .manuscriptRevision: return 0.07
-        case .proofreading: return 0.05
-        case .copyrightCheck: return 0.02
-        case .kdpFormatting: return 0.03
+        case .chapterRevision: return 0.12
+        case .manuscriptRevision: return 0.05
+        case .proofreading: return 0.07
+        case .copyrightCheck: return 0.01
+        case .kdpFormatting: return 0.02
         case .export: return 0.02
         case .completed: return 0.0
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .projectSetup: return "checkmark.shield"
+        case .conceptDevelopment: return "lightbulb"
+        case .structurePlanning: return "square.grid.3x3"
+        case .chapterPlanning: return "list.number"
+        case .scenePlanning: return "rectangle.split.3x1"
+        case .drafting: return "pencil.line"
+        case .chapterRevision: return "arrow.triangle.2.circlepath"
+        case .manuscriptRevision: return "doc.text.magnifyingglass"
+        case .proofreading: return "textformat.abc"
+        case .copyrightCheck: return "c.circle"
+        case .kdpFormatting: return "book.closed"
+        case .export: return "square.and.arrow.up"
+        case .completed: return "checkmark.seal"
         }
     }
 }
