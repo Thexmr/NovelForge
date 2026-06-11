@@ -12,6 +12,7 @@ struct ManuscriptView: View {
         case read = "Lesen"
         case edit = "Bearbeiten"
         case compare = "Vergleichen"
+        case scenes = "Szenenplan"
     }
 
     private var sortedChapters: [Chapter] {
@@ -213,7 +214,7 @@ struct ChapterDetailView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 280)
+                .frame(width: 380)
 
                 Spacer()
 
@@ -233,6 +234,8 @@ struct ChapterDetailView: View {
                 editView
             case .compare:
                 compareView
+            case .scenes:
+                scenesView
             }
         }
         .onAppear {
@@ -295,6 +298,25 @@ struct ChapterDetailView: View {
         }
     }
 
+    private var scenesView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                let scenes = (chapter.scenes ?? []).sorted { $0.sceneNumber < $1.sceneNumber }
+                if scenes.isEmpty {
+                    ContentUnavailableView("Keine Szenen geplant", systemImage: "rectangle.split.3x1",
+                                           description: Text("Der Szenenplan entsteht in der Phase „Szenenplanung“."))
+                } else {
+                    ForEach(scenes) { scene in
+                        SceneCard(scene: scene)
+                    }
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: 760, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
     private var compareView: some View {
         HStack(spacing: 0) {
             comparePane(title: "Rohfassung", text: chapter.draftText)
@@ -320,6 +342,79 @@ struct ChapterDetailView: View {
             }
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+/// Karte mit allen Planungsdaten einer Szene (Ziel, Hindernis, Wendung, Status, Umfang).
+struct SceneCard: View {
+    let scene: StoryScene
+
+    private var statusText: String {
+        switch scene.status {
+        case .planned: return "Geplant"
+        case .writing: return "Wird geschrieben"
+        case .written: return "Geschrieben"
+        case .checking: return "In Prüfung"
+        case .needsRevision: return "Braucht Revision"
+        case .finalized: return "Final"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Szene \(scene.sceneNumber)")
+                    .font(.headline)
+                Spacer()
+                Text(statusText)
+                    .font(.caption)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                    .background(.tint.opacity(0.12), in: Capsule())
+                    .foregroundStyle(.tint)
+                Text("\(FormattingHelpers.formatWordCount(scene.text?.wordCount ?? 0)) / \(FormattingHelpers.formatWordCount(scene.targetWordCount)) Wörter")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())],
+                      alignment: .leading, spacing: 6) {
+                field("Perspektive", scene.perspective)
+                field("Ort", scene.location)
+                field("Zeit", scene.time)
+                field("Ziel", scene.goal)
+                field("Hindernis", scene.obstacle)
+                field("Wendung", scene.cliffhanger)
+            }
+
+            if let summary = scene.summary, !summary.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Zusammenfassung")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Text(summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    @ViewBuilder
+    private func field(_ label: String, _ value: String) -> some View {
+        if !value.isEmpty {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                Text(value)
+                    .font(.caption)
+            }
+        }
     }
 }
 

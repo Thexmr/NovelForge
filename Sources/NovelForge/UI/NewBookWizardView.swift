@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 
+@MainActor
 struct NewBookWizardView: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.modelContext) var modelContext

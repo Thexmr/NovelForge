@@ -397,15 +397,14 @@ struct ProjectDetailView: View {
                     InfoTile(label: "Kapitel", value: "\(project.chapters?.count ?? 0)")
                     InfoTile(label: "Provider", value: project.preferredProviderRaw)
                     InfoTile(label: "Modell", value: project.preferredModel.isEmpty ? "–" : project.preferredModel)
+                    InfoTile(label: "Trim-Größe", value: shortTrimSize)
+                    InfoTile(label: "Kostenlimit", value: project.costLimitUSD > 0 ? "\(Int(project.costLimitUSD)) USD" : "–")
+                    InfoTile(label: "Tokens verbraucht", value: FormattingHelpers.formatWordCount(totalTokens))
                 }
 
-                if let profile = project.bookProfile, let logline = profile.logline, !logline.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Logline")
-                            .font(.headline)
-                        Text(logline)
-                            .foregroundStyle(.secondary)
-                    }
+                if let profile = project.bookProfile {
+                    conceptSection(profile)
+                    kdpMetadataSection(profile)
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -459,6 +458,105 @@ struct ProjectDetailView: View {
             .frame(maxWidth: .infinity)
         }
         .navigationTitle(project.title)
+    }
+
+    private var shortTrimSize: String {
+        project.trimSize.displayName.components(separatedBy: " (").first ?? project.trimSize.rawValue
+    }
+
+    private var totalTokens: Int {
+        (project.pipelineJobs ?? []).reduce(0) { $0 + $1.tokenUsage }
+    }
+
+    @ViewBuilder
+    private func conceptSection(_ profile: BookProfile) -> some View {
+        if let logline = profile.logline, !logline.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Konzept")
+                    .font(.headline)
+                VStack(alignment: .leading, spacing: 10) {
+                    conceptField("Logline", logline)
+                    if !profile.premise.isEmpty {
+                        conceptField("Prämisse", profile.premise)
+                    }
+                    if !profile.theme.isEmpty {
+                        conceptField("Thema", profile.theme)
+                    }
+                    if let synopsis = profile.synopsis, !synopsis.isEmpty {
+                        DisclosureGroup("Exposé anzeigen") {
+                            Text(synopsis)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.top, 6)
+                        }
+                        .font(.caption)
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+            }
+        }
+    }
+
+    private func conceptField(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            Text(value)
+                .font(.caption)
+                .textSelection(.enabled)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func kdpMetadataSection(_ profile: BookProfile) -> some View {
+        if !profile.kdpDescription.isEmpty || !profile.kdpKeywords.isEmpty || !profile.kdpCategories.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("KDP-Metadaten")
+                    .font(.headline)
+                VStack(alignment: .leading, spacing: 10) {
+                    if !profile.kdpDescription.isEmpty {
+                        metadataRow(label: "Produktbeschreibung", value: profile.kdpDescription)
+                    }
+                    if !profile.kdpKeywords.isEmpty {
+                        metadataRow(label: "Keywords (7)", value: profile.kdpKeywords)
+                    }
+                    if !profile.kdpCategories.isEmpty {
+                        metadataRow(label: "Kategorie-Vorschläge", value: profile.kdpCategories)
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+            }
+        }
+    }
+
+    private func metadataRow(label: String, value: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                Text(value)
+                    .font(.caption)
+                    .textSelection(.enabled)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(value, forType: .string)
+            } label: {
+                Image(systemName: "doc.on.doc")
+            }
+            .buttonStyle(.borderless)
+            .help("In die Zwischenablage kopieren")
+        }
     }
 
     /// Score-Einträge sind bereits als Metriken visualisiert – hier nur echte Befunde.
