@@ -1,0 +1,46 @@
+name: Build
+
+on:
+  push:
+    branches: ["main", "claude/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: swift build (macOS)
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Swift-Version anzeigen
+        run: swift --version
+      - name: Build
+        run: swift build
+      - name: Tests
+        run: swift test
+
+  package:
+    name: App-Bundle (macOS)
+    runs-on: macos-14
+    needs: build
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: App-Bundle bauen
+        run: bash Scripts/build-app.sh
+      - name: Zip erstellen
+        run: cd build && zip -r -y NovelForge-macOS.zip NovelForge.app
+      - name: Artefakt hochladen
+        # Schlägt nicht fehl, wenn die Artefakt-Speicherquota des Kontos
+        # erschöpft ist – das Bundle-Bauen selbst bleibt verifiziert.
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: NovelForge-macOS
+          path: build/NovelForge-macOS.zip
+          retention-days: 7

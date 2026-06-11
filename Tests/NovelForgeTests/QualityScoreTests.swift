@@ -1,0 +1,88 @@
+import XCTest
+import SwiftData
+@testable import NovelForge
+
+/// Tests der automatischen Qualitätsbewertung mit einer In-Memory-Datenbank.
+@MainActor
+final class QualityScoreTests: XCTestCase {
+
+    private func makeProject() throws -> (ModelContainer, Project) {
+        let schema = Schema([
+            Project.self, BookProfile.self, StoryBible.self, CharacterProfile.self,
+            LocationProfile.self, Chapter.self, StoryScene.self,
+            PipelineJob.self, QualityReport.self
+        ])
+        let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+
+        let project = Project(
+            title: "Testbuch", authorName: "Test Autor", language: "Deutsch",
+            genre: "Krimi", styleProfile: "düster",
+            targetPageCount: 100, outputFormats: ["EPUB"]
+        )
+        container.mainContext.insert(project)
+        return (container, project)
+    }
+
+    func testScoresOnEmptyProjectAreZero() throws {
+        let (container, project) = try makeProject()
+        defer { _ = container } // Container am Leben halten
+
+        let scores = QualityScores.compute(for: project)
+        XCTAssertEqual(scores.structure, 0)
+        XCTAssertEqual(scores.characters, 0)
+        XCTAssertEqual(scores.style, 0)
+        XCTAssertEqual(scores.kdp, 0)
+    }
+
+    func testScoresWithWellFormedChapter() throws {
+        let (container, project) = try makeProject()
+        defer { _ = container }
+
+        project.chapters = []
+        let chapter = Chapter(chapterNumber: 1, title: "Eins", goal: "Klares Ziel", targetWordCount: 1000)
+        chapter.project = project
+        project.chapters?.append(chapter)
+        container.mainContext.insert(chapter)
+
+        chapter.scenes = []
+        let scene = StoryScene(sceneNumber: 1, perspective: "Er", location: "Hafen",
+                               goal: "Fliehen", targetWordCount: 1000)
+        scene.text = Array(repeating: "Wort", count: 1000).joined(separator: " ")
+        scene.status = .written
+        scene.chapter = chapter
+        chapter.scenes?.append(scene)
+        container.mainContext.insert(scene)
+        chapter.finalText = scene.text
+
+        let scores = QualityScores.compute(for: project)
+        // Kapitel hat Ziel + Szenen → volle Struktur.
+        XCTAssertEqual(scores.structure, 1.0)
+        // Szene exakt auf Zielwortzahl → voller Stil-Score.
+        XCTAssertEqual(scores.style, 1.0)
+        // Keine Konsistenzprobleme gemeldet → voller Score.
+        XCTAssertEqual(scores.consistency, 1.0)
+        // 1.000 von 25.000 Zielwörtern → KDP-Score niedrig, aber > 0.
+        XCTAssertGreaterThan(scores.kdp, 0)
+        XCTAssertLessThan(scores.kdp, 0.2)
+    }
+
+    func testConsistencyScoreDropsWithSevereIssues() throws {
+        let (container, project) = try makeProject()
+        defer { _ = container }
+
+        project.qualityReports = []
+        for index in 0..<3 {
+            let report = QualityReport(checkedArea: "Zeitlinie", checkType: "Konsistenz",
+                                       result: "Widerspruch \(index)", severity: .error,
+                                       recommendation: "")
+            report.project = project
+            project.qualityReports?.append(report)
+            container.mainContext.insert(report)
+        }
+
+        let scores = QualityScores.compute(for: project)
+        // 3 schwere Befunde à 10% Abzug.
+        XCTAssertEqual(scores.consistency, 0.7, accuracy: 0.0001)
+    }
+}

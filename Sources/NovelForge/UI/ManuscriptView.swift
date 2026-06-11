@@ -3,55 +3,197 @@ import SwiftData
 
 struct ManuscriptView: View {
     @Query(sort: \Project.updatedAt, order: .reverse) var projects: [Project]
-    @State private var selectedProject: Project?
+    @ObservedObject private var appState = AppState.shared
     @State private var selectedChapter: Chapter?
     @State private var viewMode: ViewMode = .read
-    
+    @State private var readingWholeBook = false
+
     enum ViewMode: String, CaseIterable {
         case read = "Lesen"
         case edit = "Bearbeiten"
         case compare = "Vergleichen"
+        case scenes = "Szenenplan"
     }
-    
+
+    private var sortedChapters: [Chapter] {
+        (appState.selectedProject?.chapters ?? []).sorted { $0.chapterNumber < $1.chapterNumber }
+    }
+
     var body: some View {
-        NavigationSplitView {
-            List(selection: $selectedProject) {
+        HSplitView {
+            // Projekte
+            List(selection: $appState.selectedProject) {
                 ForEach(projects) { project in
-                    NavigationLink(value: project) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text(project.title)
+                            .font(.callout)
+                            .lineLimit(1)
+                        Text("\(project.chapters?.count ?? 0) Kapitel")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     }
                     .tag(project)
                 }
             }
-            .navigationTitle("Projekte")
-            .frame(minWidth: 200)
-        } content: {
-            if let project = selectedProject {
-                List(selection: $selectedChapter) {
-                    if let chapters = project.chapters?.sorted(by: { $0.chapterNumber < $1.chapterNumber }) {
-                        ForEach(chapters) { chapter in
-                            NavigationLink(value: chapter) {
+            .frame(minWidth: 190, idealWidth: 220, maxWidth: 280)
+
+            // Kapitel
+            Group {
+                if appState.selectedProject != nil {
+                    if sortedChapters.isEmpty {
+                        ContentUnavailableView("Noch keine Kapitel", systemImage: "doc.text",
+                                               description: Text("Kapitel entstehen während der Produktion."))
+                    } else {
+                        VStack(spacing: 0) {
+                        Button {
+                            readingWholeBook = true
+                            selectedChapter = nil
+                        } label: {
+                            Label("Gesamtes Buch lesen", systemImage: "book")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .padding(10)
+
+                        Divider()
+
+                        List(selection: $selectedChapter) {
+                            ForEach(sortedChapters) { chapter in
                                 HStack {
-                                    Text("\(chapter.chapterNumber). \(chapter.title)")
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("\(chapter.chapterNumber). \(chapter.title)")
+                                            .lineLimit(1)
+                                        Text(chapterStatusText(chapter))
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
                                     Spacer()
-                                    Text("\(chapter.computedWordCount) Wörter")
+                                    Text("\(FormattingHelpers.formatWordCount(chapter.computedWordCount))")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
+                                        .monospacedDigit()
                                 }
+                                .tag(chapter)
                             }
-                            .tag(chapter)
+                        }
                         }
                     }
+                } else {
+                    ContentUnavailableView("Projekt wählen", systemImage: "books.vertical")
                 }
-                .navigationTitle("Kapitel")
-            } else {
-                ContentUnavailableView("Projekt wählen", systemImage: "doc.text")
             }
-        } detail: {
-            if let chapter = selectedChapter {
-                ChapterDetailView(chapter: chapter, viewMode: $viewMode)
-            } else {
-                ContentUnavailableView("Kapitel wählen", systemImage: "doc.text.fill")
+            .frame(minWidth: 220, idealWidth: 260, maxWidth: 340)
+
+            // Inhalt
+            Group {
+                if readingWholeBook, let project = appState.selectedProject {
+                    BookReaderView(project: project)
+                } else if let chapter = selectedChapter {
+                    ChapterDetailView(chapter: chapter, viewMode: $viewMode)
+                        .id(chapter.id) // erzwingt frischen Editor-Zustand beim Kapitelwechsel
+                } else {
+                    ContentUnavailableView("Kapitel wählen", systemImage: "doc.text")
+                }
+            }
+            .frame(minWidth: 400, maxWidth: .infinity)
+        }
+        .navigationTitle("Manuskript")
+        .onChange(of: appState.selectedProject) {
+            selectedChapter = nil
+            readingWholeBook = false
+        }
+        .onChange(of: selectedChapter) {
+            if selectedChapter != nil {
+                readingWholeBook = false
+            }
+        }
+    }
+
+    private func chapterStatusText(_ chapter: Chapter) -> String {
+        switch chapter.status {
+        case .planned: return "Geplant"
+        case .scenesPlanned: return "Szenen geplant"
+        case .drafting: return "Wird geschrieben"
+        case .draftComplete: return "Rohfassung"
+        case .revising: return "Wird überarbeitet"
+        case .revised: return "Überarbeitet"
+        case .proofreading: return "Im Korrektorat"
+        case .finalized: return "Final"
+        }
+    }
+}
+
+/// Liest das gesamte Buch als durchgehenden Lesefluss (Serifen-Typografie,
+/// zentrierte Szenentrenner, Lesezeit-Anzeige).
+struct BookReaderView: View {
+    let project: Project
+
+    private var chapters: [Chapter] {
+        (project.chapters ?? []).sorted { $0.chapterNumber < $1.chapterNumber }
+    }
+
+    private var readingTimeText: String {
+        let minutes = max(1, project.totalWordCount / 220)
+        if minutes >= 60 {
+            return "\(minutes / 60) h \(minutes % 60) min"
+        }
+        return "\(minutes) min"
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(project.title)
+                        .font(.system(.largeTitle, design: .serif))
+                        .fontWeight(.bold)
+                    Text("\(project.authorName) · \(FormattingHelpers.formatWordCount(project.totalWordCount)) Wörter · Lesezeit ca. \(readingTimeText)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.bottom, 16)
+
+                ForEach(chapters) { chapter in
+                    ChapterReaderSection(chapter: chapter)
+                }
+            }
+            .padding(32)
+            .frame(maxWidth: 720, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+    }
+}
+
+struct ChapterReaderSection: View {
+    let chapter: Chapter
+
+    private var paragraphs: [String] {
+        (chapter.bestText ?? "")
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(chapter.title)
+                .font(.system(.title, design: .serif))
+                .fontWeight(.semibold)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.top, 32)
+
+            ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, paragraph in
+                if paragraph.replacingOccurrences(of: " ", with: "") == "***" {
+                    Text("* * *")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 4)
+                } else {
+                    Text(paragraph)
+                        .font(.system(.body, design: .serif))
+                        .lineSpacing(7)
+                        .textSelection(.enabled)
+                }
             }
         }
     }
@@ -61,10 +203,10 @@ struct ChapterDetailView: View {
     let chapter: Chapter
     @Binding var viewMode: ManuscriptView.ViewMode
     @State private var editedText: String = ""
-    
+    @State private var hasUnsavedChanges = false
+
     var body: some View {
         VStack(spacing: 0) {
-            // Toolbar
             HStack {
                 Picker("Ansicht", selection: $viewMode) {
                     ForEach(ManuscriptView.ViewMode.allCases, id: \.self) { mode in
@@ -72,144 +214,285 @@ struct ChapterDetailView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 250)
-                
+                .frame(width: 380)
+
                 Spacer()
-                
-                Text("\(chapter.computedWordCount) Wörter")
+
+                Text("\(FormattingHelpers.formatWordCount(chapter.computedWordCount)) Wörter")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .padding()
-            .background(Color(NSColor.controlBackgroundColor))
-            
-            // Content
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text(chapter.title)
-                        .font(.title)
-                        .fontWeight(.bold)
-                    
-                    switch viewMode {
-                    case .read:
-                        Text(chapter.finalText ?? chapter.revisedText ?? chapter.draftText ?? "Kein Text verfügbar")
-                            .font(.body)
-                            .lineSpacing(6)
-                    
-                    case .edit:
-                        VStack {
-                            TextEditor(text: $editedText)
-                                .font(.body)
-                                .lineSpacing(6)
-                                .frame(minHeight: 400)
-                                .onAppear {
-                                    editedText = chapter.finalText ?? chapter.revisedText ?? chapter.draftText ?? ""
-                                }
-                            
-                            HStack {
-                                Spacer()
-                                Button("Speichern") {
-                                    chapter.finalText = editedText
-                                    chapter.updatedAt = Date()
-                                }
-                                .buttonStyle(.borderedProminent)
-                            }
-                        }
-                    
-                    case .compare:
-                        HStack(spacing: 20) {
-                            VStack(alignment: .leading) {
-                                Text("Rohfassung")
-                                    .font(.headline)
-                                    .foregroundStyle(.secondary)
-                                ScrollView {
-                                    Text(chapter.draftText ?? "-")
-                                        .font(.body)
-                                }
-                            }
-                            
-                            Divider()
-                            
-                            VStack(alignment: .leading) {
-                                Text("Finale Fassung")
-                                    .font(.headline)
-                                    .foregroundStyle(.secondary)
-                                ScrollView {
-                                    Text(chapter.finalText ?? "-")
-                                        .font(.body)
-                                }
-                            }
-                        }
+            .padding(12)
+            .background(.bar)
+
+            Divider()
+
+            switch viewMode {
+            case .read:
+                readView
+            case .edit:
+                editView
+            case .compare:
+                compareView
+            case .scenes:
+                scenesView
+            }
+        }
+        .onAppear {
+            editedText = chapter.bestText ?? ""
+        }
+    }
+
+    private var readView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                Text(chapter.title)
+                    .font(.system(.largeTitle, design: .serif))
+                    .fontWeight(.semibold)
+
+                if let text = chapter.bestText {
+                    Text(text)
+                        .font(.system(.body, design: .serif))
+                        .lineSpacing(7)
+                        .textSelection(.enabled)
+                } else {
+                    Text("Für dieses Kapitel liegt noch kein Text vor.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(32)
+            .frame(maxWidth: 720, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private var editView: some View {
+        VStack(spacing: 0) {
+            TextEditor(text: $editedText)
+                .font(.system(.body, design: .serif))
+                .lineSpacing(6)
+                .padding(8)
+                .onChange(of: editedText) {
+                    hasUnsavedChanges = editedText != (chapter.bestText ?? "")
+                }
+
+            Divider()
+
+            HStack {
+                if hasUnsavedChanges {
+                    Label("Ungespeicherte Änderungen", systemImage: "circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+                Spacer()
+                Button("Speichern") {
+                    chapter.finalText = editedText
+                    chapter.actualWordCount = editedText.wordCount
+                    chapter.updatedAt = Date()
+                    hasUnsavedChanges = false
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!hasUnsavedChanges)
+            }
+            .padding(12)
+        }
+    }
+
+    private var scenesView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                let scenes = (chapter.scenes ?? []).sorted { $0.sceneNumber < $1.sceneNumber }
+                if scenes.isEmpty {
+                    ContentUnavailableView("Keine Szenen geplant", systemImage: "rectangle.split.3x1",
+                                           description: Text("Der Szenenplan entsteht in der Phase „Szenenplanung“."))
+                } else {
+                    ForEach(scenes) { scene in
+                        SceneCard(scene: scene)
                     }
                 }
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(20)
+            .frame(maxWidth: 760, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private var compareView: some View {
+        HStack(spacing: 0) {
+            comparePane(title: "Rohfassung", text: chapter.draftText)
+            Divider()
+            comparePane(title: "Finale Fassung", text: chapter.finalText ?? chapter.revisedText)
+        }
+    }
+
+    private func comparePane(title: String, text: String?) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(.secondary)
+                .padding(12)
+            Divider()
+            ScrollView {
+                Text(text ?? "Noch nicht vorhanden.")
+                    .font(.system(.callout, design: .serif))
+                    .lineSpacing(5)
+                    .textSelection(.enabled)
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+/// Karte mit allen Planungsdaten einer Szene (Ziel, Hindernis, Wendung, Status, Umfang).
+struct SceneCard: View {
+    let scene: StoryScene
+
+    private var statusText: String {
+        switch scene.status {
+        case .planned: return "Geplant"
+        case .writing: return "Wird geschrieben"
+        case .written: return "Geschrieben"
+        case .checking: return "In Prüfung"
+        case .needsRevision: return "Braucht Revision"
+        case .finalized: return "Final"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Szene \(scene.sceneNumber)")
+                    .font(.headline)
+                Spacer()
+                Text(statusText)
+                    .font(.caption)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                    .background(.tint.opacity(0.12), in: Capsule())
+                    .foregroundStyle(.tint)
+                Text("\(FormattingHelpers.formatWordCount(scene.text?.wordCount ?? 0)) / \(FormattingHelpers.formatWordCount(scene.targetWordCount)) Wörter")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())],
+                      alignment: .leading, spacing: 6) {
+                field("Perspektive", scene.perspective)
+                field("Ort", scene.location)
+                field("Zeit", scene.time)
+                field("Ziel", scene.goal)
+                field("Hindernis", scene.obstacle)
+                field("Wendung", scene.cliffhanger)
+            }
+
+            if let summary = scene.summary, !summary.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Zusammenfassung")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Text(summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    @ViewBuilder
+    private func field(_ label: String, _ value: String) -> some View {
+        if !value.isEmpty {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                Text(value)
+                    .font(.caption)
             }
         }
     }
 }
 
+// MARK: - Story Bible
+
 struct StoryBibleView: View {
     @Query(sort: \Project.updatedAt, order: .reverse) var projects: [Project]
-    @State private var selectedProject: Project?
+    @ObservedObject private var appState = AppState.shared
     @State private var selectedTab: BibleTab = .characters
-    
+
     enum BibleTab: String, CaseIterable {
         case characters = "Figuren"
         case locations = "Orte"
-        case timeline = "Zeitlinie"
-        case plotPoints = "Plotpunkte"
-        case openQuestions = "Offene Fragen"
-        case terms = "Begriffe"
-        case styleRules = "Stilregeln"
+        case plot = "Plot"
+        case style = "Stilregeln"
     }
-    
+
     var body: some View {
-        NavigationSplitView {
-            List(selection: $selectedProject) {
+        HSplitView {
+            List(selection: $appState.selectedProject) {
                 ForEach(projects) { project in
-                    NavigationLink(value: project) {
-                        Text(project.title)
-                    }
-                    .tag(project)
+                    Text(project.title)
+                        .lineLimit(1)
+                        .tag(project)
                 }
             }
-            .navigationTitle("Projekte")
-            .frame(minWidth: 200)
-        } detail: {
-            if let project = selectedProject, let bible = project.storyBible {
-                TabView(selection: $selectedTab) {
-                    CharactersTabView(bible: bible)
-                        .tabItem { Label("Figuren", systemImage: "person.2") }
-                        .tag(BibleTab.characters)
-                    
-                    LocationsTabView(bible: bible)
-                        .tabItem { Label("Orte", systemImage: "mappin") }
-                        .tag(BibleTab.locations)
-                    
-                    TimelineTabView(bible: bible)
-                        .tabItem { Label("Zeitlinie", systemImage: "calendar") }
-                        .tag(BibleTab.timeline)
-                    
-                    Text(bible.plotPoints)
-                        .tabItem { Label("Plotpunkte", systemImage: "list.bullet") }
-                        .tag(BibleTab.plotPoints)
-                    
-                    Text(bible.openQuestions)
-                        .tabItem { Label("Fragen", systemImage: "questionmark.circle") }
-                        .tag(BibleTab.openQuestions)
-                    
-                    Text(bible.terms)
-                        .tabItem { Label("Begriffe", systemImage: "textformat") }
-                        .tag(BibleTab.terms)
-                    
-                    Text(bible.styleRules)
-                        .tabItem { Label("Stil", systemImage: "paintbrush") }
-                        .tag(BibleTab.styleRules)
+            .frame(minWidth: 190, idealWidth: 220, maxWidth: 280)
+
+            Group {
+                if let project = appState.selectedProject, let bible = project.storyBible {
+                    VStack(spacing: 0) {
+                        Picker("Bereich", selection: $selectedTab) {
+                            ForEach(BibleTab.allCases, id: \.self) { tab in
+                                Text(tab.rawValue).tag(tab)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .padding(12)
+
+                        Divider()
+
+                        switch selectedTab {
+                        case .characters:
+                            CharactersTabView(bible: bible)
+                        case .locations:
+                            LocationsTabView(bible: bible)
+                        case .plot:
+                            bibleTextView(text: bible.plotPoints,
+                                          emptyHint: "Der Plot wird in der Phase „Strukturplanung“ erstellt.")
+                        case .style:
+                            bibleTextView(text: bible.styleRules,
+                                          emptyHint: "Die Stilregeln werden zu Produktionsbeginn festgelegt.")
+                        }
+                    }
+                } else {
+                    ContentUnavailableView("Projekt wählen", systemImage: "book.closed")
                 }
-                .navigationTitle("Story Bible")
+            }
+            .frame(minWidth: 420, maxWidth: .infinity)
+        }
+        .navigationTitle("Story Bible")
+    }
+
+    private func bibleTextView(text: String, emptyHint: String) -> some View {
+        Group {
+            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                ContentUnavailableView("Noch keine Inhalte", systemImage: "doc.plaintext",
+                                       description: Text(emptyHint))
             } else {
-                ContentUnavailableView("Projekt wählen", systemImage: "book.closed")
+                ScrollView {
+                    Text(text)
+                        .textSelection(.enabled)
+                        .lineSpacing(5)
+                        .padding(20)
+                        .frame(maxWidth: 760, alignment: .leading)
+                        .frame(maxWidth: .infinity)
+                }
             }
         }
     }
@@ -217,36 +500,70 @@ struct StoryBibleView: View {
 
 struct CharactersTabView: View {
     let bible: StoryBible
-    
+
+    private var characters: [CharacterProfile] {
+        (bible.characters ?? []).sorted { $0.createdAt < $1.createdAt }
+    }
+
     var body: some View {
-        List {
-            if let characters = bible.characters {
-                ForEach(characters) { character in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text(character.name)
-                                .font(.headline)
-                            Spacer()
-                            Text(character.role)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        
-                        if !character.age.isEmpty {
-                            Text("Alter: \(character.age)")
-                                .font(.caption)
-                        }
-                        if !character.occupation.isEmpty {
-                            Text("Beruf: \(character.occupation)")
-                                .font(.caption)
-                        }
-                        if !character.goal.isEmpty {
-                            Text("Ziel: \(character.goal)")
-                                .font(.caption)
-                        }
+        if characters.isEmpty {
+            ContentUnavailableView("Noch keine Figuren", systemImage: "person.2",
+                                   description: Text("Figuren werden in der Phase „Strukturplanung“ entwickelt."))
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 12) {
+                    ForEach(characters) { character in
+                        CharacterCard(character: character)
                     }
-                    .padding(.vertical, 4)
                 }
+                .padding(16)
+            }
+        }
+    }
+}
+
+struct CharacterCard: View {
+    let character: CharacterProfile
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(character.name)
+                    .font(.headline)
+                Spacer()
+                Text(character.role)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(.tint.opacity(0.12), in: Capsule())
+                    .foregroundStyle(.tint)
+            }
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())],
+                      alignment: .leading, spacing: 6) {
+                field("Alter", character.age)
+                field("Beruf", character.occupation)
+                field("Ziel", character.goal)
+                field("Angst", character.fear)
+                field("Schwäche", character.weakness)
+                field("Entwicklung", character.development)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    @ViewBuilder
+    private func field(_ label: String, _ value: String) -> some View {
+        if !value.isEmpty {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                Text(value)
+                    .font(.caption)
             }
         }
     }
@@ -254,44 +571,43 @@ struct CharactersTabView: View {
 
 struct LocationsTabView: View {
     let bible: StoryBible
-    
-    var body: some View {
-        List {
-            if let locations = bible.locations {
-                ForEach(locations) { location in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text(location.name)
-                                .font(.headline)
-                            Spacer()
-                            Text(location.type)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        
-                        if !location.locationDescription.isEmpty {
-                            Text(location.locationDescription)
-                                .font(.caption)
-                        }
-                        if !location.atmosphere.isEmpty {
-                            Text("Atmosphäre: \(location.atmosphere)")
-                                .font(.caption)
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-            }
-        }
-    }
-}
 
-struct TimelineTabView: View {
-    let bible: StoryBible
-    
+    private var locations: [LocationProfile] {
+        bible.locations ?? []
+    }
+
     var body: some View {
-        ScrollView {
-            Text(bible.timeline)
-                .padding()
+        if locations.isEmpty {
+            ContentUnavailableView("Noch keine Orte", systemImage: "mappin.and.ellipse",
+                                   description: Text("Schauplätze werden während der Produktion erfasst."))
+        } else {
+            List(locations) { location in
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text(location.name)
+                            .font(.headline)
+                        Spacer()
+                        Text(location.type)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if !location.locationDescription.isEmpty {
+                        Text(location.locationDescription)
+                            .font(.caption)
+                    }
+                    if !location.atmosphere.isEmpty {
+                        Text("Atmosphäre: \(location.atmosphere)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if !location.relevantChapters.isEmpty {
+                        Text("Kapitel: \(location.relevantChapters)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
         }
     }
 }

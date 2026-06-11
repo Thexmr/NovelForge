@@ -1,233 +1,613 @@
 import SwiftUI
 import SwiftData
 
-struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query(sort: \Project.updatedAt, order: .reverse) private var projects: [Project]
-    
-    @State private var selectedSidebarItem: SidebarItem? = .dashboard
-    @State private var selectedProject: Project?
-    @State private var showingNewBookSheet = false
-    
-    enum SidebarItem: String, CaseIterable, Identifiable {
-        case dashboard = "Dashboard"
-        case projects = "Projekte"
-        case newBook = "Neues Buch"
-        case queue = "Warteschlange"
-        case settings = "Einstellungen"
-        
-        var id: String { rawValue }
-        
-        var icon: String {
-            switch self {
-            case .dashboard: return "square.grid.2x2"
-            case .projects: return "folder"
-            case .newBook: return "plus.circle"
-            case .queue: return "list.bullet"
-            case .settings: return "gear"
-            }
+/// Globaler UI-Zustand: gewählter Bereich + projektübergreifende Auswahl.
+/// Manuskript, Story Bible und Export folgen damit immer demselben Projekt,
+/// und Querverweise („Im Manuskript öffnen“) funktionieren aus jedem Bereich.
+@MainActor
+final class AppState: ObservableObject {
+    static let shared = AppState()
+
+    @Published var selectedSidebarItem: SidebarItem? = .dashboard
+    @Published var selectedProject: Project?
+    /// Projekt, das die Projektliste beim nächsten Erscheinen direkt im Detail öffnen soll.
+    @Published var pendingProjectDetail: Project?
+
+    func open(_ item: SidebarItem, project: Project? = nil) {
+        if let project {
+            selectedProject = project
+        }
+        selectedSidebarItem = item
+    }
+
+    func showProjectDetail(_ project: Project) {
+        selectedProject = project
+        pendingProjectDetail = project
+        selectedSidebarItem = .projects
+    }
+}
+
+enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
+    case dashboard = "Dashboard"
+    case projects = "Projekte"
+    case production = "Produktion"
+    case agents = "Agenten-Monitor"
+    case manuscript = "Manuskript"
+    case storyBible = "Story Bible"
+    case export = "Export"
+    case settings = "Einstellungen"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .dashboard: return "square.grid.2x2"
+        case .projects: return "books.vertical"
+        case .production: return "gearshape.2"
+        case .agents: return "cpu"
+        case .manuscript: return "doc.text"
+        case .storyBible: return "book.closed"
+        case .export: return "square.and.arrow.up"
+        case .settings: return "gear"
         }
     }
-    
+}
+
+struct ContentView: View {
+    @Environment(\.modelContext) private var modelContext
+    @ObservedObject private var appState = AppState.shared
+    @State private var showingNewBookSheet = false
+
     var body: some View {
         NavigationSplitView {
-            List(SidebarItem.allCases, selection: $selectedSidebarItem) { item in
-                NavigationLink(value: item) {
-                    Label(item.rawValue, systemImage: item.icon)
+            List(selection: $appState.selectedSidebarItem) {
+                Section("Studio") {
+                    sidebarRow(.dashboard)
+                    sidebarRow(.projects)
+                    sidebarRow(.production)
+                    sidebarRow(.agents)
+                }
+                Section("Inhalt") {
+                    sidebarRow(.manuscript)
+                    sidebarRow(.storyBible)
+                }
+                Section("Ausgabe") {
+                    sidebarRow(.export)
+                }
+                Section {
+                    sidebarRow(.settings)
                 }
             }
             .listStyle(.sidebar)
             .navigationTitle("NovelForge")
-            .frame(minWidth: 200)
+            .frame(minWidth: 210)
+            .safeAreaInset(edge: .bottom) {
+                Button {
+                    showingNewBookSheet = true
+                } label: {
+                    Label("Neues Buch", systemImage: "plus.circle.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut("n", modifiers: .command)
+                .padding(12)
+            }
         } detail: {
             Group {
-                switch selectedSidebarItem {
+                switch appState.selectedSidebarItem {
                 case .dashboard:
                     DashboardView()
                 case .projects:
                     ProjectsListView()
-                case .newBook:
-                    NewBookWizardView()
-                case .queue:
-                    PipelineQueueView()
+                case .production:
+                    ProductionView()
+                case .agents:
+                    AgentMonitorView()
+                case .manuscript:
+                    ManuscriptView()
+                case .storyBible:
+                    StoryBibleView()
+                case .export:
+                    ExportView()
                 case .settings:
                     SettingsView()
                 case .none:
-                    Text("Wählen Sie einen Bereich")
-                        .foregroundStyle(.secondary)
+                    ContentUnavailableView("Bereich wählen", systemImage: "sidebar.left")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .sheet(isPresented: $showingNewBookSheet) {
+            NewBookWizardView(onStarted: {
+                appState.selectedSidebarItem = .production
+            })
+        }
+        .onAppear {
+            PipelineOrchestrator.shared.configure(with: modelContext)
+        }
+    }
+
+    private func sidebarRow(_ item: SidebarItem) -> some View {
+        NavigationLink(value: item) {
+            Label(item.rawValue, systemImage: item.icon)
+        }
     }
 }
 
-func getLastProviderConfig(for project: Project) -> ProviderConfiguration? {
-    var config = ProviderConfiguration(provider: .openAI)
-    config.isActive = true
-    config.defaultModel = "gpt-4o"
-    
-    if let apiKey = KeychainService.getAPIKey(for: .openAI) {
-        config.apiKey = apiKey
-    }
-    
-    return config
-}
+// MARK: - Produktion (laufende Pipeline + Warteschlange)
 
-struct ProjectsListView: View {
-    @Query(sort: \Project.updatedAt, order: .reverse) var projects: [Project]
-    @State private var selectedProject: Project?
-    @State private var showingNewBookWizard = false
-    
+struct ProductionView: View {
+    @Query(sort: \Project.updatedAt, order: .reverse) private var allProjects: [Project]
+    @ObservedObject private var orchestrator = PipelineOrchestrator.shared
+    @State private var showingNewBookSheet = false
+    @State private var showingUnlimitedSheet = false
+    @State private var confirmStopUnlimited = false
+
+    private var resumableProjects: [Project] {
+        allProjects.filter { project in
+            project.status != .completed && project.id != orchestrator.currentProject?.id
+        }
+    }
+
     var body: some View {
-        List(selection: $selectedProject) {
-            ForEach(projects) { project in
-                NavigationLink(value: project) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                if orchestrator.isUnlimitedMode {
+                    unlimitedBanner
+                }
+
+                if orchestrator.isRunning {
+                    PipelineProgressView()
+                }
+
+                if !orchestrator.isRunning {
                     HStack {
+                        Button {
+                            showingUnlimitedSheet = true
+                        } label: {
+                            Label("Dauerproduktion starten (Unlimited)", systemImage: "infinity")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        Spacer()
+                    }
+                }
+
+                if !orchestrator.isRunning, let error = orchestrator.lastError {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(project.title)
+                            Text("Letzte Produktion abgebrochen")
                                 .font(.headline)
-                            Text("\(project.authorName) • \(project.genre)")
+                            Text(error)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            Text("Der gesamte Fortschritt ist gespeichert – die Produktion kann unten fortgesetzt werden.")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
                         }
                         Spacer()
-                        StatusBadge(status: project.status)
                     }
-                    .padding(.vertical, 4)
+                    .padding(14)
+                    .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
                 }
-                .tag(project)
-            }
-        }
-        .navigationTitle("Projekte")
-        .toolbar {
-            ToolbarItem {
-                Button("Neues Buch", systemImage: "plus") {
-                    showingNewBookWizard = true
+
+                if !resumableProjects.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(orchestrator.isRunning ? "Wartende Projekte" : "Fortsetzbare Projekte")
+                            .font(.headline)
+
+                        ForEach(resumableProjects) { project in
+                            ResumableProjectRow(project: project,
+                                                disabled: orchestrator.isRunning)
+                        }
+                    }
+                }
+
+                if !orchestrator.isRunning && resumableProjects.isEmpty {
+                    ContentUnavailableView {
+                        Label("Keine aktiven Produktionen", systemImage: "gearshape.2")
+                    } description: {
+                        Text("Starten Sie eine neue Buchproduktion – die Pipeline arbeitet danach vollautomatisch.")
+                    } actions: {
+                        Button("Neues Buch") {
+                            showingNewBookSheet = true
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 80)
                 }
             }
+            .padding(24)
+            .frame(maxWidth: 760, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
-        .sheet(isPresented: $showingNewBookWizard) {
+        .navigationTitle("Produktion")
+        .sheet(isPresented: $showingNewBookSheet) {
             NewBookWizardView()
         }
+        .sheet(isPresented: $showingUnlimitedSheet) {
+            UnlimitedProductionSheet()
+        }
+    }
+
+    private var unlimitedBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "infinity.circle.fill")
+                .font(.title2)
+                .foregroundStyle(.tint)
+                .symbolEffect(.pulse)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Dauerproduktion aktiv – läuft bis Stopp")
+                    .font(.headline)
+                Text("\(orchestrator.unlimitedBooksCompleted) Bücher fertig · aktuell: \(orchestrator.currentProject?.title ?? "nächstes Buch wird geplant …")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button(role: .destructive) {
+                confirmStopUnlimited = true
+            } label: {
+                Label("Stoppen", systemImage: "stop.fill")
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(14)
+        .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+        .confirmationDialog("Dauerproduktion stoppen?", isPresented: $confirmStopUnlimited) {
+            Button("Stoppen", role: .destructive) {
+                orchestrator.stopUnlimitedProduction()
+            }
+            Button("Weiterlaufen lassen", role: .cancel) {}
+        } message: {
+            Text("Das aktuelle Buch bleibt gespeichert und kann später regulär fortgesetzt werden.")
+        }
     }
 }
 
-struct PipelineQueueView: View {
-    @Query var allProjects: [Project]
-    @StateObject private var orchestrator = PipelineOrchestrator.shared
-    
-    var activeProjects: [Project] {
-        allProjects.filter { $0.status != .completed && $0.status != .failed }
+/// Konfiguration und Start der Dauerproduktion (Unlimited-Modus).
+@MainActor
+struct UnlimitedProductionSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage("defaultAuthor") private var defaultAuthor = ""
+    @AppStorage(ExportEngine.exportRootDefaultsKey) private var exportRoot = ""
+
+    @State private var authorName = ""
+    @State private var language = "Deutsch"
+    @State private var genre = UnlimitedSettings.randomToken
+    @State private var style = UnlimitedSettings.randomToken
+    @State private var pageCount = 150
+    @State private var costLimitPerBook = 20.0
+    @State private var maxBooks = 0
+    @State private var epubFormat = true
+    @State private var pdfFormat = true
+    @State private var docxFormat = false
+
+    @State private var selectedProvider = AIProvider.openAI
+    @State private var selectedModel = AIProvider.openAI.suggestedModels.first ?? ""
+    @State private var customModel = ""
+
+    private var effectiveModel: String {
+        let custom = customModel.trimmingCharacters(in: .whitespaces)
+        return custom.isEmpty ? selectedModel : custom
     }
-    
+
+    private var hasStoredKey: Bool {
+        KeychainService.getAPIKey(for: selectedProvider)?.isEmpty == false
+    }
+
+    private var canStart: Bool {
+        !authorName.trimmingCharacters(in: .whitespaces).isEmpty
+            && !effectiveModel.isEmpty
+            && (!selectedProvider.requiresAPIKey || hasStoredKey)
+            && (epubFormat || pdfFormat || docxFormat)
+    }
+
+    private var selectedFormats: [String] {
+        var formats: [String] = []
+        if epubFormat { formats.append("EPUB") }
+        if pdfFormat { formats.append("PDF") }
+        if docxFormat { formats.append("DOCX") }
+        return formats
+    }
+
     var body: some View {
-        VStack {
-            if orchestrator.isRunning {
-                PipelineProgressView()
-            } else if activeProjects.isEmpty {
-                ContentUnavailableView(
-                    "Keine aktiven Produktionen",
-                    systemImage: "list.bullet.clipboard",
-                    description: Text("Starten Sie eine neue Buchproduktion")
-                )
-            } else {
-                List(activeProjects) { project in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(project.title)
-                                .font(.headline)
-                            Text("Status: \(project.status.rawValue)")
-                                .font(.caption)
+        NavigationStack {
+            Form {
+                Section("Dauerproduktion") {
+                    Text("NovelForge erfindet eigene Buchideen und produziert Buch für Buch in den Ausgabeordner – bis Sie Stopp drücken.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextField("Autorname oder Pseudonym", text: $authorName)
+                    Picker("Sprache", selection: $language) {
+                        ForEach(["Deutsch", "Englisch", "Französisch", "Spanisch"], id: \.self) {
+                            Text($0).tag($0)
                         }
+                    }
+                    Picker("Genre", selection: $genre) {
+                        Text("Zufällig (abwechslungsreich)").tag(UnlimitedSettings.randomToken)
+                        ForEach(UnlimitedSettings.genrePool, id: \.self) { Text($0).tag($0) }
+                    }
+                    Picker("Stilprofil", selection: $style) {
+                        Text("Zufällig (abwechslungsreich)").tag(UnlimitedSettings.randomToken)
+                        ForEach(UnlimitedSettings.stylePool, id: \.self) { Text($0).tag($0) }
+                    }
+                    Stepper("Seiten pro Buch: \(pageCount)", value: $pageCount,
+                            in: AppConstants.minPageCount...AppConstants.maxPageCount, step: 10)
+                }
+
+                Section("Formate & Ausgabeordner") {
+                    Toggle("EPUB", isOn: $epubFormat)
+                    Toggle("PDF (Print)", isOn: $pdfFormat)
+                    Toggle("DOCX", isOn: $docxFormat)
+
+                    HStack {
+                        Text(exportRoot.isEmpty ? "~/Documents/NovelForge (Standard)" : exportRoot)
+                            .font(.caption)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                         Spacer()
-                        if let config = getLastProviderConfig(for: project) {
-                            Button("Fortsetzen") {
-                                orchestrator.startPipeline(project: project, providerConfig: config)
+                        Button("Ordner wählen …") {
+                            chooseFolder()
+                        }
+                        if !exportRoot.isEmpty {
+                            Button("Standard") {
+                                exportRoot = ""
                             }
-                            .buttonStyle(.borderedProminent)
                         }
                     }
                 }
+
+                Section("KI-Provider & Kosten") {
+                    Picker("Provider", selection: $selectedProvider) {
+                        ForEach(AIProvider.allCases) { provider in
+                            Text(provider.rawValue).tag(provider)
+                        }
+                    }
+                    .onChange(of: selectedProvider) {
+                        selectedModel = selectedProvider.suggestedModels.first ?? ""
+                        customModel = ""
+                    }
+
+                    if selectedProvider.suggestedModels.isEmpty {
+                        TextField("Modellname", text: $customModel)
+                    } else {
+                        Picker("Modell", selection: $selectedModel) {
+                            ForEach(selectedProvider.suggestedModels, id: \.self) { Text($0).tag($0) }
+                        }
+                    }
+
+                    if selectedProvider.requiresAPIKey && !hasStoredKey {
+                        Label("Für diesen Provider ist kein API-Key hinterlegt (Einstellungen → KI-Provider).",
+                              systemImage: "key.slash")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+
+                    Stepper("Kostenlimit pro Buch: \(Int(costLimitPerBook)) USD",
+                            value: $costLimitPerBook, in: 5...500, step: 5)
+                    Stepper(maxBooks == 0 ? "Anzahl Bücher: unbegrenzt (bis Stopp)" : "Anzahl Bücher: \(maxBooks)",
+                            value: $maxBooks, in: 0...100)
+                }
+            }
+            .formStyle(.grouped)
+            .navigationTitle("Dauerproduktion")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Abbrechen") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        start()
+                    } label: {
+                        Label("Starten", systemImage: "infinity")
+                    }
+                    .disabled(!canStart)
+                }
+            }
+            .onAppear {
+                if authorName.isEmpty { authorName = defaultAuthor }
             }
         }
-        .navigationTitle("Warteschlange")
+        .frame(minWidth: 560, minHeight: 560)
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Ordner wählen"
+        if panel.runModal() == .OK, let url = panel.url {
+            exportRoot = url.path
+        }
+    }
+
+    private func start() {
+        var config = ProviderConfiguration(provider: selectedProvider)
+        config.isActive = true
+        config.defaultModel = effectiveModel
+        ProviderSettingsStore.shared.upsert(config)
+        config.apiKey = KeychainService.getAPIKey(for: selectedProvider)
+        config.costLimit = costLimitPerBook
+
+        let settings = UnlimitedSettings(
+            authorName: authorName.trimmingCharacters(in: .whitespaces),
+            language: language,
+            genre: genre,
+            style: style,
+            pageCount: pageCount,
+            costLimitPerBook: costLimitPerBook,
+            maxBooks: maxBooks,
+            formats: selectedFormats
+        )
+        defaultAuthor = settings.authorName
+
+        PipelineOrchestrator.shared.startUnlimitedProduction(settings: settings, providerConfig: config)
+        dismiss()
     }
 }
 
-struct PipelineProgressView: View {
-    @StateObject private var orchestrator = PipelineOrchestrator.shared
-    
+struct ResumableProjectRow: View {
+    let project: Project
+    let disabled: Bool
+    @ObservedObject private var orchestrator = PipelineOrchestrator.shared
+
     var body: some View {
-        VStack(spacing: 20) {
-            HStack {
-                Image(systemName: "gear")
-                    .imageScale(.large)
-                    .foregroundStyle(.blue)
-                    .symbolEffect(.pulse)
-                
-                VStack(alignment: .leading) {
-                    Text(orchestrator.currentPhase.rawValue)
-                        .font(.headline)
-                    Text(orchestrator.currentAgent)
-                        .font(.subheadline)
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(project.title)
+                    .font(.headline)
+                HStack(spacing: 8) {
+                    StatusBadge(status: project.status)
+                    Text("\(FormattingHelpers.formatWordCount(project.totalWordCount)) Wörter")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
-            
-            VStack(alignment: .leading) {
-                HStack {
-                    Text("\(Int(orchestrator.progress * 100))%")
-                        .font(.caption)
-                    Spacer()
-                    if !orchestrator.estimatedTimeRemaining.isEmpty {
-                        Text("Geschätzte Restzeit: \(orchestrator.estimatedTimeRemaining)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                ProgressView(value: orchestrator.progress)
-                    .progressViewStyle(.linear)
-                    .scaleEffect(y: 2)
+            Spacer()
+            Button(project.status == .created ? "Starten" : "Fortsetzen") {
+                orchestrator.resumePipeline(project: project)
             }
-            
-            if orchestrator.currentChapter > 0 {
-                HStack {
+            .buttonStyle(.borderedProminent)
+            .disabled(disabled)
+        }
+        .padding(14)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+// MARK: - Live-Fortschritt
+
+struct PipelineProgressView: View {
+    @ObservedObject private var orchestrator = PipelineOrchestrator.shared
+    @State private var confirmCancel = false
+
+    private var currentPhaseIndex: Int {
+        PipelinePhase.executionOrder.firstIndex(of: orchestrator.currentPhase) ?? 0
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            // Kopf
+            HStack(spacing: 12) {
+                Image(systemName: "gearshape.2.fill")
+                    .font(.title)
+                    .foregroundStyle(.tint)
+                    .symbolEffect(.pulse)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(orchestrator.currentProject?.title ?? "Buchproduktion")
+                        .font(.title3)
+                        .fontWeight(.semibold)
+                    Text(orchestrator.currentAgent.isEmpty ? orchestrator.currentPhase.rawValue : orchestrator.currentAgent)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text("\(Int(orchestrator.progress * 100)) %")
+                    .font(.system(.title2, design: .rounded))
+                    .fontWeight(.bold)
+                    .monospacedDigit()
+            }
+
+            ProgressView(value: orchestrator.progress)
+                .progressViewStyle(.linear)
+
+            // Detailzeile
+            HStack(spacing: 16) {
+                if orchestrator.currentPhase == .drafting && orchestrator.currentChapter > 0 {
                     Label("Kapitel \(orchestrator.currentChapter)", systemImage: "doc.text")
-                    if orchestrator.currentScene > 0 {
-                        Label("Szene \(orchestrator.currentScene)", systemImage: "doc.text.fill")
-                    }
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                if orchestrator.currentScene > 0 && orchestrator.currentPhase == .drafting {
+                    Label("Szene \(orchestrator.currentScene)", systemImage: "text.alignleft")
+                }
+                if orchestrator.totalScenes > 0 && orchestrator.currentPhase == .drafting {
+                    Label("\(orchestrator.completedScenes)/\(orchestrator.totalScenes) Szenen", systemImage: "checklist")
+                }
+                if !orchestrator.estimatedTimeRemaining.isEmpty {
+                    Label("Restzeit ca. \(orchestrator.estimatedTimeRemaining)", systemImage: "clock")
+                }
+                Spacer()
+                if orchestrator.totalTokensUsed > 0 {
+                    Text("\(FormattingHelpers.formatWordCount(orchestrator.totalTokensUsed)) Tokens · ca. \(FormattingHelpers.formatCost(orchestrator.estimatedCostUSD))")
+                        .foregroundStyle(.secondary)
+                }
             }
-            
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            Divider()
+
+            // Phasen-Checkliste
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(PipelinePhase.executionOrder.enumerated()), id: \.element) { index, phase in
+                    HStack(spacing: 10) {
+                        if index < currentPhaseIndex {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                        } else if index == currentPhaseIndex {
+                            Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                                .foregroundStyle(.tint)
+                                .symbolEffect(.pulse)
+                        } else {
+                            Image(systemName: "circle")
+                                .foregroundStyle(.quaternary)
+                        }
+                        Image(systemName: phase.iconName)
+                            .frame(width: 18)
+                            .foregroundStyle(index <= currentPhaseIndex ? .primary : .tertiary)
+                        Text(phase.rawValue)
+                            .foregroundStyle(index <= currentPhaseIndex ? .primary : .tertiary)
+                            .fontWeight(index == currentPhaseIndex ? .semibold : .regular)
+                        Spacer()
+                    }
+                    .font(.callout)
+                }
+            }
+
             if let error = orchestrator.lastError {
-                HStack {
+                HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.red)
                     Text(error)
                         .font(.caption)
                         .foregroundStyle(.red)
                 }
+                .padding(10)
+                .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
             }
-            
+
             HStack {
-                Button("Pause") {
+                Button {
                     orchestrator.pausePipeline()
+                } label: {
+                    Label("Pausieren", systemImage: "pause.fill")
                 }
                 .buttonStyle(.bordered)
-                
-                Button("Abbrechen") {
+
+                Button(role: .destructive) {
+                    confirmCancel = true
+                } label: {
+                    Label("Abbrechen", systemImage: "stop.fill")
+                }
+                .buttonStyle(.bordered)
+
+                Spacer()
+            }
+            .confirmationDialog("Produktion wirklich abbrechen?",
+                                isPresented: $confirmCancel) {
+                Button("Produktion abbrechen", role: .destructive) {
                     orchestrator.cancelPipeline()
                 }
-                .buttonStyle(.bordered)
-                .tint(.red)
+                Button("Weiter produzieren", role: .cancel) {}
+            } message: {
+                Text("Der bisherige Fortschritt bleibt gespeichert und kann später fortgesetzt werden.")
             }
         }
-        .padding()
-        .background(Color.gray.opacity(0.1))
-        .cornerRadius(12)
-        .padding()
+        .padding(20)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 14))
     }
 }

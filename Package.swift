@@ -17,6 +17,11 @@ let package = Package(
         .executableTarget(
             name: "NovelForge",
             path: "Sources/NovelForge"
+        ),
+        .testTarget(
+            name: "NovelForgeTests",
+            dependencies: ["NovelForge"],
+            path: "Tests/NovelForgeTests"
         )
     ]
 )

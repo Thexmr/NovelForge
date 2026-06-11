@@ -16,7 +16,15 @@ final class Project {
     var status: ProjectStatus
     var createdAt: Date
     var updatedAt: Date
-    
+
+    // Provider-Einstellungen des Projekts (für autonome Produktion & Fortsetzen)
+    var preferredProviderRaw: String = "OpenAI"
+    var preferredModel: String = ""
+    var costLimitUSD: Double = 0
+
+    // Print-Format für den KDP-konformen PDF-Export
+    var trimSizeRaw: String = "6x9"
+
     @Relationship(deleteRule: .cascade) var bookProfile: BookProfile?
     @Relationship(deleteRule: .cascade) var chapters: [Chapter]?
     @Relationship(deleteRule: .cascade) var storyBible: StoryBible?
@@ -71,6 +79,11 @@ final class BookProfile {
     var genreRules: String
     var logline: String?
     var synopsis: String?
+
+    // Amazon-KDP-Metadaten (werden in der Phase „KDP-Formatierung" generiert)
+    var kdpDescription: String = ""
+    var kdpKeywords: String = ""
+    var kdpCategories: String = ""
     
     @Relationship(inverse: \Project.bookProfile) var project: Project?
     
