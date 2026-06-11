@@ -23,6 +23,11 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 24) {
                 headerSection
 
+                let providerReady = hasUsableProvider()
+                if !providerReady {
+                    setupChecklist(providerReady: providerReady)
+                }
+
                 if orchestrator.isRunning {
                     runningBanner
                 }
@@ -54,6 +59,60 @@ struct DashboardView: View {
         .navigationTitle("Dashboard")
         .sheet(isPresented: $showingNewBookSheet) {
             NewBookWizardView()
+        }
+    }
+
+    /// Gibt es mindestens einen aktiven Provider, der sofort einsatzbereit ist?
+    @MainActor
+    private func hasUsableProvider() -> Bool {
+        let store = ProviderSettingsStore.shared
+        return store.configurations.contains { config in
+            config.isActive && (!config.provider.requiresAPIKey || store.hasAPIKey(for: config.provider))
+        }
+    }
+
+    private func setupChecklist(providerReady: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Erste Schritte")
+                .font(.headline)
+
+            checklistRow(done: providerReady,
+                         title: "KI-Provider einrichten",
+                         subtitle: "OpenAI, Anthropic Claude, Ollama (lokal & kostenlos), Kimi oder ein eigener Endpunkt – der API-Key landet sicher in der Keychain.",
+                         actionTitle: "Zu den Einstellungen") {
+                AppState.shared.open(.settings)
+            }
+
+            checklistRow(done: !projects.isEmpty,
+                         title: "Erstes Buch erstellen",
+                         subtitle: "Der Assistent startet die autonome Produktion direkt im Anschluss. Der Provider kann auch dort eingerichtet werden.",
+                         actionTitle: "Neues Buch") {
+                showingNewBookSheet = true
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.tint.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func checklistRow(done: Bool, title: String, subtitle: String,
+                              actionTitle: String, action: @escaping () -> Void) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: done ? "checkmark.circle.fill" : "circle")
+                .font(.title3)
+                .foregroundStyle(done ? Color.green : Color.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .fontWeight(.medium)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if !done {
+                Button(actionTitle, action: action)
+                    .buttonStyle(.bordered)
+            }
         }
     }
 
