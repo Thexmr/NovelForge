@@ -4,13 +4,29 @@ import CoreText
 
 struct ExportEngine {
 
-    /// Exportverzeichnis: ~/Documents/NovelForge/<Projekttitel>/
-    static func exportDirectory(for project: Project) throws -> URL {
+    /// UserDefaults-Schlüssel für einen benutzerdefinierten Ausgabeordner
+    /// (z.B. für die Dauerproduktion). Leer = Standard.
+    static let exportRootDefaultsKey = "novelforge.exportRoot"
+
+    /// Wurzel des Exportordners: benutzerdefiniert oder ~/Documents/NovelForge.
+    static func exportRootDirectory() throws -> URL {
+        if let custom = UserDefaults.standard.string(forKey: exportRootDefaultsKey),
+           !custom.isEmpty {
+            let url = URL(fileURLWithPath: custom, isDirectory: true)
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            return url
+        }
         guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
             throw AIError.systemError("Dokumente-Ordner nicht gefunden")
         }
-        let dir = documents
-            .appendingPathComponent("NovelForge", isDirectory: true)
+        let dir = documents.appendingPathComponent("NovelForge", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// Exportverzeichnis eines Projekts: <Wurzel>/<Projekttitel>/
+    static func exportDirectory(for project: Project) throws -> URL {
+        let dir = try exportRootDirectory()
             .appendingPathComponent(sanitizeFileName(project.title), isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir

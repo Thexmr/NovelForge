@@ -129,16 +129,48 @@ Werden automatisch aus echten Projektdaten berechnet (keine Platzhalter):
 - **Konsistenz** – abzüglich gefundener Widersprüche aus dem Gesamtlektorat
 - **KDP-Format** – Abweichung vom Zielumfang
 
+## Dauerproduktion (Unlimited-Modus)
+
+Unter **Produktion → „Dauerproduktion starten"** erfindet NovelForge eigene
+Buchideen und produziert Buch für Buch in den Ausgabeordner – **endlos, bis
+Stopp gedrückt wird** (optional mit Obergrenze). Konfigurierbar: Genre und
+Stil (fest oder „Zufällig" für Abwechslung), Seiten pro Buch, Formate,
+Kostenlimit **pro Buch**, Ausgabeordner. Schlägt ein Buch fehl, wird es
+protokolliert (und bleibt fortsetzbar) – die Dauerproduktion macht
+automatisch mit dem nächsten Buch weiter.
+
+## Installation
+
+### macOS (fertige App)
+
+1. Im Repo unter **Actions → letzter grüner Lauf → Artifacts** die Datei
+   `NovelForge-macOS.zip` herunterladen und entpacken.
+2. `NovelForge.app` in den Programme-Ordner ziehen.
+3. Erster Start: **Rechtsklick → Öffnen** (die App ist nicht notariell
+   beglaubigt, da ohne Apple-Developer-Zertifikat gebaut).
+
+### macOS (selbst bauen)
+
+```bash
+./Scripts/build-app.sh     # erzeugt build/NovelForge.app
+# oder klassisch:
+swift run NovelForge
+```
+
+Voraussetzungen: macOS 14.0+, Xcode 15+ bzw. Swift 5.9+.
+
+### Windows
+
+**Nicht verfügbar.** NovelForge ist eine native macOS-App (SwiftUI, SwiftData,
+PDFKit, Keychain) – diese Frameworks existieren nur auf Apple-Plattformen.
+Eine Windows-Version wäre kein Port, sondern eine vollständige
+Neuentwicklung in einem plattformübergreifenden Framework und damit ein
+eigenes Projekt.
+
 ## Technik
 
 - macOS 14.0+, Swift 5.9+, SwiftUI, SwiftData
 - Keine externen Abhängigkeiten
-
-```bash
-cd NovelForge
-swift build
-swift run NovelForge
-```
 
 ### Projektstruktur
 

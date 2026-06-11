@@ -2,6 +2,27 @@ import Foundation
 import SwiftData
 import SwiftUI
 
+/// Einstellungen für die Dauerproduktion (Unlimited-Modus):
+/// Die Pipeline erfindet selbst Buchideen und produziert Buch für Buch,
+/// bis gestoppt wird oder die maximale Anzahl erreicht ist.
+struct UnlimitedSettings {
+    var authorName: String
+    var language: String
+    var genre: String          // "Zufällig" = pro Buch zufällig aus dem Pool
+    var style: String          // "Zufällig" = pro Buch zufällig aus dem Pool
+    var pageCount: Int
+    var costLimitPerBook: Double
+    var maxBooks: Int          // 0 = unbegrenzt
+    var formats: [String]
+
+    static let randomToken = "Zufällig"
+    static let genrePool = ["Thriller", "Roman", "Fantasy", "Science Fiction", "Krimi",
+                            "Liebesroman", "Historischer Roman", "Horror", "Jugendbuch", "Abenteuer"]
+    static let stylePool = ["düster", "literarisch", "dialogstark", "humorvoll", "episch",
+                            "emotional", "schnell erzählt", "minimalistisch", "atmosphärisch",
+                            "actionreich", "psychologisch"]
+}
+
 /// Steuert die komplette autonome Buchproduktion.
 ///
 /// Alle Phasen sind idempotent: bereits erledigte Arbeit (vorhandene Kapitel,
@@ -31,6 +52,8 @@ final class PipelineOrchestrator: ObservableObject {
     @Published var completedScenes: Int = 0
     @Published var totalTokensUsed: Int = 0
     @Published var estimatedCostUSD: Double = 0
+    @Published var isUnlimitedMode: Bool = false
+    @Published var unlimitedBooksCompleted: Int = 0
 
     // MARK: - Intern
 
@@ -40,6 +63,7 @@ final class PipelineOrchestrator: ObservableObject {
     private var heartbeatTask: Task<Void, Never>?
     private var currentJob: PipelineJob?
     private var stopMode: StopMode = .none
+    private var usedTitles: Set<String> = []
     private let gateway = ProviderGateway.shared
 
     func configure(with context: ModelContext) {
@@ -100,47 +124,209 @@ final class PipelineOrchestrator: ObservableObject {
         startPipeline(project: project, providerConfig: config)
     }
 
-    // MARK: - Hauptablauf
+    // MARK: - Dauerproduktion (Unlimited-Modus)
 
-    private func run(project: Project, config: ProviderConfiguration) async {
-        do {
-            for phase in PipelinePhase.executionOrder {
-                try Task.checkCancellation()
-                currentPhase = phase
-                updateProgress(phase: phase, subProgress: 0)
+    /// Startet die Dauerproduktion: Die Pipeline erfindet eigene Buchideen und
+    /// produziert Buch für Buch in den Exportordner – bis Stopp gedrückt wird
+    /// (oder optional die maximale Buchanzahl erreicht ist).
+    func startUnlimitedProduction(settings: UnlimitedSettings, providerConfig: ProviderConfiguration) {
+        guard !isRunning else { return }
 
-                switch phase {
-                case .projectSetup:
-                    try runInputValidation(project: project)
-                case .conceptDevelopment:
-                    try await runConceptPhase(project: project, config: config)
-                case .structurePlanning:
-                    try await runStructurePhase(project: project, config: config)
-                case .chapterPlanning:
-                    try await runChapterPlanning(project: project, config: config)
-                case .scenePlanning:
-                    try await runScenePlanning(project: project, config: config)
-                case .drafting:
-                    try await runDrafting(project: project, config: config)
-                case .chapterRevision:
-                    try await runChapterRevision(project: project, config: config)
-                case .manuscriptRevision:
-                    try await runConsistencyCheck(project: project, config: config)
-                case .proofreading:
-                    try await runProofreading(project: project, config: config)
-                case .copyrightCheck:
-                    runCopyrightCheck(project: project)
-                case .kdpFormatting:
-                    try await runKDPFormatting(project: project, config: config)
-                case .export:
-                    try runExport(project: project)
-                default:
+        isRunning = true
+        isUnlimitedMode = true
+        stopMode = .none
+        lastError = nil
+        unlimitedBooksCompleted = 0
+        usedTitles = []
+
+        startHeartbeat()
+        backgroundTask = Task { [weak self] in
+            await self?.runUnlimited(settings: settings, config: providerConfig)
+        }
+    }
+
+    /// Stoppt die Dauerproduktion. Das aktuelle Buch bleibt gespeichert
+    /// und kann später regulär fortgesetzt werden.
+    func stopUnlimitedProduction() {
+        pausePipeline()
+    }
+
+    private func runUnlimited(settings: UnlimitedSettings, config: ProviderConfiguration) async {
+        while !Task.isCancelled {
+            // Frischer Zustand pro Buch – das Kostenlimit gilt je Buch.
+            sceneTimes = []
+            totalTokensUsed = 0
+            estimatedCostUSD = 0
+            progress = 0
+            currentChapter = 0
+            currentScene = 0
+            estimatedTimeRemaining = ""
+            lastError = nil
+
+            var bookConfig = config
+            bookConfig.costLimit = settings.costLimitPerBook > 0 ? settings.costLimitPerBook : nil
+
+            do {
+                let project = try await createUnlimitedProject(settings: settings, config: bookConfig)
+                currentProject = project
+
+                try await executeAllPhases(project: project, config: bookConfig)
+
+                project.status = .completed
+                progress = 1.0
+                unlimitedBooksCompleted += 1
+                currentAgent = "Buch \(unlimitedBooksCompleted) abgeschlossen – nächstes Buch wird geplant …"
+                try? modelContext?.save()
+
+                if settings.maxBooks > 0 && unlimitedBooksCompleted >= settings.maxBooks {
+                    break
+                }
+            } catch is CancellationError {
+                if let project = currentProject {
+                    handleStop(project: project)
+                } else {
+                    finish()
+                }
+                isUnlimitedMode = false
+                return
+            } catch {
+                // Buch fehlgeschlagen: protokollieren, Projekt bleibt fortsetzbar,
+                // Dauerproduktion macht mit dem nächsten Buch weiter.
+                if let job = currentJob, job.status == .running {
+                    failJob(job, error: error)
+                }
+                currentProject?.status = .failed
+                let aiError = error as? AIError
+                lastError = aiError?.errorDescription ?? error.localizedDescription
+                try? modelContext?.save()
+
+                // Dauerhaft unbehebbare Fehler beenden die Schleife,
+                // statt alle paar Sekunden erneut zu scheitern.
+                if aiError == .apiKeyInvalid || aiError == .baseURLMissing {
                     break
                 }
 
-                project.updatedAt = Date()
-                try? modelContext?.save()
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                if Task.isCancelled { break }
             }
+        }
+
+        isUnlimitedMode = false
+        currentAgent = "Dauerproduktion beendet – \(unlimitedBooksCompleted) Bücher produziert"
+        finish()
+    }
+
+    /// Erfindet eine Buchidee und legt daraus ein vollständiges Projekt an.
+    private func createUnlimitedProject(settings: UnlimitedSettings,
+                                        config: ProviderConfiguration) async throws -> Project {
+        let genre = settings.genre == UnlimitedSettings.randomToken
+            ? (UnlimitedSettings.genrePool.randomElement() ?? "Roman")
+            : settings.genre
+        let style = settings.style == UnlimitedSettings.randomToken
+            ? (UnlimitedSettings.stylePool.randomElement() ?? "atmosphärisch")
+            : settings.style
+
+        currentPhase = .projectSetup
+        currentAgent = "Ideenfindung für das nächste Buch …"
+        currentProject = nil
+
+        let response = try await generate(
+            prompt: PromptFactory.bookIdeas(genre: genre, language: settings.language),
+            system: "Du bist ein Verlagslektor mit sicherem Gespür für verkäufliche, originelle Buchideen.",
+            maxTokens: 800, temperature: 0.95, config: config
+        )
+        let idea = StructureParser.parseIdeas(response.text).randomElement()
+
+        var title = idea?.title ?? "\(genre)-Roman"
+        if usedTitles.contains(title.lowercased()) {
+            title += " \(Int(Date().timeIntervalSince1970) % 10000)"
+        }
+        usedTitles.insert(title.lowercased())
+
+        let project = Project(
+            title: title,
+            authorName: settings.authorName,
+            language: settings.language,
+            genre: genre,
+            styleProfile: style,
+            targetPageCount: settings.pageCount,
+            outputFormats: settings.formats
+        )
+        project.preferredProviderRaw = config.provider.rawValue
+        if let model = config.defaultModel, !model.isEmpty {
+            project.preferredModel = model
+        }
+        project.costLimitUSD = settings.costLimitPerBook
+
+        let profile = BookProfile(
+            premise: idea?.premise ?? "",
+            theme: "",
+            targetAudience: "",
+            tonality: style,
+            narrativePerspective: "Personaler Erzähler (Er/Sie)",
+            tense: "Präteritum"
+        )
+        profile.project = project
+
+        let bible = StoryBible()
+        bible.project = project
+
+        project.bookProfile = profile
+        project.storyBible = bible
+
+        modelContext?.insert(project)
+        modelContext?.insert(profile)
+        modelContext?.insert(bible)
+        try? modelContext?.save()
+        return project
+    }
+
+    // MARK: - Hauptablauf
+
+    /// Führt alle Pipeline-Phasen für ein Projekt aus (wirft bei Fehler/Abbruch).
+    private func executeAllPhases(project: Project, config: ProviderConfiguration) async throws {
+        for phase in PipelinePhase.executionOrder {
+            try Task.checkCancellation()
+            currentPhase = phase
+            updateProgress(phase: phase, subProgress: 0)
+
+            switch phase {
+            case .projectSetup:
+                try runInputValidation(project: project)
+            case .conceptDevelopment:
+                try await runConceptPhase(project: project, config: config)
+            case .structurePlanning:
+                try await runStructurePhase(project: project, config: config)
+            case .chapterPlanning:
+                try await runChapterPlanning(project: project, config: config)
+            case .scenePlanning:
+                try await runScenePlanning(project: project, config: config)
+            case .drafting:
+                try await runDrafting(project: project, config: config)
+            case .chapterRevision:
+                try await runChapterRevision(project: project, config: config)
+            case .manuscriptRevision:
+                try await runConsistencyCheck(project: project, config: config)
+            case .proofreading:
+                try await runProofreading(project: project, config: config)
+            case .copyrightCheck:
+                runCopyrightCheck(project: project)
+            case .kdpFormatting:
+                try await runKDPFormatting(project: project, config: config)
+            case .export:
+                try runExport(project: project)
+            default:
+                break
+            }
+
+            project.updatedAt = Date()
+            try? modelContext?.save()
+        }
+    }
+
+    private func run(project: Project, config: ProviderConfiguration) async {
+        do {
+            try await executeAllPhases(project: project, config: config)
 
             project.status = .completed
             progress = 1.0

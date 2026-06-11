@@ -22,3 +22,21 @@ jobs:
         run: swift build
       - name: Tests
         run: swift test
+
+  package:
+    name: App-Bundle (macOS)
+    runs-on: macos-14
+    needs: build
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: App-Bundle bauen
+        run: bash Scripts/build-app.sh
+      - name: Zip erstellen
+        run: cd build && zip -r -y NovelForge-macOS.zip NovelForge.app
+      - name: Artefakt hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: NovelForge-macOS
+          path: build/NovelForge-macOS.zip
+          retention-days: 30
