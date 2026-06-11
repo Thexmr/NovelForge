@@ -159,7 +159,7 @@ struct AgentJobRow: View {
 
 struct ExportView: View {
     @Query(sort: \Project.updatedAt, order: .reverse) var projects: [Project]
-    @State private var selectedProject: Project?
+    @ObservedObject private var appState = AppState.shared
 
     /// Alle Projekte mit mindestens einem Kapitel sind exportierbar (auch Zwischenstände).
     private var exportableProjects: [Project] {
@@ -173,7 +173,7 @@ struct ExportView: View {
                     ContentUnavailableView("Nichts zu exportieren", systemImage: "square.and.arrow.up",
                                            description: Text("Sobald ein Projekt Kapitel enthält, erscheint es hier."))
                 } else {
-                    List(selection: $selectedProject) {
+                    List(selection: $appState.selectedProject) {
                         ForEach(exportableProjects) { project in
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(project.title)
@@ -188,7 +188,7 @@ struct ExportView: View {
             .frame(minWidth: 200, idealWidth: 240, maxWidth: 300)
 
             Group {
-                if let project = selectedProject {
+                if let project = appState.selectedProject {
                     ExportDetailView(project: project)
                 } else {
                     ContentUnavailableView("Projekt wählen", systemImage: "square.and.arrow.up")

@@ -112,7 +112,9 @@ struct ProviderSettingsView: View {
             } else {
                 List {
                     ForEach($store.configurations) { $config in
-                        ProviderRow(configuration: $config)
+                        ProviderRow(configuration: $config, onDelete: {
+                            store.remove(config)
+                        })
                     }
                     .onDelete { indexSet in
                         for index in indexSet.sorted(by: >) {
@@ -147,6 +149,7 @@ struct ProviderSettingsView: View {
 
 struct ProviderRow: View {
     @Binding var configuration: ProviderConfiguration
+    var onDelete: () -> Void = {}
     @ObservedObject private var store = ProviderSettingsStore.shared
 
     @State private var isTesting = false
@@ -202,6 +205,14 @@ struct ProviderRow: View {
                     Image(systemName: succeeded ? "checkmark.circle.fill" : "xmark.circle.fill")
                         .foregroundStyle(succeeded ? .green : .red)
                 }
+
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .help("Provider entfernen (API-Key bleibt in der Keychain)")
             }
 
             if let result = testResult {

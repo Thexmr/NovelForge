@@ -3,7 +3,7 @@ import SwiftData
 
 struct ManuscriptView: View {
     @Query(sort: \Project.updatedAt, order: .reverse) var projects: [Project]
-    @State private var selectedProject: Project?
+    @ObservedObject private var appState = AppState.shared
     @State private var selectedChapter: Chapter?
     @State private var viewMode: ViewMode = .read
     @State private var readingWholeBook = false
@@ -16,13 +16,13 @@ struct ManuscriptView: View {
     }
 
     private var sortedChapters: [Chapter] {
-        (selectedProject?.chapters ?? []).sorted { $0.chapterNumber < $1.chapterNumber }
+        (appState.selectedProject?.chapters ?? []).sorted { $0.chapterNumber < $1.chapterNumber }
     }
 
     var body: some View {
         HSplitView {
             // Projekte
-            List(selection: $selectedProject) {
+            List(selection: $appState.selectedProject) {
                 ForEach(projects) { project in
                     VStack(alignment: .leading, spacing: 2) {
                         Text(project.title)
@@ -39,7 +39,7 @@ struct ManuscriptView: View {
 
             // Kapitel
             Group {
-                if selectedProject != nil {
+                if appState.selectedProject != nil {
                     if sortedChapters.isEmpty {
                         ContentUnavailableView("Noch keine Kapitel", systemImage: "doc.text",
                                                description: Text("Kapitel entstehen während der Produktion."))
@@ -86,7 +86,7 @@ struct ManuscriptView: View {
 
             // Inhalt
             Group {
-                if readingWholeBook, let project = selectedProject {
+                if readingWholeBook, let project = appState.selectedProject {
                     BookReaderView(project: project)
                 } else if let chapter = selectedChapter {
                     ChapterDetailView(chapter: chapter, viewMode: $viewMode)
@@ -98,7 +98,7 @@ struct ManuscriptView: View {
             .frame(minWidth: 400, maxWidth: .infinity)
         }
         .navigationTitle("Manuskript")
-        .onChange(of: selectedProject) {
+        .onChange(of: appState.selectedProject) {
             selectedChapter = nil
             readingWholeBook = false
         }
@@ -422,7 +422,7 @@ struct SceneCard: View {
 
 struct StoryBibleView: View {
     @Query(sort: \Project.updatedAt, order: .reverse) var projects: [Project]
-    @State private var selectedProject: Project?
+    @ObservedObject private var appState = AppState.shared
     @State private var selectedTab: BibleTab = .characters
 
     enum BibleTab: String, CaseIterable {
@@ -434,7 +434,7 @@ struct StoryBibleView: View {
 
     var body: some View {
         HSplitView {
-            List(selection: $selectedProject) {
+            List(selection: $appState.selectedProject) {
                 ForEach(projects) { project in
                     Text(project.title)
                         .lineLimit(1)
@@ -444,7 +444,7 @@ struct StoryBibleView: View {
             .frame(minWidth: 190, idealWidth: 220, maxWidth: 280)
 
             Group {
-                if let project = selectedProject, let bible = project.storyBible {
+                if let project = appState.selectedProject, let bible = project.storyBible {
                     VStack(spacing: 0) {
                         Picker("Bereich", selection: $selectedTab) {
                             ForEach(BibleTab.allCases, id: \.self) { tab in

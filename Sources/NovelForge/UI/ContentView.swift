@@ -1,41 +1,66 @@
 import SwiftUI
 import SwiftData
 
-struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
+/// Globaler UI-Zustand: gewählter Bereich + projektübergreifende Auswahl.
+/// Manuskript, Story Bible und Export folgen damit immer demselben Projekt,
+/// und Querverweise („Im Manuskript öffnen“) funktionieren aus jedem Bereich.
+@MainActor
+final class AppState: ObservableObject {
+    static let shared = AppState()
 
-    @State private var selectedSidebarItem: SidebarItem? = .dashboard
-    @State private var showingNewBookSheet = false
+    @Published var selectedSidebarItem: SidebarItem? = .dashboard
+    @Published var selectedProject: Project?
+    /// Projekt, das die Projektliste beim nächsten Erscheinen direkt im Detail öffnen soll.
+    @Published var pendingProjectDetail: Project?
 
-    enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
-        case dashboard = "Dashboard"
-        case projects = "Projekte"
-        case production = "Produktion"
-        case agents = "Agenten-Monitor"
-        case manuscript = "Manuskript"
-        case storyBible = "Story Bible"
-        case export = "Export"
-        case settings = "Einstellungen"
+    func open(_ item: SidebarItem, project: Project? = nil) {
+        if let project {
+            selectedProject = project
+        }
+        selectedSidebarItem = item
+    }
 
-        var id: String { rawValue }
+    func showProjectDetail(_ project: Project) {
+        selectedProject = project
+        pendingProjectDetail = project
+        selectedSidebarItem = .projects
+    }
+}
 
-        var icon: String {
-            switch self {
-            case .dashboard: return "square.grid.2x2"
-            case .projects: return "books.vertical"
-            case .production: return "gearshape.2"
-            case .agents: return "cpu"
-            case .manuscript: return "doc.text"
-            case .storyBible: return "book.closed"
-            case .export: return "square.and.arrow.up"
-            case .settings: return "gear"
-            }
+enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
+    case dashboard = "Dashboard"
+    case projects = "Projekte"
+    case production = "Produktion"
+    case agents = "Agenten-Monitor"
+    case manuscript = "Manuskript"
+    case storyBible = "Story Bible"
+    case export = "Export"
+    case settings = "Einstellungen"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .dashboard: return "square.grid.2x2"
+        case .projects: return "books.vertical"
+        case .production: return "gearshape.2"
+        case .agents: return "cpu"
+        case .manuscript: return "doc.text"
+        case .storyBible: return "book.closed"
+        case .export: return "square.and.arrow.up"
+        case .settings: return "gear"
         }
     }
+}
+
+struct ContentView: View {
+    @Environment(\.modelContext) private var modelContext
+    @ObservedObject private var appState = AppState.shared
+    @State private var showingNewBookSheet = false
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $selectedSidebarItem) {
+            List(selection: $appState.selectedSidebarItem) {
                 Section("Studio") {
                     sidebarRow(.dashboard)
                     sidebarRow(.projects)
@@ -70,7 +95,7 @@ struct ContentView: View {
             }
         } detail: {
             Group {
-                switch selectedSidebarItem {
+                switch appState.selectedSidebarItem {
                 case .dashboard:
                     DashboardView()
                 case .projects:
@@ -95,7 +120,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingNewBookSheet) {
             NewBookWizardView(onStarted: {
-                selectedSidebarItem = .production
+                appState.selectedSidebarItem = .production
             })
         }
         .onAppear {
@@ -128,6 +153,26 @@ struct ProductionView: View {
             VStack(alignment: .leading, spacing: 20) {
                 if orchestrator.isRunning {
                     PipelineProgressView()
+                }
+
+                if !orchestrator.isRunning, let error = orchestrator.lastError {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Letzte Produktion abgebrochen")
+                                .font(.headline)
+                            Text(error)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text("Der gesamte Fortschritt ist gespeichert – die Produktion kann unten fortgesetzt werden.")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                        Spacer()
+                    }
+                    .padding(14)
+                    .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
                 }
 
                 if !resumableProjects.isEmpty {

@@ -114,7 +114,12 @@ struct DashboardView: View {
                     Text("In Arbeit")
                         .font(.headline)
                     ForEach(activeProjects.prefix(4)) { project in
-                        ProjectCard(project: project)
+                        Button {
+                            AppState.shared.showProjectDetail(project)
+                        } label: {
+                            ProjectCard(project: project)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -128,7 +133,12 @@ struct DashboardView: View {
                     Text("Kürzlich abgeschlossen")
                         .font(.headline)
                     ForEach(completedProjects.prefix(4)) { project in
-                        CompletedProjectCard(project: project)
+                        Button {
+                            AppState.shared.showProjectDetail(project)
+                        } label: {
+                            CompletedProjectCard(project: project)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -249,11 +259,22 @@ struct ProjectsListView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Project.updatedAt, order: .reverse) var projects: [Project]
     @ObservedObject private var orchestrator = PipelineOrchestrator.shared
+    @ObservedObject private var appState = AppState.shared
     @State private var showingNewBookWizard = false
     @State private var projectToDelete: Project?
+    @State private var navigationPath: [Project] = []
+
+    /// Öffnet ein per Querverweis (z.B. Dashboard-Karte) angefordertes Projektdetail.
+    @MainActor
+    private func consumePendingDetail() {
+        if let project = appState.pendingProjectDetail {
+            navigationPath = [project]
+            appState.pendingProjectDetail = nil
+        }
+    }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             Group {
                 if projects.isEmpty {
                     ContentUnavailableView {
@@ -292,6 +313,12 @@ struct ProjectsListView: View {
             .navigationTitle("Projekte")
             .navigationDestination(for: Project.self) { project in
                 ProjectDetailView(project: project)
+            }
+            .onAppear {
+                consumePendingDetail()
+            }
+            .onChange(of: appState.pendingProjectDetail) {
+                consumePendingDetail()
             }
             .toolbar {
                 ToolbarItem {
@@ -352,10 +379,17 @@ struct ProjectListRow: View {
 
 struct ProjectDetailView: View {
     let project: Project
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject private var orchestrator = PipelineOrchestrator.shared
+    @State private var confirmDelete = false
 
     private var scores: QualityScores {
         QualityScores.compute(for: project)
+    }
+
+    private var isRunningThisProject: Bool {
+        orchestrator.isRunning && orchestrator.currentProject?.id == project.id
     }
 
     var body: some View {
@@ -373,16 +407,55 @@ struct ProjectDetailView: View {
                     StatusBadge(status: project.status)
                 }
 
-                if project.status != .completed && !orchestrator.isRunning {
-                    Button {
-                        orchestrator.resumePipeline(project: project)
-                    } label: {
-                        Label(project.status == .created ? "Produktion starten" : "Produktion fortsetzen",
-                              systemImage: "play.fill")
+                // Aktionsleiste: Produktion, Querverweise, Löschen
+                HStack(spacing: 10) {
+                    if isRunningThisProject {
+                        Button {
+                            orchestrator.pausePipeline()
+                        } label: {
+                            Label("Pausieren", systemImage: "pause.fill")
+                        }
+                        .buttonStyle(.borderedProminent)
+                    } else if project.status != .completed {
+                        Button {
+                            orchestrator.resumePipeline(project: project)
+                        } label: {
+                            Label(project.status == .created ? "Produktion starten" : "Fortsetzen",
+                                  systemImage: "play.fill")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(orchestrator.isRunning)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+
+                    Button {
+                        AppState.shared.open(.manuscript, project: project)
+                    } label: {
+                        Label("Manuskript", systemImage: "doc.text")
+                    }
+
+                    Button {
+                        AppState.shared.open(.storyBible, project: project)
+                    } label: {
+                        Label("Story Bible", systemImage: "book.closed")
+                    }
+
+                    Button {
+                        AppState.shared.open(.export, project: project)
+                    } label: {
+                        Label("Export", systemImage: "square.and.arrow.up")
+                    }
+
+                    Spacer()
+
+                    Button(role: .destructive) {
+                        confirmDelete = true
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .help("Projekt löschen")
+                    .disabled(isRunningThisProject)
                 }
+                .buttonStyle(.bordered)
 
                 ProgressView(value: project.status.progressFraction) {
                     Text("Gesamtfortschritt")
@@ -458,6 +531,20 @@ struct ProjectDetailView: View {
             .frame(maxWidth: .infinity)
         }
         .navigationTitle(project.title)
+        .confirmationDialog("Projekt \"\(project.title)\" wirklich löschen?",
+                            isPresented: $confirmDelete) {
+            Button("Endgültig löschen", role: .destructive) {
+                if AppState.shared.selectedProject?.id == project.id {
+                    AppState.shared.selectedProject = nil
+                }
+                modelContext.delete(project)
+                try? modelContext.save()
+                dismiss()
+            }
+            Button("Abbrechen", role: .cancel) {}
+        } message: {
+            Text("Alle Kapitel, Szenen und Berichte dieses Projekts werden unwiderruflich gelöscht.")
+        }
     }
 
     private var shortTrimSize: String {
