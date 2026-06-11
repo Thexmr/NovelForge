@@ -3,7 +3,9 @@ import SwiftData
 
 struct AgentMonitorView: View {
     @Query(sort: \PipelineJob.createdAt, order: .reverse) var jobs: [PipelineJob]
+    @Query(sort: \Project.updatedAt, order: .reverse) var projects: [Project]
     @State private var selectedStatus: JobStatusFilter = .all
+    @State private var selectedProjectID: UUID?
 
     enum JobStatusFilter: String, CaseIterable {
         case all = "Alle"
@@ -13,21 +15,26 @@ struct AgentMonitorView: View {
     }
 
     var filteredJobs: [PipelineJob] {
+        var result: [PipelineJob]
         switch selectedStatus {
         case .all:
-            return jobs
+            result = jobs
         case .active:
-            return jobs.filter { $0.status == .running || $0.status == .writing || $0.status == .checking || $0.status == .revising }
+            result = jobs.filter { $0.status == .running || $0.status == .writing || $0.status == .checking || $0.status == .revising }
         case .completed:
-            return jobs.filter { $0.status == .completed }
+            result = jobs.filter { $0.status == .completed }
         case .failed:
-            return jobs.filter { $0.status == .failed }
+            result = jobs.filter { $0.status == .failed }
         }
+        if let projectID = selectedProjectID {
+            result = result.filter { $0.project?.id == projectID }
+        }
+        return result
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
+            HStack(spacing: 12) {
                 Picker("Status", selection: $selectedStatus) {
                     ForEach(JobStatusFilter.allCases, id: \.self) { filter in
                         Text(filter.rawValue).tag(filter)
@@ -35,7 +42,16 @@ struct AgentMonitorView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(maxWidth: 420)
+                .frame(maxWidth: 380)
+
+                Picker("Projekt", selection: $selectedProjectID) {
+                    Text("Alle Projekte").tag(UUID?.none)
+                    ForEach(projects) { project in
+                        Text(project.title).tag(Optional(project.id))
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 220)
 
                 Spacer()
 

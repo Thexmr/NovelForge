@@ -600,6 +600,11 @@ struct LocationsTabView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    if !location.relevantChapters.isEmpty {
+                        Text("Kapitel: \(location.relevantChapters)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .padding(.vertical, 4)
             }

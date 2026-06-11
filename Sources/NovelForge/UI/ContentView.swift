@@ -236,7 +236,7 @@ struct PipelineProgressView: View {
 
             // Detailzeile
             HStack(spacing: 16) {
-                if orchestrator.currentChapter > 0 {
+                if orchestrator.currentPhase == .drafting && orchestrator.currentChapter > 0 {
                     Label("Kapitel \(orchestrator.currentChapter)", systemImage: "doc.text")
                 }
                 if orchestrator.currentScene > 0 && orchestrator.currentPhase == .drafting {

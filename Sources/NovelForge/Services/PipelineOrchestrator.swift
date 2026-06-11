@@ -602,11 +602,51 @@ final class PipelineOrchestrator: ObservableObject {
                 jobs[index].endTime = Date()
             }
         }
+        // Schauplätze aus den Szenenplänen in die Story Bible übernehmen.
+        aggregateLocations(into: bible, chapters: chapters)
         try? modelContext?.save()
 
         if hitCostLimit { throw AIError.quotaExceeded }
         if let error = firstError { throw error }
         try Task.checkCancellation()
+    }
+
+    /// Sammelt alle Schauplätze aus den Szenenplänen und legt sie (einmalig)
+    /// als Orte in der Story Bible an – inklusive Kapitelbezug.
+    private func aggregateLocations(into bible: StoryBible, chapters: [Chapter]) {
+        if bible.locations == nil { bible.locations = [] }
+        var known = Set((bible.locations ?? []).map { $0.name.lowercased() })
+
+        for chapter in chapters {
+            for scene in sortedScenes(chapter) {
+                let name = scene.location.trimmingCharacters(in: .whitespaces)
+                guard name.count > 1 else { continue }
+                let key = name.lowercased()
+                let chapterRef = "\(chapter.chapterNumber)"
+
+                if known.contains(key) {
+                    if let existing = bible.locations?.first(where: { $0.name.lowercased() == key }) {
+                        let refs = existing.relevantChapters
+                            .split(separator: ",")
+                            .map { $0.trimmingCharacters(in: .whitespaces) }
+                        if !refs.contains(chapterRef) {
+                            existing.relevantChapters = existing.relevantChapters.isEmpty
+                                ? chapterRef
+                                : existing.relevantChapters + ", " + chapterRef
+                        }
+                    }
+                    continue
+                }
+
+                known.insert(key)
+                let location = LocationProfile(name: name, type: "Schauplatz", locationDescription: "")
+                location.relevantChapters = chapterRef
+                location.storyBible = bible
+                bible.locations?.append(location)
+                modelContext?.insert(location)
+            }
+        }
+        bible.updatedAt = Date()
     }
 
     // MARK: - Phase 6: Rohfassung (Szene für Szene, mit Kontinuität)
