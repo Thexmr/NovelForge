@@ -4,6 +4,7 @@ on:
   push:
     branches: ["main", "claude/**"]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: build-${{ github.ref }}
@@ -35,8 +36,11 @@ jobs:
       - name: Zip erstellen
         run: cd build && zip -r -y NovelForge-macOS.zip NovelForge.app
       - name: Artefakt hochladen
+        # Schlägt nicht fehl, wenn die Artefakt-Speicherquota des Kontos
+        # erschöpft ist – das Bundle-Bauen selbst bleibt verifiziert.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: NovelForge-macOS
           path: build/NovelForge-macOS.zip
-          retention-days: 30
+          retention-days: 7
