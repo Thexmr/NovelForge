@@ -106,4 +106,30 @@ final class UnlimitedProductionTests: XCTestCase {
         XCTAssertEqual(timing.estimatedTotalText, "1 h 15 min")
         XCTAssertEqual(timing.averageBookText, "1 h 15 min")
     }
+
+    func testStabilityPolicyStopsUnlimitedProductionOnOperatorRequiredErrors() {
+        XCTAssertTrue(ProductionStabilityPolicy.shouldHaltUnlimitedProduction(after: AIError.apiKeyInvalid,
+                                                                              consecutiveFailures: 1))
+        XCTAssertTrue(ProductionStabilityPolicy.shouldHaltUnlimitedProduction(after: AIError.quotaExceeded,
+                                                                              consecutiveFailures: 1))
+        XCTAssertTrue(ProductionStabilityPolicy.shouldHaltUnlimitedProduction(after: AIError.baseURLMissing,
+                                                                              consecutiveFailures: 1))
+        XCTAssertFalse(ProductionStabilityPolicy.shouldHaltUnlimitedProduction(after: AIError.providerUnavailable,
+                                                                               consecutiveFailures: 1))
+    }
+
+    func testStabilityPolicyUsesCappedBackoffForTransientBookFailures() {
+        XCTAssertEqual(ProductionStabilityPolicy.retryDelay(forConsecutiveFailures: 0), 0)
+        XCTAssertEqual(ProductionStabilityPolicy.retryDelay(forConsecutiveFailures: 1), 5)
+        XCTAssertEqual(ProductionStabilityPolicy.retryDelay(forConsecutiveFailures: 2), 15)
+        XCTAssertEqual(ProductionStabilityPolicy.retryDelay(forConsecutiveFailures: 3), 45)
+        XCTAssertEqual(ProductionStabilityPolicy.retryDelay(forConsecutiveFailures: 8), 300)
+    }
+
+    func testStabilityPolicyStopsAfterTooManyConsecutiveBookFailures() {
+        XCTAssertFalse(ProductionStabilityPolicy.shouldHaltUnlimitedProduction(after: AIError.networkError,
+                                                                               consecutiveFailures: 2))
+        XCTAssertTrue(ProductionStabilityPolicy.shouldHaltUnlimitedProduction(after: AIError.networkError,
+                                                                              consecutiveFailures: 3))
+    }
 }
