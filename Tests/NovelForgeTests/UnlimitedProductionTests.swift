@@ -11,6 +11,7 @@ final class UnlimitedProductionTests: XCTestCase {
             pageCount: 500,
             costLimitPerBook: 50,
             maxBooks: 0,
+            parallelBooks: 10,
             formats: ["EPUB", "PDF"],
             imprint: "Test Verlag\nMusterstraße 1\n12345 Berlin",
             authorBio: "Test Autor schreibt psychologische Thriller."
@@ -18,8 +19,61 @@ final class UnlimitedProductionTests: XCTestCase {
 
         XCTAssertEqual(settings.pageCount, AppConstants.maxPageCount)
         XCTAssertEqual(settings.targetWordCount, 125_000)
+        XCTAssertEqual(settings.parallelBooks, 10)
         XCTAssertTrue(settings.imprint.contains("Test Verlag"))
         XCTAssertTrue(settings.authorBio.contains("psychologische Thriller"))
+    }
+
+    func testUnlimitedSettingsClampParallelBookWorkersToOneThroughTen() {
+        let tooLow = UnlimitedSettings(
+            authorName: "Test Autor",
+            language: "Deutsch",
+            selectedGenres: ["Thriller"],
+            style: "psychologisch",
+            pageCount: 300,
+            costLimitPerBook: 25,
+            maxBooks: 0,
+            parallelBooks: 0,
+            formats: ["EPUB"],
+            imprint: "",
+            authorBio: ""
+        )
+        let tooHigh = UnlimitedSettings(
+            authorName: "Test Autor",
+            language: "Deutsch",
+            selectedGenres: ["Thriller"],
+            style: "psychologisch",
+            pageCount: 300,
+            costLimitPerBook: 25,
+            maxBooks: 0,
+            parallelBooks: 12,
+            formats: ["EPUB"],
+            imprint: "",
+            authorBio: ""
+        )
+
+        XCTAssertEqual(tooLow.parallelBooks, 1)
+        XCTAssertEqual(tooHigh.parallelBooks, 10)
+    }
+
+    func testUnlimitedSettingsLimitParallelLaunchesByRemainingBookCount() {
+        let settings = UnlimitedSettings(
+            authorName: "Test Autor",
+            language: "Deutsch",
+            selectedGenres: ["Thriller"],
+            style: "psychologisch",
+            pageCount: 300,
+            costLimitPerBook: 25,
+            maxBooks: 7,
+            parallelBooks: 10,
+            formats: ["EPUB"],
+            imprint: "",
+            authorBio: ""
+        )
+
+        XCTAssertEqual(settings.launchSlots(completedBooks: 0, activeBooks: 0), 7)
+        XCTAssertEqual(settings.launchSlots(completedBooks: 3, activeBooks: 2), 2)
+        XCTAssertEqual(settings.launchSlots(completedBooks: 7, activeBooks: 0), 0)
     }
 
     func testUnlimitedSettingsCycleSelectedGenresInsteadOfRepeatingOneGenre() {
@@ -31,6 +85,7 @@ final class UnlimitedProductionTests: XCTestCase {
             pageCount: 300,
             costLimitPerBook: 25,
             maxBooks: 0,
+            parallelBooks: 1,
             formats: ["EPUB"],
             imprint: "",
             authorBio: ""
