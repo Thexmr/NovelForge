@@ -25,12 +25,17 @@ enum AgentName {
 enum PromptFactory {
 
     /// Drei kommerziell vielversprechende Buchideen für den Wizard.
-    static func bookIdeas(genre: String, language: String) -> String {
+    static func bookIdeas(genre: String, language: String, avoidanceBrief: String = "") -> String {
+        let memoryBlock = avoidanceBrief.isEmpty ? "" : "\n\(avoidanceBrief)\n"
         """
         Entwickle 3 eigenständige, kommerziell vielversprechende Buchideen \
         (Genre-Schwerpunkt: \(genre.isEmpty ? "frei wählbar" : genre), Sprache: \(language)). \
         Jede Idee braucht einen frischen Dreh und einen klaren zentralen Konflikt – \
         keine Klischee-Plots, keine Anlehnung an bestehende Werke.
+        \(memoryBlock)
+        Bestseller-Pflicht: Jede Idee braucht eine sofort verständliche Zielgruppe, ein starkes Versprechen,
+        eine emotionale Kernwunde der Hauptfigur, Eskalation mit hohem Einsatz und einen Hook, der als
+        Amazon-KDP-Leseprobe schon auf Seite 1 funktioniert.
 
         Gib für JEDE Idee GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
         IDEE|Titel|Genre|Prämisse in 2 Sätzen mit klarem Konflikt
@@ -97,6 +102,9 @@ enum PromptFactory {
         - Formuliere die zentrale dramatische Frage in einem Satz.
         - Webe mindestens eine Nebenhandlung ein, die den Hauptplot am Ende verstärkt.
         - Platziere offene Fragen (Open Loops), die erst spät beantwortet werden – sie halten den Leser im Buch.
+        - Jede Figur trifft Entscheidungen unter Druck; keine passiven Zufälle als Plotmotor.
+        - Plane Kapitelenden so, dass Neugier, Sorge oder Erwartung offen bleiben.
+        - Der Umfang muss tragfähig für den Zielumfang sein: keine Kurzgeschichten-Struktur für lange KDP-Romane.
 
         Schreibe als zusammenhängenden, klar gegliederten Text.
         """

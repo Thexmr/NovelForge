@@ -272,13 +272,15 @@ struct ExportEngine {
     }
 
     private static func generateCopyrightPageHTML(project: Project) -> String {
-        let year = Calendar.current.component(.year, from: Date())
+        let lines = copyrightPageText(project: project)
+            .components(separatedBy: .newlines)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            .map { "            <p class=\"first\" style=\"text-align: center;\">\(escapeXML($0))</p>" }
+            .joined(separator: "\n")
         return xhtmlHeader(title: "Copyright") + """
 
             <div class="copyrightpage">
-                <p class="first" style="text-align: center;">\(escapeXML("© \(year) \(project.authorName)"))</p>
-                <p class="first" style="text-align: center;">Alle Rechte vorbehalten.</p>
-                <p class="first" style="text-align: center; font-size: 0.85em;">Dieses Werk wurde mit KI-Unterstützung erstellt.</p>
+        \(lines)
             </div>
         </body>
         </html>
@@ -443,9 +445,12 @@ struct ExportEngine {
         body += paragraph(text: project.title, style: "Title")
         body += paragraph(text: project.authorName, style: "Subtitle")
 
-        let year = Calendar.current.component(.year, from: Date())
-        body += paragraph(text: "© \(year) \(project.authorName)", style: nil)
-        body += paragraph(text: "Alle Rechte vorbehalten.", style: nil)
+        for line in copyrightPageText(project: project).components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty {
+                body += paragraph(text: trimmed, style: nil)
+            }
+        }
         body += "<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>"
 
         if let chapters = project.chapters?.sorted(by: { $0.chapterNumber < $1.chapterNumber }) {
@@ -520,17 +525,31 @@ struct ExportEngine {
     }
 
     private static func makeCopyrightAttributed(project: Project) -> NSAttributedString {
-        let year = Calendar.current.component(.year, from: Date())
         let style = NSMutableParagraphStyle()
         style.alignment = .center
         style.lineHeightMultiple = 1.4
 
-        let text = "© \(year) \(project.authorName)\nAlle Rechte vorbehalten.\n\nDieses Werk wurde mit KI-Unterstützung erstellt."
-        return NSAttributedString(string: text, attributes: [
+        return NSAttributedString(string: copyrightPageText(project: project), attributes: [
             .font: bookFont(size: 9),
             .paragraphStyle: style,
             .foregroundColor: NSColor.black
         ])
+    }
+
+    private static func copyrightPageText(project: Project) -> String {
+        let year = Calendar.current.component(.year, from: Date())
+        var lines = [
+            "© \(year) \(project.authorName)",
+            "Alle Rechte vorbehalten."
+        ]
+        let imprint = project.imprint.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !imprint.isEmpty {
+            lines.append("")
+            lines.append(contentsOf: imprint.components(separatedBy: .newlines))
+        }
+        lines.append("")
+        lines.append("Dieses Werk wurde mit KI-Unterstützung erstellt.")
+        return lines.joined(separator: "\n")
     }
 
     private static func makeTOCAttributed(project: Project) -> NSAttributedString {
@@ -761,6 +780,12 @@ struct ExportEngine {
         report += "Sprache: \(project.language)\n"
         report += "Formate: \(project.outputFormats.joined(separator: ", "))\n"
         report += "Trim-Größe (Print): \(project.trimSize.displayName)\n\n"
+        if !project.imprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            report += "Impressum:\n\(project.imprint)\n\n"
+        }
+        if !project.memorySignature.isEmpty {
+            report += "Story-Memory-Signatur: \(project.memorySignature.truncated(to: 220))\n\n"
+        }
 
         let totalWords = project.totalWordCount
         let estimatedPages = totalWords / AppConstants.wordsPerPage

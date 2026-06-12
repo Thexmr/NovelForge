@@ -8,12 +8,13 @@ import SwiftUI
 struct UnlimitedSettings {
     var authorName: String
     var language: String
-    var genre: String          // "Zufällig" = pro Buch zufällig aus dem Pool
+    var selectedGenres: [String]
     var style: String          // "Zufällig" = pro Buch zufällig aus dem Pool
     var pageCount: Int
     var costLimitPerBook: Double
     var maxBooks: Int          // 0 = unbegrenzt
     var formats: [String]
+    var imprint: String
 
     static let randomToken = "Zufällig"
     static let genrePool = ["Thriller", "Roman", "Fantasy", "Science Fiction", "Krimi",
@@ -21,6 +22,46 @@ struct UnlimitedSettings {
     static let stylePool = ["düster", "literarisch", "dialogstark", "humorvoll", "episch",
                             "emotional", "schnell erzählt", "minimalistisch", "atmosphärisch",
                             "actionreich", "psychologisch"]
+
+    init(authorName: String, language: String, genre: String, style: String,
+         pageCount: Int, costLimitPerBook: Double, maxBooks: Int, formats: [String],
+         imprint: String = "") {
+        self.init(authorName: authorName, language: language,
+                  selectedGenres: genre == Self.randomToken ? [] : [genre],
+                  style: style, pageCount: pageCount,
+                  costLimitPerBook: costLimitPerBook, maxBooks: maxBooks,
+                  formats: formats, imprint: imprint)
+    }
+
+    init(authorName: String, language: String, selectedGenres: [String], style: String,
+         pageCount: Int, costLimitPerBook: Double, maxBooks: Int, formats: [String],
+         imprint: String) {
+        self.authorName = authorName
+        self.language = language
+        self.selectedGenres = selectedGenres
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        self.style = style
+        self.pageCount = min(max(pageCount, AppConstants.minPageCount), AppConstants.maxPageCount)
+        self.costLimitPerBook = costLimitPerBook
+        self.maxBooks = maxBooks
+        self.formats = formats
+        self.imprint = imprint.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var targetWordCount: Int {
+        pageCount * AppConstants.wordsPerPage
+    }
+
+    var effectiveGenres: [String] {
+        selectedGenres.isEmpty ? Self.genrePool : selectedGenres
+    }
+
+    func genreForBook(at index: Int) -> String {
+        let genres = effectiveGenres
+        guard !genres.isEmpty else { return "Roman" }
+        return genres[max(0, index) % genres.count]
+    }
 }
 
 /// Steuert die komplette autonome Buchproduktion.
@@ -64,6 +105,7 @@ final class PipelineOrchestrator: ObservableObject {
     private var currentJob: PipelineJob?
     private var stopMode: StopMode = .none
     private var usedTitles: Set<String> = []
+    private var unlimitedRunID = ""
     private let gateway = ProviderGateway.shared
 
     func configure(with context: ModelContext) {
@@ -138,6 +180,7 @@ final class PipelineOrchestrator: ObservableObject {
         lastError = nil
         unlimitedBooksCompleted = 0
         usedTitles = []
+        unlimitedRunID = UUID().uuidString
 
         startHeartbeat()
         backgroundTask = Task { [weak self] in
@@ -219,23 +262,29 @@ final class PipelineOrchestrator: ObservableObject {
     /// Erfindet eine Buchidee und legt daraus ein vollständiges Projekt an.
     private func createUnlimitedProject(settings: UnlimitedSettings,
                                         config: ProviderConfiguration) async throws -> Project {
-        let genre = settings.genre == UnlimitedSettings.randomToken
-            ? (UnlimitedSettings.genrePool.randomElement() ?? "Roman")
-            : settings.genre
+        let genre = settings.genreForBook(at: unlimitedBooksCompleted)
         let style = settings.style == UnlimitedSettings.randomToken
             ? (UnlimitedSettings.stylePool.randomElement() ?? "atmosphärisch")
             : settings.style
+        let memoryEntries = StoryMemory.entries(from: existingProjects())
+        let avoidanceBrief = StoryMemory.makeAvoidanceBrief(
+            entries: memoryEntries,
+            selectedGenres: settings.effectiveGenres
+        )
 
         currentPhase = .projectSetup
         currentAgent = "Ideenfindung für das nächste Buch …"
         currentProject = nil
 
         let response = try await generate(
-            prompt: PromptFactory.bookIdeas(genre: genre, language: settings.language),
-            system: "Du bist ein Verlagslektor mit sicherem Gespür für verkäufliche, originelle Buchideen.",
+            prompt: PromptFactory.bookIdeas(genre: genre, language: settings.language,
+                                            avoidanceBrief: avoidanceBrief),
+            system: "Du bist ein Verlagslektor mit sicherem Gespür für verkäufliche, originelle Buchideen. Du vermeidest Wiederholungen gegenüber dem Story-Gedächtnis strikt.",
             maxTokens: 800, temperature: 0.95, config: config
         )
-        let idea = StructureParser.parseIdeas(response.text).randomElement()
+        let ideas = StructureParser.parseIdeas(response.text)
+        let idea = ideas.first { !StoryMemory.isLikelyDuplicate($0, existing: memoryEntries) }
+            ?? ideas.randomElement()
 
         var title = idea?.title ?? "\(genre)-Roman"
         if usedTitles.contains(title.lowercased()) {
@@ -257,6 +306,13 @@ final class PipelineOrchestrator: ObservableObject {
             project.preferredModel = model
         }
         project.costLimitUSD = settings.costLimitPerBook
+        project.imprint = settings.imprint
+        project.autoProductionRunID = unlimitedRunID
+        project.memorySignature = StoryMemory.signature(
+            title: title,
+            genre: genre,
+            premise: idea?.premise ?? ""
+        )
 
         let profile = BookProfile(
             premise: idea?.premise ?? "",
@@ -279,6 +335,11 @@ final class PipelineOrchestrator: ObservableObject {
         modelContext?.insert(bible)
         try? modelContext?.save()
         return project
+    }
+
+    private func existingProjects() -> [Project] {
+        guard let modelContext else { return [] }
+        return (try? modelContext.fetch(FetchDescriptor<Project>())) ?? []
     }
 
     // MARK: - Hauptablauf

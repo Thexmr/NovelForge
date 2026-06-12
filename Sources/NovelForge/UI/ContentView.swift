@@ -166,7 +166,7 @@ struct ProductionView: View {
                         Button {
                             showingUnlimitedSheet = true
                         } label: {
-                            Label("Dauerproduktion starten (Unlimited)", systemImage: "infinity")
+                            Label("Auto-Produktion starten", systemImage: "infinity")
                         }
                         .buttonStyle(.borderedProminent)
                         Spacer()
@@ -276,11 +276,12 @@ struct UnlimitedProductionSheet: View {
 
     @State private var authorName = ""
     @State private var language = "Deutsch"
-    @State private var genre = UnlimitedSettings.randomToken
+    @State private var selectedGenres: Set<String> = ["Thriller"]
     @State private var style = UnlimitedSettings.randomToken
     @State private var pageCount = 150
     @State private var costLimitPerBook = 20.0
     @State private var maxBooks = 0
+    @State private var imprint = ""
     @State private var epubFormat = true
     @State private var pdfFormat = true
     @State private var docxFormat = false
@@ -300,6 +301,7 @@ struct UnlimitedProductionSheet: View {
 
     private var canStart: Bool {
         !authorName.trimmingCharacters(in: .whitespaces).isEmpty
+            && !selectedGenres.isEmpty
             && !effectiveModel.isEmpty
             && (!selectedProvider.requiresAPIKey || hasStoredKey)
             && (epubFormat || pdfFormat || docxFormat)
@@ -317,18 +319,50 @@ struct UnlimitedProductionSheet: View {
         NavigationStack {
             Form {
                 Section("Dauerproduktion") {
-                    Text("NovelForge erfindet eigene Buchideen und produziert Buch für Buch in den Ausgabeordner – bis Sie Stopp drücken.")
+                    Text("NovelForge produziert KDP-fertige Bücher mit Story-Gedächtnis, damit sich Titel, Figuren, Konflikte und zentrale Geschichten nicht wiederholen. Die Produktion läuft weiter, bis Sie Stopp drücken.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     TextField("Autorname oder Pseudonym", text: $authorName)
+                    TextEditor(text: $imprint)
+                        .frame(minHeight: 74)
+                        .overlay(alignment: .topLeading) {
+                            if imprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Text("Impressum / Copyright-Hinweis für KDP")
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.top, 8)
+                                    .padding(.leading, 5)
+                                    .allowsHitTesting(false)
+                            }
+                        }
                     Picker("Sprache", selection: $language) {
                         ForEach(["Deutsch", "Englisch", "Französisch", "Spanisch"], id: \.self) {
                             Text($0).tag($0)
                         }
                     }
-                    Picker("Genre", selection: $genre) {
-                        Text("Zufällig (abwechslungsreich)").tag(UnlimitedSettings.randomToken)
-                        ForEach(UnlimitedSettings.genrePool, id: \.self) { Text($0).tag($0) }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Genres")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), alignment: .leading)], alignment: .leading, spacing: 8) {
+                            ForEach(UnlimitedSettings.genrePool, id: \.self) { item in
+                                Toggle(item, isOn: Binding(
+                                    get: { selectedGenres.contains(item) },
+                                    set: { isOn in
+                                        if isOn {
+                                            selectedGenres.insert(item)
+                                        } else {
+                                            selectedGenres.remove(item)
+                                        }
+                                    }
+                                ))
+                                .toggleStyle(.checkbox)
+                            }
+                        }
+                        Text(selectedGenres.isEmpty
+                             ? "Mindestens ein Genre wählen."
+                             : "Auto-Produktion rotiert durch die gewählten Genres und prüft jedes neue Konzept gegen das Story-Gedächtnis.")
+                            .font(.caption)
+                            .foregroundStyle(selectedGenres.isEmpty ? .orange : .secondary)
                     }
                     Picker("Stilprofil", selection: $style) {
                         Text("Zufällig (abwechslungsreich)").tag(UnlimitedSettings.randomToken)
@@ -402,7 +436,7 @@ struct UnlimitedProductionSheet: View {
                     Button {
                         start()
                     } label: {
-                        Label("Starten", systemImage: "infinity")
+                        Label("Auto starten", systemImage: "infinity")
                     }
                     .disabled(!canStart)
                 }
@@ -436,12 +470,13 @@ struct UnlimitedProductionSheet: View {
         let settings = UnlimitedSettings(
             authorName: authorName.trimmingCharacters(in: .whitespaces),
             language: language,
-            genre: genre,
+            selectedGenres: UnlimitedSettings.genrePool.filter { selectedGenres.contains($0) },
             style: style,
             pageCount: pageCount,
             costLimitPerBook: costLimitPerBook,
             maxBooks: maxBooks,
-            formats: selectedFormats
+            formats: selectedFormats,
+            imprint: imprint
         )
         defaultAuthor = settings.authorName
 

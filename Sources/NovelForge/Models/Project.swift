@@ -25,6 +25,11 @@ final class Project {
     // Print-Format für den KDP-konformen PDF-Export
     var trimSizeRaw: String = "6x9"
 
+    // KDP-/Auto-Produktion
+    var imprint: String = ""
+    var memorySignature: String = ""
+    var autoProductionRunID: String = ""
+
     @Relationship(deleteRule: .cascade) var bookProfile: BookProfile?
     @Relationship(deleteRule: .cascade) var chapters: [Chapter]?
     @Relationship(deleteRule: .cascade) var storyBible: StoryBible?

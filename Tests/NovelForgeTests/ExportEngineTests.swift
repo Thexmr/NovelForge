@@ -72,6 +72,19 @@ final class ExportEngineTests: XCTestCase {
         XCTAssertTrue(report.contains("KI-Offenlegung"))
     }
 
+    func testKDPReportContainsImprintAndStoryMemorySignature() throws {
+        let (container, project) = try makeProjectWithChapter()
+        defer { _ = container }
+        project.imprint = "Test Verlag\nMusterstraße 1\n12345 Berlin"
+        project.memorySignature = "krimi testbuch sabotage hafenkante"
+
+        let report = ExportEngine.generateKDPReport(project: project)
+
+        XCTAssertTrue(report.contains("Test Verlag"))
+        XCTAssertTrue(report.contains("Story-Memory-Signatur"))
+        XCTAssertTrue(report.contains("hafenkante"))
+    }
+
     /// bestText-Priorität: final > überarbeitet > Rohfassung > Szenen.
     func testBestTextPriority() throws {
         let (container, project) = try makeProjectWithChapter()
