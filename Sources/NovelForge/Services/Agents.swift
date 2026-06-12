@@ -342,7 +342,7 @@ enum PromptFactory {
         let authorBlock = authorBio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? ""
             : "\nAutorprofil für Tonalität/Markenstimme:\n\(authorBio.truncated(to: 800))\n"
-        """
+        return """
         Erstelle Amazon-KDP-Metadaten für das Buch "\(title)" von \(author).
         Genre: \(genre) | Zielgruppe: \(audience) | Sprache: \(language)
         \(authorBlock)
