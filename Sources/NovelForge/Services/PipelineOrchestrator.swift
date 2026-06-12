@@ -521,6 +521,9 @@ final class PipelineOrchestrator: ObservableObject {
         let ideas = StructureParser.parseIdeas(response.text)
         let idea = ideas.first { !StoryMemory.isLikelyDuplicate($0, existing: memoryEntries) }
             ?? ideas.randomElement()
+        guard AutonomousContentQuality.hasUsableIdea(idea) else {
+            throw AIError.systemError("Autonom-Modus konnte keine tragfähige Buchidee erzeugen. Provider/Modell lieferte keine verwertbare Idee.")
+        }
 
         var title = idea?.title ?? "\(genre)-Roman"
         if usedTitles.contains(title.lowercased()) {
@@ -868,6 +871,11 @@ final class PipelineOrchestrator: ObservableObject {
             if profile.targetAudience.isEmpty && !parsed.audience.isEmpty {
                 profile.targetAudience = parsed.audience
             }
+            if profile.premise.trimmingCharacters(in: .whitespacesAndNewlines).wordCount < 8
+                || (profile.synopsis ?? "").trimmingCharacters(in: .whitespacesAndNewlines).wordCount < 20
+                || AutonomousContentQuality.containsMetaRequest(profile.synopsis ?? "") {
+                throw AIError.systemError("Konzeptentwicklung lieferte kein verwertbares Thema/Exposé.")
+            }
 
             completeJob(job, result: response.text, tokens: response.tokensUsed ?? 0)
         } catch {
@@ -905,7 +913,11 @@ final class PipelineOrchestrator: ObservableObject {
                     system: "Du bist ein Plot-Architekt für Romane. Du baust schlüssige, spannende Handlungsbögen.",
                     maxTokens: 3500, temperature: 0.7, config: config
                 )
-                bible.plotPoints = response.text
+                let plot = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard plot.wordCount >= 80, !AutonomousContentQuality.containsMetaRequest(plot) else {
+                    throw AIError.systemError("Plot-Architekt lieferte keinen verwertbaren Plot.")
+                }
+                bible.plotPoints = plot
                 bible.updatedAt = Date()
                 completeJob(job, result: response.text, tokens: response.tokensUsed ?? 0)
             } catch {
@@ -928,6 +940,9 @@ final class PipelineOrchestrator: ObservableObject {
                 )
 
                 let parsed = StructureParser.parseCharacters(response.text)
+                guard parsed.count >= 2 else {
+                    throw AIError.systemError("Figurenplanung lieferte kein verwertbares Figurenensemble.")
+                }
                 if bible.characters == nil { bible.characters = [] }
                 for item in parsed {
                     let character = CharacterProfile(name: item.name, role: item.role)
@@ -979,13 +994,9 @@ final class PipelineOrchestrator: ObservableObject {
                 maxTokens: 3000, temperature: 0.6, config: config
             )
 
-            var planned = StructureParser.parseChapters(response.text)
-            if planned.isEmpty {
-                // Fallback: generische Kapitel, damit die Pipeline nie stehen bleibt.
-                planned = (1...chapterCount).map {
-                    PlannedChapter(number: $0, title: "Kapitel \($0)",
-                                   goal: "Setze den Plot konsequent fort.", conflict: "")
-                }
+            let planned = StructureParser.parseChapters(response.text)
+            guard AutonomousContentQuality.hasUsableChapterPlan(planned) else {
+                throw AIError.systemError("Kapitelplanung lieferte nur leere oder generische Kapitel.")
             }
 
             if project.chapters == nil { project.chapters = [] }
@@ -1051,14 +1062,6 @@ final class PipelineOrchestrator: ObservableObject {
             switch results[index] {
             case .success(let response)?:
                 var planned = StructureParser.parseScenes(response.text)
-                if planned.isEmpty {
-                    planned = (1...plan.scenesPerChapter).map {
-                        PlannedScene(number: $0, perspective: profile.narrativePerspective,
-                                     location: "", time: "",
-                                     goal: "Führe das Kapitelziel weiter: \(chapter.goal)",
-                                     obstacle: "", turn: "")
-                    }
-                }
                 if planned.count < plan.scenesPerChapter {
                     let existing = planned.count
                     planned.append(contentsOf: ((existing + 1)...plan.scenesPerChapter).map {
@@ -1068,6 +1071,13 @@ final class PipelineOrchestrator: ObservableObject {
                                      obstacle: "Der bisherige Konflikt verschärft sich.",
                                      turn: "Eine neue Information zwingt zur nächsten Entscheidung.")
                     })
+                }
+                guard AutonomousContentQuality.hasUsableScenePlan(planned, expectedCount: plan.scenesPerChapter) else {
+                    failJob(jobs[index], error: AIError.systemError("Szenenplanung lieferte leere oder generische Szenen."))
+                    if firstError == nil {
+                        firstError = AIError.systemError("Szenenplanung lieferte leere oder generische Szenen.")
+                    }
+                    continue
                 }
 
                 if chapter.scenes == nil { chapter.scenes = [] }
@@ -1196,6 +1206,11 @@ final class PipelineOrchestrator: ObservableObject {
                     previousSceneText = scene.text
                     continue
                 }
+                if (scene.text ?? "").isEmpty == false {
+                    scene.text = nil
+                    scene.summary = nil
+                    scene.status = .planned
+                }
 
                 currentScene = scene.sceneNumber
                 scene.status = .writing
@@ -1277,6 +1292,9 @@ final class PipelineOrchestrator: ObservableObject {
                                   result: "Szene unter Zielumfang (\(sceneText.wordCount)/\(scene.targetWordCount) Wörter)",
                                   severity: .warning,
                                   recommendation: "Szene im Manuskript prüfen.")
+                    }
+                    guard AutonomousContentQuality.acceptsDraftScene(sceneText, targetWords: scene.targetWordCount) else {
+                        throw AIError.systemError("Draft Writer lieferte keine verwertbare Romanszene (\(sceneText.wordCount)/\(scene.targetWordCount) Wörter).")
                     }
 
                     scene.text = sceneText
@@ -1698,6 +1716,9 @@ final class PipelineOrchestrator: ObservableObject {
 
     private func isSceneWritten(_ scene: StoryScene) -> Bool {
         guard let text = scene.text, !text.isEmpty else { return false }
+        guard AutonomousContentQuality.acceptsDraftScene(text, targetWords: scene.targetWordCount) else {
+            return false
+        }
         return scene.status == .written || scene.status == .finalized || scene.status == .checking
     }
 
