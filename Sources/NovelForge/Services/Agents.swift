@@ -126,10 +126,14 @@ enum PromptFactory {
     }
 
     static func chapterPlan(title: String, genre: String, plot: String,
-                            chapterCount: Int, wordsPerChapter: Int) -> String {
+                            chapterCount: Int, wordsPerChapter: Int,
+                            scenesPerChapter: Int = 4) -> String {
         """
         Plane die Kapitelstruktur für den Roman "\(title)" (Genre: \(genre)).
         Es sollen GENAU \(chapterCount) Kapitel mit je ca. \(wordsPerChapter) Wörtern sein.
+        Plane so, dass jedes Kapitel später in mindestens \(scenesPerChapter) eigenständige Szenen zerlegt werden kann.
+        Langform-Pflicht: Der Konflikt muss groß genug für alle \(chapterCount) Kapitel sein; keine Abkürzungen,
+        keine summarischen Sprünge, kein Kurzgeschichtenbogen mit künstlicher Streckung.
 
         Plot:
         \(plot.truncated(to: 6000))
@@ -148,7 +152,8 @@ enum PromptFactory {
 
     static func scenePlan(bookTitle: String, chapterNumber: Int, chapterTitle: String,
                           chapterGoal: String, chapterConflict: String,
-                          perspective: String, plotContext: String, targetWords: Int) -> String {
+                          perspective: String, plotContext: String, targetWords: Int,
+                          scenesPerChapter: Int = 4) -> String {
         """
         Plane die Szenen für Kapitel \(chapterNumber) ("\(chapterTitle)") des Romans "\(bookTitle)".
         Kapitelziel: \(chapterGoal)
@@ -159,7 +164,10 @@ enum PromptFactory {
         Plotkontext:
         \(plotContext.truncated(to: 3000))
 
-        Plane 3 bis 5 Szenen. Die LETZTE Szene des Kapitels muss mit einem starken Haken
+        Plane mindestens \(scenesPerChapter) Szenen (bei Bedarf mehr, aber nicht weniger).
+        Für 500-Seiten-Langform braucht jede Szene eine eigene dramatische Funktion:
+        neues Ziel, neue Reibung, neue Information, veränderte Beziehung oder verschärfter Einsatz.
+        Die LETZTE Szene des Kapitels muss mit einem starken Haken
         enden (Feld „Wendung am Szenenende" entsprechend zugespitzt) – der Leser darf das
         Buch am Kapitelende nicht weglegen können.
 
@@ -244,6 +252,9 @@ enum PromptFactory {
         - Hindernis: \(sceneObstacle)
         - Wendung am Ende: \(sceneTurn)
         - Zielumfang: ca. \(targetWords) Wörter
+
+        Langform-Pflicht: Schreibe die Szene aus, nicht als Zusammenfassung. Nimm den Zielumfang ernst:
+        Konflikt, Wahrnehmung, Subtext, kleine Entscheidungen und Konsequenzen müssen auf der Seite stattfinden.
 
         FIGUREN:
         \(charactersSummary.truncated(to: 1200))

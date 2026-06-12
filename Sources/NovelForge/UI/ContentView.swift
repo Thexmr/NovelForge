@@ -245,6 +245,18 @@ struct ProductionView: View {
                 Text("\(orchestrator.unlimitedBooksCompleted) Bücher fertig · aktuell: \(orchestrator.currentProject?.title ?? "nächstes Buch wird geplant …")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if !orchestrator.currentBookElapsed.isEmpty {
+                    Text("Aktueller Durchlauf: \(orchestrator.currentBookElapsed)"
+                         + (orchestrator.currentBookEstimatedTotal.isEmpty ? "" : " · gesamt ca. \(orchestrator.currentBookEstimatedTotal)"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                if !orchestrator.lastBookDuration.isEmpty {
+                    Text("Letzter Durchlauf: \(orchestrator.lastBookDuration)"
+                         + (orchestrator.averageBookDuration.isEmpty ? "" : " · Ø/Buch: \(orchestrator.averageBookDuration)"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
             Spacer()
             Button(role: .destructive) {
@@ -564,6 +576,12 @@ struct PipelineProgressView: View {
                 }
                 if !orchestrator.estimatedTimeRemaining.isEmpty {
                     Label("Restzeit ca. \(orchestrator.estimatedTimeRemaining)", systemImage: "clock")
+                }
+                if !orchestrator.currentBookElapsed.isEmpty {
+                    Label("Läuft \(orchestrator.currentBookElapsed)", systemImage: "timer")
+                }
+                if !orchestrator.currentBookEstimatedTotal.isEmpty {
+                    Label("Durchlauf ca. \(orchestrator.currentBookEstimatedTotal)", systemImage: "clock.badge.checkmark")
                 }
                 Spacer()
                 if orchestrator.totalTokensUsed > 0 {

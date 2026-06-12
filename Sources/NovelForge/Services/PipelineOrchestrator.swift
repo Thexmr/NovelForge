@@ -95,6 +95,10 @@ final class PipelineOrchestrator: ObservableObject {
     @Published var estimatedCostUSD: Double = 0
     @Published var isUnlimitedMode: Bool = false
     @Published var unlimitedBooksCompleted: Int = 0
+    @Published var currentBookElapsed: String = ""
+    @Published var currentBookEstimatedTotal: String = ""
+    @Published var averageBookDuration: String = ""
+    @Published var lastBookDuration: String = ""
 
     // MARK: - Intern
 
@@ -106,6 +110,8 @@ final class PipelineOrchestrator: ObservableObject {
     private var stopMode: StopMode = .none
     private var usedTitles: Set<String> = []
     private var unlimitedRunID = ""
+    private var completedBookDurations: [TimeInterval] = []
+    private var currentBookStartedAt: Date?
     private let gateway = ProviderGateway.shared
 
     func configure(with context: ModelContext) {
@@ -128,6 +134,13 @@ final class PipelineOrchestrator: ObservableObject {
         currentChapter = 0
         currentScene = 0
         estimatedTimeRemaining = ""
+        currentBookElapsed = ""
+        currentBookEstimatedTotal = ""
+        completedBookDurations = []
+        lastBookDuration = ""
+        averageBookDuration = ""
+        currentBookStartedAt = Date()
+        updateProductionTiming()
 
         // Provider-Wahl am Projekt persistieren, damit Fortsetzen funktioniert.
         project.preferredProviderRaw = providerConfig.provider.rawValue
@@ -181,6 +194,9 @@ final class PipelineOrchestrator: ObservableObject {
         unlimitedBooksCompleted = 0
         usedTitles = []
         unlimitedRunID = UUID().uuidString
+        completedBookDurations = []
+        lastBookDuration = ""
+        averageBookDuration = ""
 
         startHeartbeat()
         backgroundTask = Task { [weak self] in
@@ -204,6 +220,10 @@ final class PipelineOrchestrator: ObservableObject {
             currentChapter = 0
             currentScene = 0
             estimatedTimeRemaining = ""
+            currentBookElapsed = ""
+            currentBookEstimatedTotal = ""
+            currentBookStartedAt = Date()
+            updateProductionTiming()
             lastError = nil
 
             var bookConfig = config
@@ -217,6 +237,7 @@ final class PipelineOrchestrator: ObservableObject {
 
                 project.status = .completed
                 progress = 1.0
+                recordCompletedBookDuration()
                 unlimitedBooksCompleted += 1
                 currentAgent = "Buch \(unlimitedBooksCompleted) abgeschlossen – nächstes Buch wird geplant …"
                 try? modelContext?.save()
@@ -453,6 +474,7 @@ final class PipelineOrchestrator: ObservableObject {
                 if let job = self.currentJob, job.status == .running {
                     job.lastHeartbeat = Date()
                 }
+                self.updateProductionTiming()
             }
         }
     }
@@ -724,14 +746,16 @@ final class PipelineOrchestrator: ObservableObject {
         }
 
         project.status = .chapterPlanning
-        let chapterCount = estimatedChapterCount(for: project)
-        let wordsPerChapter = max(1, project.targetWordCount / chapterCount)
+        let plan = LongFormProductionPlan(pageCount: project.targetPageCount)
+        let chapterCount = plan.chapterCount
+        let wordsPerChapter = plan.targetWordsPerChapter
 
         let job = beginJob(agent: AgentName.chapterPlanner, phase: .chapterPlanning, project: project)
         do {
             let prompt = PromptFactory.chapterPlan(
                 title: project.title, genre: project.genre, plot: bible.plotPoints,
-                chapterCount: chapterCount, wordsPerChapter: wordsPerChapter
+                chapterCount: chapterCount, wordsPerChapter: wordsPerChapter,
+                scenesPerChapter: plan.scenesPerChapter
             )
             let response = try await generate(
                 prompt: prompt,
@@ -776,6 +800,7 @@ final class PipelineOrchestrator: ObservableObject {
             throw AIError.systemError("Story Bible oder Buchprofil fehlt")
         }
         project.status = .scenePlanning
+        let plan = LongFormProductionPlan(pageCount: project.targetPageCount)
 
         let chapters = sortedChapters(project)
         let pending = chapters.filter { ($0.scenes ?? []).isEmpty } // Fortsetzen: nur ungeplante
@@ -793,7 +818,8 @@ final class PipelineOrchestrator: ObservableObject {
                     chapterGoal: chapter.goal, chapterConflict: chapter.conflict,
                     perspective: profile.narrativePerspective,
                     plotContext: bible.plotPoints,
-                    targetWords: chapter.targetWordCount
+                    targetWords: chapter.targetWordCount,
+                    scenesPerChapter: plan.scenesPerChapter
                 ),
                 system: "Du bist ein Szenenplaner für Romane. Du hältst dich exakt an das geforderte Ausgabeformat.",
                 maxTokens: 1200, temperature: 0.6, config: config
@@ -810,12 +836,22 @@ final class PipelineOrchestrator: ObservableObject {
             case .success(let response)?:
                 var planned = StructureParser.parseScenes(response.text)
                 if planned.isEmpty {
-                    planned = (1...4).map {
+                    planned = (1...plan.scenesPerChapter).map {
                         PlannedScene(number: $0, perspective: profile.narrativePerspective,
                                      location: "", time: "",
                                      goal: "Führe das Kapitelziel weiter: \(chapter.goal)",
                                      obstacle: "", turn: "")
                     }
+                }
+                if planned.count < plan.scenesPerChapter {
+                    let existing = planned.count
+                    planned.append(contentsOf: ((existing + 1)...plan.scenesPerChapter).map {
+                        PlannedScene(number: $0, perspective: profile.narrativePerspective,
+                                     location: "", time: "",
+                                     goal: "Vertiefe das Kapitelziel mit einer eigenständigen Wendung: \(chapter.goal)",
+                                     obstacle: "Der bisherige Konflikt verschärft sich.",
+                                     turn: "Eine neue Information zwingt zur nächsten Entscheidung.")
+                    })
                 }
 
                 if chapter.scenes == nil { chapter.scenes = [] }
@@ -985,7 +1021,7 @@ final class PipelineOrchestrator: ObservableObject {
                         isFirstScene: isFirstScene, isFinalScene: isFinalScene,
                         targetWords: scene.targetWordCount
                     )
-                    let maxTokens = min(4000, max(1200, scene.targetWordCount * 3))
+                    let maxTokens = LongFormProductionPlan.draftMaxTokens(forTargetWords: scene.targetWordCount)
                     let response = try await generate(
                         prompt: prompt,
                         system: "Du bist ein professioneller Romanautor. Du schreibst lebendige, atmosphärische Prosa mit natürlichen Dialogen.",
@@ -996,7 +1032,7 @@ final class PipelineOrchestrator: ObservableObject {
                     var sceneTokens = response.tokensUsed ?? 0
 
                     // Qualitäts-Gate: deutlich zu kurze Szenen einmalig vertiefen/erweitern.
-                    let minWords = Int(Double(scene.targetWordCount) * 0.6)
+                    let minWords = Int(Double(scene.targetWordCount) * 0.75)
                     if sceneText.wordCount < minWords {
                         do {
                             let expanded = try await generate(
@@ -1045,6 +1081,7 @@ final class PipelineOrchestrator: ObservableObject {
                     updateProgress(phase: .drafting,
                                    subProgress: totalScenes > 0 ? Double(completedScenes) / Double(totalScenes) : 1)
                     updateEstimatedTime()
+                    updateProductionTiming()
                     try? modelContext?.save()
                 } catch {
                     scene.status = .needsRevision
@@ -1431,7 +1468,7 @@ final class PipelineOrchestrator: ObservableObject {
     // MARK: - Hilfsfunktionen
 
     private func estimatedChapterCount(for project: Project) -> Int {
-        max(10, project.targetPageCount / 15)
+        LongFormProductionPlan(pageCount: project.targetPageCount).chapterCount
     }
 
     private func sortedChapters(_ project: Project) -> [Chapter] {
@@ -1488,5 +1525,41 @@ final class PipelineOrchestrator: ObservableObject {
         let hours = Int(remaining) / 3600
         let minutes = (Int(remaining) % 3600) / 60
         estimatedTimeRemaining = hours > 0 ? "\(hours) h \(minutes) min" : "\(max(minutes, 1)) min"
+    }
+
+    private func updateProductionTiming() {
+        let timing = ProductionTiming(
+            currentBookStartedAt: currentBookStartedAt,
+            now: Date(),
+            completedBookDurations: completedBookDurations,
+            completedScenes: completedScenes,
+            totalScenes: totalScenes,
+            recentSceneDurations: Array(sceneTimes.suffix(10))
+        )
+        currentBookElapsed = timing.elapsedText
+        currentBookEstimatedTotal = timing.estimatedTotalText
+        if !timing.averageBookText.isEmpty {
+            averageBookDuration = timing.averageBookText
+        }
+        if !timing.remainingText.isEmpty {
+            estimatedTimeRemaining = timing.remainingText
+        }
+    }
+
+    private func recordCompletedBookDuration() {
+        guard let currentBookStartedAt else { return }
+        let duration = Date().timeIntervalSince(currentBookStartedAt)
+        completedBookDurations.append(duration)
+        lastBookDuration = ProductionTiming.formatHumanDuration(duration)
+
+        let timing = ProductionTiming(
+            currentBookStartedAt: nil,
+            now: Date(),
+            completedBookDurations: completedBookDurations,
+            completedScenes: completedScenes,
+            totalScenes: totalScenes,
+            recentSceneDurations: Array(sceneTimes.suffix(10))
+        )
+        averageBookDuration = timing.averageBookText
     }
 }

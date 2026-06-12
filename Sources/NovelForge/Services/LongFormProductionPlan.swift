@@ -1,0 +1,91 @@
+import Foundation
+
+struct LongFormProductionPlan {
+    let pageCount: Int
+
+    var targetWordCount: Int {
+        normalizedPageCount * AppConstants.wordsPerPage
+    }
+
+    var chapterCount: Int {
+        max(12, min(80, Int(ceil(Double(targetWordCount) / 2500.0))))
+    }
+
+    var targetWordsPerChapter: Int {
+        max(1, targetWordCount / chapterCount)
+    }
+
+    var scenesPerChapter: Int {
+        max(4, min(7, Int(ceil(Double(targetWordsPerChapter) / 750.0))))
+    }
+
+    var targetWordsPerScene: Int {
+        max(1, targetWordsPerChapter / scenesPerChapter)
+    }
+
+    var totalPlannedScenes: Int {
+        chapterCount * scenesPerChapter
+    }
+
+    static func draftMaxTokens(forTargetWords words: Int) -> Int {
+        min(8000, max(1800, words * 4))
+    }
+
+    private var normalizedPageCount: Int {
+        min(max(pageCount, AppConstants.minPageCount), AppConstants.maxPageCount)
+    }
+}
+
+struct ProductionTiming {
+    let currentBookStartedAt: Date?
+    let now: Date
+    let completedBookDurations: [TimeInterval]
+    let completedScenes: Int
+    let totalScenes: Int
+    let recentSceneDurations: [TimeInterval]
+
+    var elapsed: TimeInterval? {
+        currentBookStartedAt.map { max(0, now.timeIntervalSince($0)) }
+    }
+
+    var remaining: TimeInterval? {
+        guard completedScenes < totalScenes, !recentSceneDurations.isEmpty else { return nil }
+        let avg = recentSceneDurations.reduce(0, +) / Double(recentSceneDurations.count)
+        return avg * Double(totalScenes - completedScenes)
+    }
+
+    var estimatedTotal: TimeInterval? {
+        guard let elapsed else { return nil }
+        return elapsed + (remaining ?? 0)
+    }
+
+    var averageBookDuration: TimeInterval? {
+        guard !completedBookDurations.isEmpty else { return nil }
+        return completedBookDurations.reduce(0, +) / Double(completedBookDurations.count)
+    }
+
+    var elapsedText: String {
+        elapsed.map(Self.formatHumanDuration) ?? ""
+    }
+
+    var remainingText: String {
+        remaining.map(Self.formatHumanDuration) ?? ""
+    }
+
+    var estimatedTotalText: String {
+        estimatedTotal.map(Self.formatHumanDuration) ?? ""
+    }
+
+    var averageBookText: String {
+        averageBookDuration.map(Self.formatHumanDuration) ?? ""
+    }
+
+    static func formatHumanDuration(_ seconds: TimeInterval) -> String {
+        let totalMinutes = max(1, Int(ceil(seconds / 60.0)))
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        if hours > 0 && minutes > 0 { return "\(hours) h \(minutes) min" }
+        if hours > 0 { return "\(hours) h" }
+        return "\(minutes) min"
+    }
+}
