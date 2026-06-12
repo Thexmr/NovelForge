@@ -139,6 +139,10 @@ Kostenlimit **pro Buch**, Ausgabeordner. Schlägt ein Buch fehl, wird es
 protokolliert (und bleibt fortsetzbar) – die Dauerproduktion macht
 automatisch mit dem nächsten Buch weiter.
 
+Für maximale Auslastung kann der Auto-Modus **1 bis 10 Bücher parallel**
+produzieren. Jedes parallele Buch läuft in einem getrennten Worker mit eigenem
+Projektfortschritt, eigenem Kostenlimit pro Buch und fortsetzbarem Speicherstand.
+
 ## Installation
 
 ### macOS (fertige App)

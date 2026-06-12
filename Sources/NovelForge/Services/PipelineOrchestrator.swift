@@ -13,6 +13,7 @@ struct UnlimitedSettings {
     var pageCount: Int
     var costLimitPerBook: Double
     var maxBooks: Int          // 0 = unbegrenzt
+    var parallelBooks: Int     // 1...10 parallel laufende Bücher
     var formats: [String]
     var imprint: String
     var authorBio: String
@@ -25,17 +26,20 @@ struct UnlimitedSettings {
                             "actionreich", "psychologisch"]
 
     init(authorName: String, language: String, genre: String, style: String,
-         pageCount: Int, costLimitPerBook: Double, maxBooks: Int, formats: [String],
+         pageCount: Int, costLimitPerBook: Double, maxBooks: Int,
+         parallelBooks: Int = 1, formats: [String],
          imprint: String = "", authorBio: String = "") {
         self.init(authorName: authorName, language: language,
                   selectedGenres: genre == Self.randomToken ? [] : [genre],
                   style: style, pageCount: pageCount,
                   costLimitPerBook: costLimitPerBook, maxBooks: maxBooks,
-                  formats: formats, imprint: imprint, authorBio: authorBio)
+                  parallelBooks: parallelBooks, formats: formats,
+                  imprint: imprint, authorBio: authorBio)
     }
 
     init(authorName: String, language: String, selectedGenres: [String], style: String,
-         pageCount: Int, costLimitPerBook: Double, maxBooks: Int, formats: [String],
+         pageCount: Int, costLimitPerBook: Double, maxBooks: Int,
+         parallelBooks: Int = 1, formats: [String],
          imprint: String, authorBio: String) {
         self.authorName = authorName
         self.language = language
@@ -46,6 +50,7 @@ struct UnlimitedSettings {
         self.pageCount = min(max(pageCount, AppConstants.minPageCount), AppConstants.maxPageCount)
         self.costLimitPerBook = costLimitPerBook
         self.maxBooks = maxBooks
+        self.parallelBooks = min(max(parallelBooks, 1), 10)
         self.formats = formats
         self.imprint = imprint.trimmingCharacters(in: .whitespacesAndNewlines)
         self.authorBio = authorBio.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -63,6 +68,13 @@ struct UnlimitedSettings {
         let genres = effectiveGenres
         guard !genres.isEmpty else { return "Roman" }
         return genres[max(0, index) % genres.count]
+    }
+
+    func launchSlots(completedBooks: Int, activeBooks: Int) -> Int {
+        let availableWorkers = max(0, parallelBooks - activeBooks)
+        guard maxBooks > 0 else { return availableWorkers }
+        let remainingBooks = max(0, maxBooks - completedBooks - activeBooks)
+        return min(availableWorkers, remainingBooks)
     }
 }
 
@@ -101,6 +113,8 @@ final class PipelineOrchestrator: ObservableObject {
     @Published var currentBookEstimatedTotal: String = ""
     @Published var averageBookDuration: String = ""
     @Published var lastBookDuration: String = ""
+    @Published var activeUnlimitedBooks: Int = 0
+    @Published var parallelUnlimitedBooks: Int = 1
 
     // MARK: - Intern
 
@@ -116,6 +130,15 @@ final class PipelineOrchestrator: ObservableObject {
     private var currentBookStartedAt: Date?
     private var unlimitedConsecutiveFailures = 0
     private let gateway = ProviderGateway.shared
+
+    private struct UnlimitedBookOutcome {
+        var completed: Bool
+        var cancelled: Bool
+        var title: String
+        var duration: TimeInterval
+        var error: Error?
+        var message: String
+    }
 
     func configure(with context: ModelContext) {
         self.modelContext = context
@@ -201,6 +224,8 @@ final class PipelineOrchestrator: ObservableObject {
         unlimitedConsecutiveFailures = 0
         lastBookDuration = ""
         averageBookDuration = ""
+        activeUnlimitedBooks = 0
+        parallelUnlimitedBooks = settings.parallelBooks
 
         startHeartbeat()
         backgroundTask = Task { [weak self] in
@@ -215,6 +240,11 @@ final class PipelineOrchestrator: ObservableObject {
     }
 
     private func runUnlimited(settings: UnlimitedSettings, config: ProviderConfiguration) async {
+        if settings.parallelBooks > 1 {
+            await runParallelUnlimited(settings: settings, config: config)
+            return
+        }
+
         while !Task.isCancelled {
             // Frischer Zustand pro Buch – das Kostenlimit gilt je Buch.
             sceneTimes = []
@@ -291,13 +321,183 @@ final class PipelineOrchestrator: ObservableObject {
 
         isUnlimitedMode = false
         currentAgent = "Dauerproduktion beendet – \(unlimitedBooksCompleted) Bücher produziert"
+        activeUnlimitedBooks = 0
         finish()
+    }
+
+    private func runParallelUnlimited(settings: UnlimitedSettings, config: ProviderConfiguration) async {
+        currentProject = nil
+        currentPhase = .projectSetup
+        progress = 0
+        totalScenes = 0
+        completedScenes = 0
+        totalTokensUsed = 0
+        estimatedCostUSD = 0
+        currentBookStartedAt = Date()
+        updateProductionTiming()
+
+        var launchedBooks = 0
+        var activeBooks = 0
+        var shouldStopLaunching = false
+
+        await withTaskGroup(of: UnlimitedBookOutcome.self) { group in
+            func launchAvailableBooks() {
+                guard !shouldStopLaunching, !Task.isCancelled else { return }
+                let slots = settings.launchSlots(
+                    completedBooks: unlimitedBooksCompleted,
+                    activeBooks: activeBooks
+                )
+                guard slots > 0 else { return }
+
+                for _ in 0..<slots {
+                    let bookIndex = launchedBooks
+                    launchedBooks += 1
+                    activeBooks += 1
+                    activeUnlimitedBooks = activeBooks
+                    let worker = makeUnlimitedWorker()
+                    group.addTask {
+                        await worker.runUnlimitedWorkerBook(
+                            settings: settings,
+                            config: config,
+                            bookIndex: bookIndex
+                        )
+                    }
+                }
+                currentAgent = "\(activeBooks) von \(settings.parallelBooks) Buch-Workern aktiv"
+            }
+
+            launchAvailableBooks()
+
+            while activeBooks > 0, let outcome = await group.next() {
+                activeBooks -= 1
+                activeUnlimitedBooks = activeBooks
+
+                if outcome.cancelled || Task.isCancelled {
+                    shouldStopLaunching = true
+                    group.cancelAll()
+                    currentAgent = "Dauerproduktion pausiert – aktive Bücher wurden gespeichert"
+                    break
+                }
+
+                if outcome.completed {
+                    unlimitedBooksCompleted += 1
+                    unlimitedConsecutiveFailures = 0
+                    if outcome.duration > 0 {
+                        completedBookDurations.append(outcome.duration)
+                        lastBookDuration = ProductionTiming.formatHumanDuration(outcome.duration)
+                    }
+                    updateProductionTiming()
+                    currentAgent = "\(unlimitedBooksCompleted) Bücher fertig · \(activeBooks) parallel aktiv"
+                } else {
+                    unlimitedConsecutiveFailures += 1
+                    lastError = outcome.message
+                    if let error = outcome.error,
+                       ProductionStabilityPolicy.shouldHaltUnlimitedProduction(
+                           after: error,
+                           consecutiveFailures: unlimitedConsecutiveFailures
+                       ) {
+                        shouldStopLaunching = true
+                        group.cancelAll()
+                        currentAgent = "Dauerproduktion gestoppt – \(unlimitedConsecutiveFailures) Fehler in Folge"
+                        break
+                    }
+                }
+
+                launchAvailableBooks()
+            }
+        }
+
+        activeUnlimitedBooks = 0
+        isUnlimitedMode = false
+        currentAgent = "Dauerproduktion beendet – \(unlimitedBooksCompleted) Bücher produziert"
+        finish()
+    }
+
+    private func makeUnlimitedWorker() -> PipelineOrchestrator {
+        let worker = PipelineOrchestrator()
+        worker.modelContext = modelContext
+        worker.unlimitedRunID = unlimitedRunID
+        worker.parallelUnlimitedBooks = parallelUnlimitedBooks
+        return worker
+    }
+
+    private func runUnlimitedWorkerBook(settings: UnlimitedSettings,
+                                        config: ProviderConfiguration,
+                                        bookIndex: Int) async -> UnlimitedBookOutcome {
+        sceneTimes = []
+        totalTokensUsed = 0
+        estimatedCostUSD = 0
+        progress = 0
+        currentChapter = 0
+        currentScene = 0
+        estimatedTimeRemaining = ""
+        currentBookElapsed = ""
+        currentBookEstimatedTotal = ""
+        currentBookStartedAt = Date()
+        lastError = nil
+
+        var bookConfig = config
+        bookConfig.costLimit = settings.costLimitPerBook > 0 ? settings.costLimitPerBook : nil
+
+        do {
+            let startedAt = Date()
+            let project = try await createUnlimitedProject(
+                settings: settings,
+                config: bookConfig,
+                bookIndex: bookIndex
+            )
+            currentProject = project
+
+            try await executeAllPhases(project: project, config: bookConfig)
+
+            project.status = .completed
+            progress = 1.0
+            let duration = Date().timeIntervalSince(startedAt)
+            try? modelContext?.save()
+            return UnlimitedBookOutcome(
+                completed: true,
+                cancelled: false,
+                title: project.title,
+                duration: duration,
+                error: nil,
+                message: ""
+            )
+        } catch is CancellationError {
+            if let project = currentProject {
+                stopMode = .pause
+                handleStop(project: project)
+            }
+            return UnlimitedBookOutcome(
+                completed: false,
+                cancelled: true,
+                title: currentProject?.title ?? "",
+                duration: 0,
+                error: nil,
+                message: "Abgebrochen"
+            )
+        } catch {
+            if let job = currentJob, job.status == .running {
+                failJob(job, error: error)
+            }
+            currentProject?.status = .failed
+            let message = (error as? AIError)?.errorDescription ?? error.localizedDescription
+            try? modelContext?.save()
+            return UnlimitedBookOutcome(
+                completed: false,
+                cancelled: false,
+                title: currentProject?.title ?? "",
+                duration: 0,
+                error: error,
+                message: message
+            )
+        }
     }
 
     /// Erfindet eine Buchidee und legt daraus ein vollständiges Projekt an.
     private func createUnlimitedProject(settings: UnlimitedSettings,
-                                        config: ProviderConfiguration) async throws -> Project {
-        let genre = settings.genreForBook(at: unlimitedBooksCompleted)
+                                        config: ProviderConfiguration,
+                                        bookIndex: Int? = nil) async throws -> Project {
+        let genre = settings.genreForBook(at: bookIndex ?? unlimitedBooksCompleted)
         let style = settings.style == UnlimitedSettings.randomToken
             ? (UnlimitedSettings.stylePool.randomElement() ?? "atmosphärisch")
             : settings.style

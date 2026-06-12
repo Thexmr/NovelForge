@@ -243,9 +243,14 @@ struct ProductionView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Dauerproduktion aktiv – läuft bis Stopp")
                     .font(.headline)
-                Text("\(orchestrator.unlimitedBooksCompleted) Bücher fertig · aktuell: \(orchestrator.currentProject?.title ?? "nächstes Buch wird geplant …")")
+                Text("\(orchestrator.unlimitedBooksCompleted) Bücher fertig · \(orchestrator.activeUnlimitedBooks)/\(orchestrator.parallelUnlimitedBooks) parallel aktiv")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if let title = orchestrator.currentProject?.title, orchestrator.parallelUnlimitedBooks == 1 {
+                    Text("Aktuell: \(title)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
                 if !orchestrator.currentBookElapsed.isEmpty {
                     Text("Aktueller Durchlauf: \(orchestrator.currentBookElapsed)"
                          + (orchestrator.currentBookEstimatedTotal.isEmpty ? "" : " · gesamt ca. \(orchestrator.currentBookEstimatedTotal)"))
@@ -294,6 +299,7 @@ struct UnlimitedProductionSheet: View {
     @State private var pageCount = 150
     @State private var costLimitPerBook = 20.0
     @State private var maxBooks = 0
+    @State private var parallelBooks = 1
     @State private var imprint = ""
     @State private var authorBio = ""
     @State private var epubFormat = true
@@ -446,6 +452,11 @@ struct UnlimitedProductionSheet: View {
                             value: $costLimitPerBook, in: 5...500, step: 5)
                     Stepper(maxBooks == 0 ? "Anzahl Bücher: unbegrenzt (bis Stopp)" : "Anzahl Bücher: \(maxBooks)",
                             value: $maxBooks, in: 0...100)
+                    Stepper("Parallele Bücher: \(parallelBooks)",
+                            value: $parallelBooks, in: 1...10)
+                    Text("Bei \(parallelBooks) parallelen Büchern können bis zu \(Int(costLimitPerBook) * parallelBooks) USD gleichzeitig reserviert werden.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
             .formStyle(.grouped)
@@ -497,6 +508,7 @@ struct UnlimitedProductionSheet: View {
             pageCount: pageCount,
             costLimitPerBook: costLimitPerBook,
             maxBooks: maxBooks,
+            parallelBooks: parallelBooks,
             formats: selectedFormats,
             imprint: imprint,
             authorBio: authorBio
@@ -565,19 +577,36 @@ struct PipelineProgressView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text("\(Int(orchestrator.progress * 100)) %")
-                    .font(.system(.title2, design: .rounded))
-                    .fontWeight(.bold)
-                    .monospacedDigit()
+                if orchestrator.isUnlimitedMode && orchestrator.parallelUnlimitedBooks > 1 {
+                    Text("\(orchestrator.activeUnlimitedBooks)/\(orchestrator.parallelUnlimitedBooks)")
+                        .font(.system(.title2, design: .rounded))
+                        .fontWeight(.bold)
+                        .monospacedDigit()
+                } else {
+                    Text("\(Int(orchestrator.progress * 100)) %")
+                        .font(.system(.title2, design: .rounded))
+                        .fontWeight(.bold)
+                        .monospacedDigit()
+                }
             }
 
-            ProgressView(value: orchestrator.progress)
-                .progressViewStyle(.linear)
+            if orchestrator.isUnlimitedMode && orchestrator.parallelUnlimitedBooks > 1 {
+                ProgressView(value: Double(orchestrator.activeUnlimitedBooks),
+                             total: Double(orchestrator.parallelUnlimitedBooks))
+                    .progressViewStyle(.linear)
+            } else {
+                ProgressView(value: orchestrator.progress)
+                    .progressViewStyle(.linear)
+            }
 
             // Detailzeile
             HStack(spacing: 16) {
                 if orchestrator.currentPhase == .drafting && orchestrator.currentChapter > 0 {
                     Label("Kapitel \(orchestrator.currentChapter)", systemImage: "doc.text")
+                }
+                if orchestrator.isUnlimitedMode && orchestrator.parallelUnlimitedBooks > 1 {
+                    Label("\(orchestrator.unlimitedBooksCompleted) Bücher fertig", systemImage: "books.vertical")
+                    Label("\(orchestrator.activeUnlimitedBooks) aktiv", systemImage: "bolt.horizontal.circle")
                 }
                 if orchestrator.currentScene > 0 && orchestrator.currentPhase == .drafting {
                     Label("Szene \(orchestrator.currentScene)", systemImage: "text.alignleft")
