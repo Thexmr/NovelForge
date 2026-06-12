@@ -71,15 +71,18 @@ struct DynamicModelPicker: View {
         isLoading = true
         loadError = nil
 
-        var config = ProviderConfiguration(provider: provider)
-        config.isActive = true
-        config.defaultModel = selectedModel.isEmpty ? provider.suggestedModels.first : selectedModel
-        config.apiKey = effectiveAPIKey()
+        let requestConfig: ProviderConfiguration = {
+            var config = ProviderConfiguration(provider: provider)
+            config.isActive = true
+            config.defaultModel = selectedModel.isEmpty ? provider.suggestedModels.first : selectedModel
+            config.apiKey = effectiveAPIKey()
+            return config
+        }()
 
         Task { @MainActor in
             defer { isLoading = false }
             do {
-                let models = try await ProviderGateway.shared.listModels(configuration: config)
+                let models = try await ProviderGateway.shared.listModels(configuration: requestConfig)
                 guard !models.isEmpty else { return }
                 availableModels = models
                 if selectedModel.isEmpty || !models.contains(selectedModel) {
