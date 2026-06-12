@@ -22,6 +22,15 @@ final class LogicTests: XCTestCase {
         XCTAssertEqual(decoded.provider, .openAI)
     }
 
+    func testOllamaCloudIsReadyWithoutManualBaseURL() {
+        XCTAssertEqual(AIProvider.ollamaCloud.defaultBaseURL, "https://ollama.com")
+        XCTAssertFalse(AIProvider.ollamaCloud.needsBaseURLInput)
+    }
+
+    func testOllamaCloudDefaultsToBestLongFormModel() {
+        XCTAssertEqual(AIProvider.ollamaCloud.suggestedModels.first, "qwen3:235b")
+    }
+
     // MARK: - Pipeline-Invarianten
 
     /// Die Phasen-Gewichte müssen sich exakt zu 1.0 summieren,
