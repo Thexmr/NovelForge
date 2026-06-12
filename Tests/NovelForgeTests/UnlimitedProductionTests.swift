@@ -74,4 +74,36 @@ final class UnlimitedProductionTests: XCTestCase {
         XCTAssertTrue(StoryMemory.isLikelyDuplicate(duplicate, existing: existing))
         XCTAssertFalse(StoryMemory.isLikelyDuplicate(different, existing: existing))
     }
+
+    func testLongFormPlanSplitsFiveHundredPagesIntoManageableScenes() {
+        let plan = LongFormProductionPlan(pageCount: 500)
+
+        XCTAssertEqual(plan.targetWordCount, 125_000)
+        XCTAssertEqual(plan.chapterCount, 50)
+        XCTAssertGreaterThanOrEqual(plan.scenesPerChapter, 4)
+        XCTAssertLessThanOrEqual(plan.targetWordsPerScene, 900)
+        XCTAssertGreaterThanOrEqual(plan.totalPlannedScenes, 200)
+    }
+
+    func testDraftTokenBudgetSupportsLongScenesWithoutTinyCaps() {
+        XCTAssertEqual(LongFormProductionPlan.draftMaxTokens(forTargetWords: 600), 2400)
+        XCTAssertEqual(LongFormProductionPlan.draftMaxTokens(forTargetWords: 1_200), 4800)
+        XCTAssertEqual(LongFormProductionPlan.draftMaxTokens(forTargetWords: 3_000), 8000)
+    }
+
+    func testProductionTimingReportsPerBookRunDurations() {
+        let timing = ProductionTiming(
+            currentBookStartedAt: Date(timeIntervalSince1970: 1_000),
+            now: Date(timeIntervalSince1970: 1_900),
+            completedBookDurations: [3_600, 5_400],
+            completedScenes: 20,
+            totalScenes: 100,
+            recentSceneDurations: [45, 45, 45]
+        )
+
+        XCTAssertEqual(timing.elapsedText, "15 min")
+        XCTAssertEqual(timing.remainingText, "1 h")
+        XCTAssertEqual(timing.estimatedTotalText, "1 h 15 min")
+        XCTAssertEqual(timing.averageBookText, "1 h 15 min")
+    }
 }
