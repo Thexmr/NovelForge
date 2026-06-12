@@ -6,6 +6,10 @@ struct NovelForgeApp: App {
     @AppStorage("colorScheme") private var colorSchemeSetting = "system"
     @AppStorage("accentColor") private var accentSetting = "blue"
 
+    init() {
+        _ = ProviderSettingsStore.shared
+    }
+
     var body: some Scene {
         WindowGroup("NovelForge") {
             ContentView()
