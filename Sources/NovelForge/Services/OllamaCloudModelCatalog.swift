@@ -4,11 +4,8 @@ enum OllamaCloudModelCatalog {
     static let fallbackModels = [
         "qwen3:235b",
         "qwen3.5:122b",
-        "qwen3-vl:235b",
         "deepseek-v3",
         "llama3.3",
-        "qwen3:30b",
-        "qwen3-coder:30b",
         "kimi-k2.5:cloud",
         "glm-5:cloud"
     ]
@@ -25,7 +22,30 @@ enum OllamaCloudModelCatalog {
         let cleanedLive = liveModels
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+            .filter(isUsefulForLongFormCloudModel)
         return stableUnique(fallbackModels + cleanedLive)
+    }
+
+    static func isUsefulForLongFormCloudModel(_ model: String) -> Bool {
+        let lowered = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !lowered.isEmpty else { return false }
+        let excludedFragments = [
+            "coder", "code", "vl", "vision", "embed", "embedding", "clip",
+            "rerank", "guard", "moderation", "audio", "whisper", "small",
+            "mini", "tiny", "3b", "7b", "8b", "14b", "30b", "32b"
+        ]
+        if excludedFragments.contains(where: { lowered.contains($0) }) {
+            return false
+        }
+        let trustedFamilies = [
+            "qwen3:235b", "qwen3.5:122b", "deepseek-v3", "llama3.3",
+            "kimi-k2.5", "glm-5", "command-a", "mixtral-8x22b"
+        ]
+        if trustedFamilies.contains(where: { lowered.hasPrefix($0) }) {
+            return true
+        }
+        return lowered.range(of: #"(^|[^0-9])([7-9][0-9]|[1-9][0-9]{2,})b($|[^0-9])"#,
+                             options: .regularExpression) != nil
     }
 
     private static func stableUnique(_ models: [String]) -> [String] {

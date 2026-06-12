@@ -17,10 +17,8 @@ enum ProductionStabilityPolicy {
         switch aiError {
         case .apiKeyInvalid, .quotaExceeded, .baseURLMissing, .contextTooLong, .fileTooLarge:
             return true
-        case .costLimitReached, .providerUnavailable, .modelUnavailable, .networkError,
+        case .providerUnavailable, .modelUnavailable, .networkError,
              .rateLimitExceeded, .ollamaNotRunning, .systemError, .unknown:
-            // costLimitReached betrifft nur das Budget des einzelnen Buchs –
-            // das nächste Buch startet mit frischem Budget.
             return false
         }
     }

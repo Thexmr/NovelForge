@@ -17,7 +17,6 @@ final class UnlimitedProductionTests: XCTestCase {
             selectedGenres: ["Thriller"],
             style: "psychologisch",
             pageCount: 500,
-            costLimitPerBook: 50,
             maxBooks: 0,
             parallelBooks: 10,
             formats: ["EPUB", "PDF"],
@@ -39,7 +38,6 @@ final class UnlimitedProductionTests: XCTestCase {
             selectedGenres: ["Thriller"],
             style: "psychologisch",
             pageCount: 300,
-            costLimitPerBook: 25,
             maxBooks: 0,
             parallelBooks: 0,
             formats: ["EPUB"],
@@ -52,7 +50,6 @@ final class UnlimitedProductionTests: XCTestCase {
             selectedGenres: ["Thriller"],
             style: "psychologisch",
             pageCount: 300,
-            costLimitPerBook: 25,
             maxBooks: 0,
             parallelBooks: 12,
             formats: ["EPUB"],
@@ -71,7 +68,6 @@ final class UnlimitedProductionTests: XCTestCase {
             selectedGenres: ["Thriller"],
             style: "psychologisch",
             pageCount: 300,
-            costLimitPerBook: 25,
             maxBooks: 7,
             parallelBooks: 10,
             formats: ["EPUB"],
@@ -91,7 +87,6 @@ final class UnlimitedProductionTests: XCTestCase {
             selectedGenres: ["Thriller", "Fantasy", "Krimi"],
             style: UnlimitedSettings.randomToken,
             pageCount: 300,
-            costLimitPerBook: 25,
             maxBooks: 0,
             parallelBooks: 1,
             formats: ["EPUB"],
@@ -209,8 +204,6 @@ final class UnlimitedProductionTests: XCTestCase {
                                                                               consecutiveFailures: 1))
         XCTAssertTrue(ProductionStabilityPolicy.shouldHaltUnlimitedProduction(after: AIError.baseURLMissing,
                                                                               consecutiveFailures: 1))
-        XCTAssertFalse(ProductionStabilityPolicy.shouldHaltUnlimitedProduction(after: AIError.costLimitReached,
-                                                                               consecutiveFailures: 1))
         XCTAssertFalse(ProductionStabilityPolicy.shouldHaltUnlimitedProduction(after: AIError.providerUnavailable,
                                                                                consecutiveFailures: 1))
     }

@@ -66,7 +66,7 @@ final class ProviderSettingsStore: ObservableObject {
     }
 
     /// Baut die Laufzeitkonfiguration für ein Projekt zusammen:
-    /// gespeicherte Provider-Einstellung + projektspezifisches Modell/Kostenlimit + Keychain-Key.
+    /// gespeicherte Provider-Einstellung + projektspezifisches Modell + Keychain-Key.
     static func configuration(for project: Project) -> ProviderConfiguration {
         let provider = AIProvider(rawValue: project.preferredProviderRaw) ?? .openAI
         var config = shared.configurations.first(where: { $0.provider == provider })
@@ -77,9 +77,6 @@ final class ProviderSettingsStore: ObservableObject {
         }
         if config.defaultModel == nil || config.defaultModel?.isEmpty == true {
             config.defaultModel = provider.suggestedModels.first
-        }
-        if project.costLimitUSD > 0 {
-            config.costLimit = project.costLimitUSD
         }
         config.apiKey = KeychainService.getAPIKey(for: provider)
         return config

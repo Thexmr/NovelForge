@@ -11,7 +11,6 @@ struct UnlimitedSettings {
     var selectedGenres: [String]
     var style: String          // "Zufällig" = pro Buch zufällig aus dem Pool
     var pageCount: Int
-    var costLimitPerBook: Double
     var maxBooks: Int          // 0 = unbegrenzt
     var parallelBooks: Int     // 1...10 parallel laufende Bücher
     var formats: [String]
@@ -26,19 +25,18 @@ struct UnlimitedSettings {
                             "actionreich", "psychologisch"]
 
     init(authorName: String, language: String, genre: String, style: String,
-         pageCount: Int, costLimitPerBook: Double, maxBooks: Int,
+         pageCount: Int, maxBooks: Int,
          parallelBooks: Int = 1, formats: [String],
          imprint: String = "", authorBio: String = "") {
         self.init(authorName: authorName, language: language,
                   selectedGenres: genre == Self.randomToken ? [] : [genre],
-                  style: style, pageCount: pageCount,
-                  costLimitPerBook: costLimitPerBook, maxBooks: maxBooks,
+                  style: style, pageCount: pageCount, maxBooks: maxBooks,
                   parallelBooks: parallelBooks, formats: formats,
                   imprint: imprint, authorBio: authorBio)
     }
 
     init(authorName: String, language: String, selectedGenres: [String], style: String,
-         pageCount: Int, costLimitPerBook: Double, maxBooks: Int,
+         pageCount: Int, maxBooks: Int,
          parallelBooks: Int = 1, formats: [String],
          imprint: String, authorBio: String) {
         self.authorName = authorName
@@ -48,7 +46,6 @@ struct UnlimitedSettings {
             .filter { !$0.isEmpty }
         self.style = style
         self.pageCount = min(max(pageCount, AppConstants.minPageCount), AppConstants.maxPageCount)
-        self.costLimitPerBook = costLimitPerBook
         self.maxBooks = maxBooks
         self.parallelBooks = min(max(parallelBooks, 1), 10)
         self.formats = formats
@@ -245,10 +242,6 @@ final class PipelineOrchestrator: ObservableObject {
         if let model = providerConfig.defaultModel, !model.isEmpty {
             project.preferredModel = model
         }
-        if let limit = providerConfig.costLimit, limit > 0 {
-            project.costLimitUSD = limit
-        }
-
         markProjectActive(project)
         startHeartbeat()
         backgroundTask = Task { [weak self] in
@@ -319,7 +312,6 @@ final class PipelineOrchestrator: ObservableObject {
         }
 
         while !Task.isCancelled {
-            // Frischer Zustand pro Buch – das Kostenlimit gilt je Buch.
             sceneTimes = []
             totalTokensUsed = 0
             estimatedCostUSD = 0
@@ -333,14 +325,11 @@ final class PipelineOrchestrator: ObservableObject {
             updateProductionTiming()
             lastError = nil
 
-            var bookConfig = config
-            bookConfig.costLimit = settings.costLimitPerBook > 0 ? settings.costLimitPerBook : nil
-
             do {
-                let project = try await createUnlimitedProject(settings: settings, config: bookConfig)
+                let project = try await createUnlimitedProject(settings: settings, config: config)
                 currentProject = project
 
-                try await executeAllPhases(project: project, config: bookConfig)
+                try await executeAllPhases(project: project, config: config)
 
                 project.status = .completed
                 progress = 1.0
@@ -513,19 +502,16 @@ final class PipelineOrchestrator: ObservableObject {
         currentBookStartedAt = Date()
         lastError = nil
 
-        var bookConfig = config
-        bookConfig.costLimit = settings.costLimitPerBook > 0 ? settings.costLimitPerBook : nil
-
         do {
             let startedAt = Date()
             let project = try await createUnlimitedProject(
                 settings: settings,
-                config: bookConfig,
+                config: config,
                 bookIndex: bookIndex
             )
             currentProject = project
 
-            try await executeAllPhases(project: project, config: bookConfig)
+            try await executeAllPhases(project: project, config: config)
 
             project.status = .completed
             progress = 1.0
@@ -637,7 +623,6 @@ final class PipelineOrchestrator: ObservableObject {
         if let model = config.defaultModel, !model.isEmpty {
             project.preferredModel = model
         }
-        project.costLimitUSD = settings.costLimitPerBook
         project.imprint = settings.imprint
         project.authorBio = settings.authorBio
         project.autoProductionRunID = unlimitedRunID
@@ -830,15 +815,11 @@ final class PipelineOrchestrator: ObservableObject {
         currentJob = nil
     }
 
-    // MARK: - LLM-Aufruf mit Kosten-Tracking
+    // MARK: - LLM-Aufruf mit Nutzungsanzeige
 
     private func generate(prompt: String, system: String, maxTokens: Int,
                           temperature: Double, config: ProviderConfiguration) async throws -> GenerationResponse {
         try Task.checkCancellation()
-
-        if let limit = config.costLimit, limit > 0, estimatedCostUSD >= limit {
-            throw AIError.costLimitReached
-        }
 
         let model = config.defaultModel ?? config.provider.suggestedModels.first ?? ""
         let request = GenerationRequest(
@@ -859,17 +840,14 @@ final class PipelineOrchestrator: ObservableObject {
     }
 
     /// Führt mehrere unabhängige LLM-Anfragen parallel aus (begrenzte Nebenläufigkeit).
-    /// Token-/Kostenabrechnung erfolgt zentral; bei erreichtem Kostenlimit oder
-    /// Abbruch werden ausstehende Anfragen storniert.
-    /// Rückgabe: Ergebnisse je Index + Flag, ob das Kostenlimit ausgelöst hat.
+    /// Token-/Kostenschätzung erfolgt nur für die Anzeige; sie begrenzt die Produktion nicht.
     private func runParallelGeneration(requests: [GenerationRequest],
-                                       config: ProviderConfiguration) async -> (results: [Int: Result<GenerationResponse, Error>], hitCostLimit: Bool) {
-        guard !requests.isEmpty else { return ([:], false) }
+                                       config: ProviderConfiguration) async -> [Int: Result<GenerationResponse, Error>] {
+        guard !requests.isEmpty else { return [:] }
 
         // Lokales Ollama arbeitet seriell am schnellsten; Cloud-APIs vertragen Parallelität.
         let maxConcurrent = config.provider == .ollamaLocal ? 1 : 3
         var results: [Int: Result<GenerationResponse, Error>] = [:]
-        var hitCostLimit = false
         let gateway = self.gateway
 
         await withTaskGroup(of: (Int, Result<GenerationResponse, Error>).self) { group in
@@ -899,15 +877,12 @@ final class PipelineOrchestrator: ObservableObject {
 
                 if Task.isCancelled {
                     group.cancelAll()
-                } else if let limit = config.costLimit, limit > 0, estimatedCostUSD >= limit {
-                    hitCostLimit = true
-                    group.cancelAll()
                 } else {
                     launchNext()
                 }
             }
         }
-        return (results, hitCostLimit)
+        return results
     }
 
     private func makeRequest(prompt: String, system: String, maxTokens: Int,
@@ -1173,7 +1148,7 @@ final class PipelineOrchestrator: ObservableObject {
         }
         currentAgent = "\(AgentName.scenePlanner) – \(pending.count) Kapitel parallel"
 
-        let (results, hitCostLimit) = await runParallelGeneration(requests: requests, config: config)
+        let results = await runParallelGeneration(requests: requests, config: config)
 
         var firstError: Error?
         var done = 0
@@ -1234,7 +1209,6 @@ final class PipelineOrchestrator: ObservableObject {
         aggregateLocations(into: bible, chapters: chapters)
         try? modelContext?.save()
 
-        if hitCostLimit { throw AIError.costLimitReached }
         if let error = firstError { throw error }
         try Task.checkCancellation()
     }
@@ -1398,7 +1372,7 @@ final class PipelineOrchestrator: ObservableObject {
                                 sceneTokens += expanded.tokensUsed ?? 0
                             }
                         } catch {
-                            if error is CancellationError || (error as? AIError) == .quotaExceeded || (error as? AIError) == .costLimitReached {
+                            if error is CancellationError || (error as? AIError) == .quotaExceeded {
                                 throw error
                             }
                             // Erweiterung fehlgeschlagen – kurze Szene behalten, Hinweis folgt unten.
@@ -1544,7 +1518,7 @@ final class PipelineOrchestrator: ObservableObject {
         }
         currentAgent = "\(AgentName.reviser) – \(pending.count) Kapitel parallel"
 
-        let (results, hitCostLimit) = await runParallelGeneration(requests: requests, config: config)
+        let results = await runParallelGeneration(requests: requests, config: config)
 
         var firstError: Error?
         var done = 0
@@ -1580,7 +1554,6 @@ final class PipelineOrchestrator: ObservableObject {
         }
         try? modelContext?.save()
 
-        if hitCostLimit { throw AIError.costLimitReached }
         if let error = firstError { throw error }
         try Task.checkCancellation()
     }
@@ -1658,7 +1631,7 @@ final class PipelineOrchestrator: ObservableObject {
         }
         currentAgent = "\(AgentName.proofreader) – \(pending.count) Kapitel parallel"
 
-        let (results, hitCostLimit) = await runParallelGeneration(requests: requests, config: config)
+        let results = await runParallelGeneration(requests: requests, config: config)
 
         var firstError: Error?
         var done = 0
@@ -1694,7 +1667,6 @@ final class PipelineOrchestrator: ObservableObject {
         }
         try? modelContext?.save()
 
-        if hitCostLimit { throw AIError.costLimitReached }
         if let error = firstError { throw error }
         try Task.checkCancellation()
     }
@@ -1757,8 +1729,8 @@ final class PipelineOrchestrator: ObservableObject {
             } catch {
                 failJob(metaJob, error: error)
                 // Marketing-Metadaten sind nicht produktionskritisch – nur bei
-                // Kostenlimit/Abbruch die Pipeline stoppen.
-                if error is CancellationError || (error as? AIError) == .quotaExceeded || (error as? AIError) == .costLimitReached {
+                // Abbruch oder echtem Provider-Kontingentfehler die Pipeline stoppen.
+                if error is CancellationError || (error as? AIError) == .quotaExceeded {
                     throw error
                 }
                 addReport(project: project, area: "KDP-Metadaten", type: "Metadaten",

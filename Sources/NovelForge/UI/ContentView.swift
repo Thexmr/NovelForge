@@ -299,7 +299,6 @@ struct UnlimitedProductionSheet: View {
     @State private var selectedGenres: Set<String> = ["Thriller"]
     @State private var style = UnlimitedSettings.randomToken
     @State private var pageCount = 150
-    @State private var costLimitPerBook = 0.0
     @State private var maxBooks = 0
     @State private var parallelBooks = 1
     @State private var imprint = ""
@@ -426,7 +425,7 @@ struct UnlimitedProductionSheet: View {
                     }
                 }
 
-                Section("KI-Provider & Kosten") {
+                Section("KI-Provider & Parallelität") {
                     Picker("Provider", selection: $selectedProvider) {
                         ForEach(AIProvider.allCases) { provider in
                             Text(provider.rawValue).tag(provider)
@@ -449,15 +448,11 @@ struct UnlimitedProductionSheet: View {
                             .foregroundStyle(.orange)
                     }
 
-                    Stepper(costLimitPerBook == 0 ? "Kostenlimit pro Buch: kein App-Limit" : "Kostenlimit pro Buch: \(Int(costLimitPerBook)) USD",
-                            value: $costLimitPerBook, in: 0...1000, step: 10)
                     Stepper(maxBooks == 0 ? "Anzahl Bücher: unbegrenzt (bis Stopp)" : "Anzahl Bücher: \(maxBooks)",
                             value: $maxBooks, in: 0...100)
                     Stepper("Parallele Bücher: \(parallelBooks)",
                             value: $parallelBooks, in: 1...10)
-                    Text(costLimitPerBook == 0
-                         ? "NovelForge setzt kein eigenes App-Budgetlimit. Provider-Guthaben und Provider-Limits gelten weiterhin."
-                         : "Bei \(parallelBooks) parallelen Büchern können bis zu \(Int(costLimitPerBook) * parallelBooks) USD gleichzeitig reserviert werden.")
+                    Text("NovelForge arbeitet weiter, bis Sie stoppen oder der Provider selbst einen echten Kontingentfehler meldet.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -504,7 +499,6 @@ struct UnlimitedProductionSheet: View {
         config.defaultModel = effectiveModel
         ProviderSettingsStore.shared.upsert(config)
         config.apiKey = KeychainService.getAPIKey(for: selectedProvider)
-        config.costLimit = costLimitPerBook
 
         let settings = UnlimitedSettings(
             authorName: authorName.trimmingCharacters(in: .whitespaces),
@@ -512,7 +506,6 @@ struct UnlimitedProductionSheet: View {
             selectedGenres: UnlimitedSettings.genrePool.filter { selectedGenres.contains($0) },
             style: style,
             pageCount: pageCount,
-            costLimitPerBook: costLimitPerBook,
             maxBooks: maxBooks,
             parallelBooks: parallelBooks,
             formats: selectedFormats,

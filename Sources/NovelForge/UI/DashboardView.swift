@@ -545,7 +545,6 @@ struct ProjectDetailView: View {
                     InfoTile(label: "Provider", value: project.preferredProviderRaw)
                     InfoTile(label: "Modell", value: project.preferredModel.isEmpty ? "–" : project.preferredModel)
                     InfoTile(label: "Trim-Größe", value: shortTrimSize)
-                    InfoTile(label: "Kostenlimit", value: project.costLimitUSD > 0 ? "\(Int(project.costLimitUSD)) USD" : "–")
                     InfoTile(label: "Tokens verbraucht", value: FormattingHelpers.formatWordCount(totalTokens))
                 }
 

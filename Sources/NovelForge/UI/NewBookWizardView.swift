@@ -46,7 +46,6 @@ struct NewBookWizardView: View {
     @State private var customModel = ""
     @State private var apiKey = ""
     @State private var baseURL = ""
-    @State private var costLimit = 0.0
 
     @State private var validationMessage: String?
 
@@ -398,13 +397,11 @@ struct NewBookWizardView: View {
                 }
             }
 
-            Section("Kostenkontrolle") {
-                Stepper(costLimit == 0 ? "Kostenlimit: kein App-Limit" : "Kostenlimit: \(Int(costLimit)) USD",
-                        value: $costLimit, in: 0...1000, step: 10)
+            Section("Nutzung") {
                 if let estimate = estimatedCostText {
                     LabeledContent("Geschätzte Produktionskosten", value: estimate)
                 }
-                Text("Die Pipeline stoppt automatisch, wenn die geschätzten Kosten das Limit erreichen. Der Fortschritt bleibt erhalten.")
+                Text("Die Produktion läuft durch, solange der Provider Antworten liefert.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -431,7 +428,6 @@ struct NewBookWizardView: View {
                 ReviewRow(label: "Trim-Größe", value: trimSize.displayName)
                 ReviewRow(label: "Provider", value: selectedProvider.rawValue)
                 ReviewRow(label: "Modell", value: effectiveModel)
-                ReviewRow(label: "Kostenlimit", value: "\(Int(costLimit)) USD")
             }
             Section("Hinweise") {
                 Label("Die Produktion läuft vollautomatisch: Konzept → Plot → Figuren → Kapitel → Szenen → Rohfassung → Revision → Korrektorat → Export.", systemImage: "wand.and.stars")
@@ -513,7 +509,6 @@ struct NewBookWizardView: View {
         project.trimSizeRaw = trimSize.rawValue
         project.preferredProviderRaw = selectedProvider.rawValue
         project.preferredModel = effectiveModel
-        project.costLimitUSD = costLimit
         project.imprint = imprint.trimmingCharacters(in: .whitespacesAndNewlines)
         project.authorBio = authorBio.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -548,7 +543,6 @@ struct NewBookWizardView: View {
         if !baseURL.isEmpty {
             config.baseURL = baseURL
         }
-        config.costLimit = costLimit
         ProviderSettingsStore.shared.upsert(config)
         config.apiKey = KeychainService.getAPIKey(for: selectedProvider)
 

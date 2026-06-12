@@ -64,6 +64,23 @@ final class LogicTests: XCTestCase {
         XCTAssertEqual(models.filter { $0 == "qwen3:235b" }.count, 1)
     }
 
+    func testOllamaCloudModelCatalogFiltersWeakOrUnhelpfulModels() {
+        let models = OllamaCloudModelCatalog.mergeWithFallbacks([
+            "qwen3-coder:30b",
+            "qwen3-vl:235b",
+            "nomic-embed-text",
+            "qwen3:30b",
+            "qwen3.5:122b"
+        ])
+
+        XCTAssertTrue(models.contains("qwen3:235b"))
+        XCTAssertTrue(models.contains("qwen3.5:122b"))
+        XCTAssertFalse(models.contains("qwen3-coder:30b"))
+        XCTAssertFalse(models.contains("qwen3-vl:235b"))
+        XCTAssertFalse(models.contains("nomic-embed-text"))
+        XCTAssertFalse(models.contains("qwen3:30b"))
+    }
+
     // MARK: - Pipeline-Invarianten
 
     /// Die Phasen-Gewichte müssen sich exakt zu 1.0 summieren,

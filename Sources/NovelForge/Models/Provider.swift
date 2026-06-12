@@ -68,10 +68,9 @@ struct ProviderConfiguration: Codable, Identifiable, Equatable, Sendable {
     var baseURL: String?
     var isActive: Bool
     var defaultModel: String?
-    var costLimit: Double?
 
     enum CodingKeys: String, CodingKey {
-        case id, provider, baseURL, isActive, defaultModel, costLimit
+        case id, provider, baseURL, isActive, defaultModel
     }
 
     init(provider: AIProvider) {
@@ -80,7 +79,6 @@ struct ProviderConfiguration: Codable, Identifiable, Equatable, Sendable {
         self.isActive = false
         self.defaultModel = provider.suggestedModels.first
         self.baseURL = provider.defaultBaseURL
-        self.costLimit = nil
     }
 }
 
@@ -135,7 +133,6 @@ enum AIError: Error, LocalizedError, Equatable {
     case networkError
     case rateLimitExceeded
     case quotaExceeded
-    case costLimitReached
     case ollamaNotRunning
     case fileTooLarge
     case contextTooLong
@@ -151,7 +148,6 @@ enum AIError: Error, LocalizedError, Equatable {
              (.networkError, .networkError),
              (.rateLimitExceeded, .rateLimitExceeded),
              (.quotaExceeded, .quotaExceeded),
-             (.costLimitReached, .costLimitReached),
              (.ollamaNotRunning, .ollamaNotRunning),
              (.fileTooLarge, .fileTooLarge),
              (.contextTooLong, .contextTooLong),
@@ -179,8 +175,6 @@ enum AIError: Error, LocalizedError, Equatable {
             return "Rate Limit erreicht – zu viele Anfragen"
         case .quotaExceeded:
             return "Kontingent des Providers erschöpft"
-        case .costLimitReached:
-            return "Kostenlimit für dieses Buch erreicht"
         case .ollamaNotRunning:
             return "Ollama-Server läuft nicht"
         case .fileTooLarge:
@@ -210,8 +204,6 @@ enum AIError: Error, LocalizedError, Equatable {
             return "Warten Sie einen Moment – die Pipeline versucht es automatisch erneut."
         case .quotaExceeded:
             return "Prüfen Sie Ihr Guthaben bzw. Abo beim Provider."
-        case .costLimitReached:
-            return "Erhöhen Sie das Kostenlimit des Projekts oder setzen Sie die Produktion mit einem günstigeren Modell fort."
         case .ollamaNotRunning:
             return "Starten Sie den Ollama-Server (ollama serve) und stellen Sie sicher, dass das Modell installiert ist."
         case .fileTooLarge:
