@@ -28,10 +28,8 @@ final class ProviderSettingsStore: ObservableObject {
             configurations = decoded
         }
 
-        // API-Keys aus der Keychain nachladen (werden nie mitgespeichert).
-        for index in configurations.indices {
-            configurations[index].apiKey = KeychainService.getAPIKey(for: configurations[index].provider)
-        }
+        // API-Keys werden erst bei Start/Test geladen. SwiftUI rendert häufig;
+        // Keychain-Zugriffe im Renderpfad erzeugen sonst wiederholte macOS-Prompts.
     }
 
     func save() {
@@ -63,7 +61,8 @@ final class ProviderSettingsStore: ObservableObject {
     }
 
     func hasAPIKey(for provider: AIProvider) -> Bool {
-        KeychainService.getAPIKey(for: provider)?.isEmpty == false
+        if KeychainService.hasCachedAPIKey(for: provider) { return true }
+        return configurations.first(where: { $0.provider == provider })?.apiKey?.isEmpty == false
     }
 
     /// Baut die Laufzeitkonfiguration für ein Projekt zusammen:

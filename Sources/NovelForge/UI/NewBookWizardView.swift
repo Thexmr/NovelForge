@@ -12,6 +12,8 @@ struct NewBookWizardView: View {
     @AppStorage("defaultLanguage") private var defaultLanguage = "Deutsch"
     @AppStorage("defaultGenre") private var defaultGenre = "Roman"
     @AppStorage("defaultAuthor") private var defaultAuthor = ""
+    @AppStorage("defaultImprint") private var defaultImprint = DefaultBookSettings.imprint
+    @AppStorage("defaultAuthorBio") private var defaultAuthorBio = DefaultBookSettings.authorBio
 
     @State private var currentStep = 0
 
@@ -44,7 +46,7 @@ struct NewBookWizardView: View {
     @State private var customModel = ""
     @State private var apiKey = ""
     @State private var baseURL = ""
-    @State private var costLimit = 50.0
+    @State private var costLimit = 0.0
 
     @State private var validationMessage: String?
 
@@ -135,7 +137,10 @@ struct NewBookWizardView: View {
             .onAppear {
                 language = defaultLanguage
                 if genre.isEmpty && genres.contains(defaultGenre) { genre = defaultGenre }
+                if defaultAuthor.isEmpty { defaultAuthor = DefaultBookSettings.authorName }
                 if authorName.isEmpty { authorName = defaultAuthor }
+                if imprint.isEmpty { imprint = defaultImprint }
+                if authorBio.isEmpty { authorBio = defaultAuthorBio }
             }
         }
         .frame(minWidth: 640, minHeight: 560)
@@ -394,7 +399,8 @@ struct NewBookWizardView: View {
             }
 
             Section("Kostenkontrolle") {
-                Stepper("Kostenlimit: \(Int(costLimit)) USD", value: $costLimit, in: 5...500, step: 5)
+                Stepper(costLimit == 0 ? "Kostenlimit: kein App-Limit" : "Kostenlimit: \(Int(costLimit)) USD",
+                        value: $costLimit, in: 0...1000, step: 10)
                 if let estimate = estimatedCostText {
                     LabeledContent("Geschätzte Produktionskosten", value: estimate)
                 }
@@ -452,7 +458,7 @@ struct NewBookWizardView: View {
     }
 
     private var hasStoredKey: Bool {
-        KeychainService.getAPIKey(for: selectedProvider)?.isEmpty == false
+        ProviderSettingsStore.shared.hasAPIKey(for: selectedProvider)
     }
 
     private var estimatedCostText: String? {
@@ -478,7 +484,6 @@ struct NewBookWizardView: View {
         case 3:
             if effectiveModel.isEmpty { return false }
             if selectedProvider == .custom && baseURL.trimmingCharacters(in: .whitespaces).isEmpty { return false }
-            if selectedProvider.requiresAPIKey && apiKey.isEmpty && !hasStoredKey { return false }
             return true
         default:
             return true
@@ -550,6 +555,8 @@ struct NewBookWizardView: View {
         // Autor & Sprache als Standard merken.
         defaultAuthor = project.authorName
         defaultLanguage = language
+        defaultImprint = project.imprint
+        defaultAuthorBio = project.authorBio
 
         PipelineOrchestrator.shared.startPipeline(project: project, providerConfig: config)
         onStarted?()

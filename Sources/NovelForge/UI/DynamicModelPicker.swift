@@ -97,6 +97,6 @@ struct DynamicModelPicker: View {
     private func effectiveAPIKey() -> String {
         let pending = pendingAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
         if !pending.isEmpty { return pending }
-        return KeychainService.getAPIKey(for: provider) ?? ""
+        return KeychainService.cachedAPIKey(for: provider) ?? ""
     }
 }

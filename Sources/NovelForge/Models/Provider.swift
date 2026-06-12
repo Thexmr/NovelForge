@@ -135,6 +135,7 @@ enum AIError: Error, LocalizedError, Equatable {
     case networkError
     case rateLimitExceeded
     case quotaExceeded
+    case costLimitReached
     case ollamaNotRunning
     case fileTooLarge
     case contextTooLong
@@ -150,6 +151,7 @@ enum AIError: Error, LocalizedError, Equatable {
              (.networkError, .networkError),
              (.rateLimitExceeded, .rateLimitExceeded),
              (.quotaExceeded, .quotaExceeded),
+             (.costLimitReached, .costLimitReached),
              (.ollamaNotRunning, .ollamaNotRunning),
              (.fileTooLarge, .fileTooLarge),
              (.contextTooLong, .contextTooLong),
@@ -176,7 +178,9 @@ enum AIError: Error, LocalizedError, Equatable {
         case .rateLimitExceeded:
             return "Rate Limit erreicht – zu viele Anfragen"
         case .quotaExceeded:
-            return "Kostenlimit überschritten"
+            return "Kontingent des Providers erschöpft"
+        case .costLimitReached:
+            return "Kostenlimit für dieses Buch erreicht"
         case .ollamaNotRunning:
             return "Ollama-Server läuft nicht"
         case .fileTooLarge:
@@ -205,6 +209,8 @@ enum AIError: Error, LocalizedError, Equatable {
         case .rateLimitExceeded:
             return "Warten Sie einen Moment – die Pipeline versucht es automatisch erneut."
         case .quotaExceeded:
+            return "Prüfen Sie Ihr Guthaben bzw. Abo beim Provider."
+        case .costLimitReached:
             return "Erhöhen Sie das Kostenlimit des Projekts oder setzen Sie die Produktion mit einem günstigeren Modell fort."
         case .ollamaNotRunning:
             return "Starten Sie den Ollama-Server (ollama serve) und stellen Sie sicher, dass das Modell installiert ist."

@@ -27,11 +27,35 @@ struct GeneralSettingsView: View {
     @AppStorage("defaultLanguage") private var defaultLanguage = "Deutsch"
     @AppStorage("defaultGenre") private var defaultGenre = "Roman"
     @AppStorage("defaultAuthor") private var defaultAuthor = ""
+    @AppStorage("defaultImprint") private var defaultImprint = DefaultBookSettings.imprint
+    @AppStorage("defaultAuthorBio") private var defaultAuthorBio = DefaultBookSettings.authorBio
 
     var body: some View {
         Form {
             Section("Vorgaben für neue Bücher") {
                 TextField("Standard-Autorname", text: $defaultAuthor)
+                TextEditor(text: $defaultAuthorBio)
+                    .frame(minHeight: 70)
+                    .overlay(alignment: .topLeading) {
+                        if defaultAuthorBio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text("Standard-Autorprofil")
+                                .foregroundStyle(.tertiary)
+                                .padding(.top, 8)
+                                .padding(.leading, 5)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                TextEditor(text: $defaultImprint)
+                    .frame(minHeight: 120)
+                    .overlay(alignment: .topLeading) {
+                        if defaultImprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text("Standard-Impressum")
+                                .foregroundStyle(.tertiary)
+                                .padding(.top, 8)
+                                .padding(.leading, 5)
+                                .allowsHitTesting(false)
+                        }
+                    }
 
                 Picker("Standardsprache", selection: $defaultLanguage) {
                     Text("Deutsch").tag("Deutsch")
@@ -337,6 +361,7 @@ struct AddProviderView: View {
 struct PrivacySettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var projects: [Project]
+    @ObservedObject private var orchestrator = PipelineOrchestrator.shared
 
     @State private var confirmDeleteKeys = false
     @State private var confirmDeleteProjects = false
@@ -356,7 +381,7 @@ struct PrivacySettingsView: View {
                 Button("Alle Projektdaten löschen (\(projects.count) Projekte)", role: .destructive) {
                     confirmDeleteProjects = true
                 }
-                .disabled(projects.isEmpty)
+                .disabled(projects.isEmpty || orchestrator.isRunning)
             }
 
             Section {
@@ -376,7 +401,7 @@ struct PrivacySettingsView: View {
         }
         .confirmationDialog("Wirklich ALLE Projekte löschen?", isPresented: $confirmDeleteProjects) {
             Button("\(projects.count) Projekte endgültig löschen", role: .destructive) {
-                for project in projects {
+                for project in projects where !orchestrator.activeProjectIDs.contains(project.id) && orchestrator.currentProject?.id != project.id {
                     modelContext.delete(project)
                 }
                 try? modelContext.save()

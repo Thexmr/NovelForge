@@ -333,6 +333,10 @@ struct ProjectsListView: View {
     @State private var projectToDelete: Project?
     @State private var navigationPath: [Project] = []
 
+    private func isRunning(_ project: Project) -> Bool {
+        orchestrator.currentProject?.id == project.id || orchestrator.activeProjectIDs.contains(project.id)
+    }
+
     /// Öffnet ein per Querverweis (z.B. Dashboard-Karte) angefordertes Projektdetail.
     @MainActor
     private func consumePendingDetail() {
@@ -374,6 +378,7 @@ struct ProjectsListView: View {
                                 } label: {
                                     Label("Projekt löschen", systemImage: "trash")
                                 }
+                                .disabled(isRunning(project))
                             }
                         }
                     }
@@ -404,7 +409,7 @@ struct ProjectsListView: View {
                                     get: { projectToDelete != nil },
                                     set: { if !$0 { projectToDelete = nil } })) {
                 Button("Endgültig löschen", role: .destructive) {
-                    if let project = projectToDelete {
+                    if let project = projectToDelete, !isRunning(project) {
                         modelContext.delete(project)
                         try? modelContext.save()
                     }
@@ -606,9 +611,11 @@ struct ProjectDetailView: View {
                 if AppState.shared.selectedProject?.id == project.id {
                     AppState.shared.selectedProject = nil
                 }
-                modelContext.delete(project)
-                try? modelContext.save()
-                dismiss()
+                if !isRunningThisProject {
+                    modelContext.delete(project)
+                    try? modelContext.save()
+                    dismiss()
+                }
             }
             Button("Abbrechen", role: .cancel) {}
         } message: {

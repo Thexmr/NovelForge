@@ -290,6 +290,8 @@ struct ProductionView: View {
 struct UnlimitedProductionSheet: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("defaultAuthor") private var defaultAuthor = ""
+    @AppStorage("defaultImprint") private var defaultImprint = DefaultBookSettings.imprint
+    @AppStorage("defaultAuthorBio") private var defaultAuthorBio = DefaultBookSettings.authorBio
     @AppStorage(ExportEngine.exportRootDefaultsKey) private var exportRoot = ""
 
     @State private var authorName = ""
@@ -297,7 +299,7 @@ struct UnlimitedProductionSheet: View {
     @State private var selectedGenres: Set<String> = ["Thriller"]
     @State private var style = UnlimitedSettings.randomToken
     @State private var pageCount = 150
-    @State private var costLimitPerBook = 20.0
+    @State private var costLimitPerBook = 0.0
     @State private var maxBooks = 0
     @State private var parallelBooks = 1
     @State private var imprint = ""
@@ -316,14 +318,13 @@ struct UnlimitedProductionSheet: View {
     }
 
     private var hasStoredKey: Bool {
-        KeychainService.getAPIKey(for: selectedProvider)?.isEmpty == false
+        ProviderSettingsStore.shared.hasAPIKey(for: selectedProvider)
     }
 
     private var canStart: Bool {
         !authorName.trimmingCharacters(in: .whitespaces).isEmpty
             && !selectedGenres.isEmpty
             && !effectiveModel.isEmpty
-            && (!selectedProvider.requiresAPIKey || hasStoredKey)
             && (epubFormat || pdfFormat || docxFormat)
     }
 
@@ -442,19 +443,21 @@ struct UnlimitedProductionSheet: View {
                                        includeCustomField: true)
 
                     if selectedProvider.requiresAPIKey && !hasStoredKey {
-                        Label("Für diesen Provider ist kein API-Key hinterlegt (Einstellungen → KI-Provider).",
-                              systemImage: "key.slash")
+                        Label("Falls der API-Key noch nicht gespeichert ist: zuerst in Einstellungen → KI-Provider eintragen.",
+                              systemImage: "key")
                             .font(.caption)
                             .foregroundStyle(.orange)
                     }
 
-                    Stepper("Kostenlimit pro Buch: \(Int(costLimitPerBook)) USD",
-                            value: $costLimitPerBook, in: 5...500, step: 5)
+                    Stepper(costLimitPerBook == 0 ? "Kostenlimit pro Buch: kein App-Limit" : "Kostenlimit pro Buch: \(Int(costLimitPerBook)) USD",
+                            value: $costLimitPerBook, in: 0...1000, step: 10)
                     Stepper(maxBooks == 0 ? "Anzahl Bücher: unbegrenzt (bis Stopp)" : "Anzahl Bücher: \(maxBooks)",
                             value: $maxBooks, in: 0...100)
                     Stepper("Parallele Bücher: \(parallelBooks)",
                             value: $parallelBooks, in: 1...10)
-                    Text("Bei \(parallelBooks) parallelen Büchern können bis zu \(Int(costLimitPerBook) * parallelBooks) USD gleichzeitig reserviert werden.")
+                    Text(costLimitPerBook == 0
+                         ? "NovelForge setzt kein eigenes App-Budgetlimit. Provider-Guthaben und Provider-Limits gelten weiterhin."
+                         : "Bei \(parallelBooks) parallelen Büchern können bis zu \(Int(costLimitPerBook) * parallelBooks) USD gleichzeitig reserviert werden.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -475,7 +478,10 @@ struct UnlimitedProductionSheet: View {
                 }
             }
             .onAppear {
+                if defaultAuthor.isEmpty { defaultAuthor = DefaultBookSettings.authorName }
                 if authorName.isEmpty { authorName = defaultAuthor }
+                if imprint.isEmpty { imprint = defaultImprint }
+                if authorBio.isEmpty { authorBio = defaultAuthorBio }
             }
         }
         .frame(minWidth: 560, minHeight: 560)
@@ -514,6 +520,8 @@ struct UnlimitedProductionSheet: View {
             authorBio: authorBio
         )
         defaultAuthor = settings.authorName
+        defaultImprint = settings.imprint
+        defaultAuthorBio = settings.authorBio
 
         PipelineOrchestrator.shared.startUnlimitedProduction(settings: settings, providerConfig: config)
         dismiss()

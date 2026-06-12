@@ -3,6 +3,8 @@ import Security
 
 enum KeychainService {
     private static let serviceName = "com.novelforge.app"
+    private static var cachedAPIKeys: [AIProvider: String] = [:]
+    private static var missingProviders: Set<AIProvider> = []
     
     static func saveAPIKey(_ apiKey: String, for provider: AIProvider) {
         let key = "api_key_\(provider.rawValue)"
@@ -21,10 +23,20 @@ enum KeychainService {
         let status = SecItemAdd(query as CFDictionary, nil)
         if status != errSecSuccess {
             print("Failed to save API key to Keychain: \(status)")
+        } else {
+            cachedAPIKeys[provider] = apiKey
+            missingProviders.remove(provider)
         }
     }
     
     static func getAPIKey(for provider: AIProvider) -> String? {
+        if let cached = cachedAPIKeys[provider] {
+            return cached
+        }
+        if missingProviders.contains(provider) {
+            return nil
+        }
+
         let key = "api_key_\(provider.rawValue)"
         
         let query: [String: Any] = [
@@ -41,10 +53,20 @@ enum KeychainService {
         guard status == errSecSuccess,
               let data = result as? Data,
               let apiKey = String(data: data, encoding: .utf8) else {
+            missingProviders.insert(provider)
             return nil
         }
         
+        cachedAPIKeys[provider] = apiKey
         return apiKey
+    }
+
+    static func cachedAPIKey(for provider: AIProvider) -> String? {
+        cachedAPIKeys[provider]
+    }
+
+    static func hasCachedAPIKey(for provider: AIProvider) -> Bool {
+        cachedAPIKeys[provider]?.isEmpty == false
     }
     
     static func deleteAPIKey(for provider: AIProvider) {
@@ -57,6 +79,8 @@ enum KeychainService {
         ]
         
         SecItemDelete(query as CFDictionary)
+        cachedAPIKeys.removeValue(forKey: provider)
+        missingProviders.insert(provider)
     }
     
     static func deleteAllAPIKeys() {
@@ -66,6 +90,8 @@ enum KeychainService {
         ]
         
         SecItemDelete(query as CFDictionary)
+        cachedAPIKeys.removeAll()
+        missingProviders = Set(AIProvider.allCases)
     }
     
     static func loadAPIKeysForProviders(_ providers: inout [ProviderConfiguration]) {

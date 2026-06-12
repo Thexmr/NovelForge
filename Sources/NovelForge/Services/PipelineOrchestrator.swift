@@ -115,6 +115,11 @@ final class PipelineOrchestrator: ObservableObject {
     @Published var lastBookDuration: String = ""
     @Published var activeUnlimitedBooks: Int = 0
     @Published var parallelUnlimitedBooks: Int = 1
+    /// Live-Status aller parallel laufenden Buch-Worker (für die UI).
+    @Published var workerStatuses: [UnlimitedWorkerStatus] = []
+    /// Projekte, an denen gerade aktiv produziert wird (auch von parallelen
+    /// Workern). Diese dürfen nicht gelöscht oder doppelt gestartet werden.
+    @Published var activeProjectIDs: Set<UUID> = []
 
     // MARK: - Intern
 
@@ -130,6 +135,10 @@ final class PipelineOrchestrator: ObservableObject {
     private var currentBookStartedAt: Date?
     private var unlimitedConsecutiveFailures = 0
     private let gateway = ProviderGateway.shared
+    /// Bei parallelen Buch-Workern: der Haupt-Orchestrator (UI-Zustand, Titel-Register).
+    private weak var parentOrchestrator: PipelineOrchestrator?
+    /// Eindeutige Kennung dieses Workers für die Status-Anzeige.
+    private let workerID = UUID()
 
     private struct UnlimitedBookOutcome {
         var completed: Bool
@@ -138,6 +147,69 @@ final class PipelineOrchestrator: ObservableObject {
         var duration: TimeInterval
         var error: Error?
         var message: String
+    }
+
+    /// Sichtbarer Zustand eines parallelen Buch-Workers.
+    struct UnlimitedWorkerStatus: Identifiable, Equatable {
+        let id: UUID
+        var title: String
+        var phase: PipelinePhase
+        var agent: String
+        var progress: Double
+        var completedScenes: Int
+        var totalScenes: Int
+    }
+
+    // MARK: - Titel-Register & Aktiv-Verwaltung (geteilt zwischen Workern)
+
+    /// Prüft und reserviert einen Buchtitel zentral – bei parallelen Workern
+    /// über den Haupt-Orchestrator, damit keine doppelten Titel entstehen.
+    private func claimTitle(_ title: String) -> Bool {
+        if let parent = parentOrchestrator { return parent.claimTitle(title) }
+        let key = title.lowercased()
+        guard !usedTitles.contains(key) else { return false }
+        usedTitles.insert(key)
+        return true
+    }
+
+    private func markProjectActive(_ project: Project) {
+        if let parent = parentOrchestrator {
+            parent.markProjectActive(project)
+        } else {
+            activeProjectIDs.insert(project.id)
+        }
+    }
+
+    private func markProjectInactive(_ project: Project?) {
+        guard let project else { return }
+        if let parent = parentOrchestrator {
+            parent.markProjectInactive(project)
+        } else {
+            activeProjectIDs.remove(project.id)
+        }
+    }
+
+    /// Meldet den eigenen Zustand an den Haupt-Orchestrator (Parallel-Modus).
+    private func publishWorkerStatus() {
+        guard let parent = parentOrchestrator else { return }
+        let status = UnlimitedWorkerStatus(
+            id: workerID,
+            title: currentProject?.title ?? "Ideenfindung …",
+            phase: currentPhase,
+            agent: currentAgent,
+            progress: progress,
+            completedScenes: completedScenes,
+            totalScenes: totalScenes
+        )
+        if let index = parent.workerStatuses.firstIndex(where: { $0.id == workerID }) {
+            parent.workerStatuses[index] = status
+        } else {
+            parent.workerStatuses.append(status)
+        }
+    }
+
+    private func retireWorkerStatus() {
+        parentOrchestrator?.workerStatuses.removeAll { $0.id == workerID }
     }
 
     func configure(with context: ModelContext) {
@@ -177,6 +249,7 @@ final class PipelineOrchestrator: ObservableObject {
             project.costLimitUSD = limit
         }
 
+        markProjectActive(project)
         startHeartbeat()
         backgroundTask = Task { [weak self] in
             await self?.run(project: project, config: providerConfig)
@@ -218,7 +291,7 @@ final class PipelineOrchestrator: ObservableObject {
         stopMode = .none
         lastError = nil
         unlimitedBooksCompleted = 0
-        usedTitles = []
+        usedTitles = Set(existingProjects().map { $0.title.lowercased() })
         unlimitedRunID = UUID().uuidString
         completedBookDurations = []
         unlimitedConsecutiveFailures = 0
@@ -274,6 +347,7 @@ final class PipelineOrchestrator: ObservableObject {
                 recordCompletedBookDuration()
                 unlimitedBooksCompleted += 1
                 unlimitedConsecutiveFailures = 0
+                markProjectInactive(project)
                 currentAgent = "Buch \(unlimitedBooksCompleted) abgeschlossen – nächstes Buch wird geplant …"
                 try? modelContext?.save()
 
@@ -295,6 +369,7 @@ final class PipelineOrchestrator: ObservableObject {
                     failJob(job, error: error)
                 }
                 currentProject?.status = .failed
+                markProjectInactive(currentProject)
                 let aiError = error as? AIError
                 lastError = aiError?.errorDescription ?? error.localizedDescription
                 unlimitedConsecutiveFailures += 1
@@ -419,6 +494,7 @@ final class PipelineOrchestrator: ObservableObject {
         worker.modelContext = modelContext
         worker.unlimitedRunID = unlimitedRunID
         worker.parallelUnlimitedBooks = parallelUnlimitedBooks
+        worker.parentOrchestrator = self
         return worker
     }
 
@@ -454,7 +530,9 @@ final class PipelineOrchestrator: ObservableObject {
             project.status = .completed
             progress = 1.0
             let duration = Date().timeIntervalSince(startedAt)
+            markProjectInactive(project)
             try? modelContext?.save()
+            retireWorkerStatus()
             return UnlimitedBookOutcome(
                 completed: true,
                 cancelled: false,
@@ -468,6 +546,8 @@ final class PipelineOrchestrator: ObservableObject {
                 stopMode = .pause
                 handleStop(project: project)
             }
+            markProjectInactive(currentProject)
+            retireWorkerStatus()
             return UnlimitedBookOutcome(
                 completed: false,
                 cancelled: true,
@@ -481,8 +561,10 @@ final class PipelineOrchestrator: ObservableObject {
                 failJob(job, error: error)
             }
             currentProject?.status = .failed
+            markProjectInactive(currentProject)
             let message = (error as? AIError)?.errorDescription ?? error.localizedDescription
             try? modelContext?.save()
+            retireWorkerStatus()
             return UnlimitedBookOutcome(
                 completed: false,
                 cancelled: false,
@@ -512,24 +594,35 @@ final class PipelineOrchestrator: ObservableObject {
         currentAgent = "Ideenfindung für das nächste Buch …"
         currentProject = nil
 
-        let response = try await generate(
-            prompt: PromptFactory.bookIdeas(genre: genre, language: settings.language,
-                                            avoidanceBrief: avoidanceBrief),
-            system: "Du bist ein Verlagslektor mit sicherem Gespür für verkäufliche, originelle Buchideen. Du vermeidest Wiederholungen gegenüber dem Story-Gedächtnis strikt.",
-            maxTokens: 800, temperature: 0.95, config: config
-        )
-        let ideas = StructureParser.parseIdeas(response.text)
-        let idea = ideas.first { !StoryMemory.isLikelyDuplicate($0, existing: memoryEntries) }
-            ?? ideas.randomElement()
+        var idea: ParsedIdea?
+        var lastIdeaResponse = ""
+        for attempt in 1...3 {
+            let retryHint = attempt == 1 ? "" : "\n\nDer vorige Versuch war leer, generisch oder dupliziert. Erzeuge jetzt 5 konkrete, neue Buchideen im geforderten Format."
+            let response = try await generate(
+                prompt: PromptFactory.bookIdeas(genre: genre, language: settings.language,
+                                                avoidanceBrief: avoidanceBrief) + retryHint,
+                system: "Du bist ein Verlagslektor mit sicherem Gespür für verkäufliche, originelle Buchideen. Du vermeidest Wiederholungen gegenüber dem Story-Gedächtnis strikt.",
+                maxTokens: 1000, temperature: 0.95, config: config
+            )
+            lastIdeaResponse = response.text
+            let ideas = StructureParser.parseIdeas(response.text)
+            idea = ideas.first {
+                AutonomousContentQuality.hasUsableIdea($0)
+                    && !StoryMemory.isLikelyDuplicate($0, existing: memoryEntries)
+            } ?? ideas.first { AutonomousContentQuality.hasUsableIdea($0) }
+            if idea != nil { break }
+        }
         guard AutonomousContentQuality.hasUsableIdea(idea) else {
-            throw AIError.systemError("Autonom-Modus konnte keine tragfähige Buchidee erzeugen. Provider/Modell lieferte keine verwertbare Idee.")
+            throw AIError.systemError("Autonom-Modus konnte keine tragfähige Buchidee erzeugen. Provider/Modell lieferte keine verwertbare Idee. Letzte Antwort: \(lastIdeaResponse.truncated(to: 240))")
         }
 
-        var title = idea?.title ?? "\(genre)-Roman"
-        if usedTitles.contains(title.lowercased()) {
-            title += " \(Int(Date().timeIntervalSince1970) % 10000)"
+        let baseTitle = idea?.title ?? "\(genre)-Roman"
+        var title = baseTitle
+        var suffix = 2
+        while !claimTitle(title) {
+            title = "\(baseTitle) \(suffix)"
+            suffix += 1
         }
-        usedTitles.insert(title.lowercased())
 
         let project = Project(
             title: title,
@@ -574,6 +667,8 @@ final class PipelineOrchestrator: ObservableObject {
         modelContext?.insert(profile)
         modelContext?.insert(bible)
         try? modelContext?.save()
+        markProjectActive(project)
+        publishWorkerStatus()
         return project
     }
 
@@ -681,6 +776,11 @@ final class PipelineOrchestrator: ObservableObject {
         isRunning = false
         heartbeatTask?.cancel()
         heartbeatTask = nil
+        markProjectInactive(currentProject)
+        if parentOrchestrator == nil {
+            activeProjectIDs = []
+            workerStatuses = []
+        }
         try? modelContext?.save()
     }
 
@@ -737,7 +837,7 @@ final class PipelineOrchestrator: ObservableObject {
         try Task.checkCancellation()
 
         if let limit = config.costLimit, limit > 0, estimatedCostUSD >= limit {
-            throw AIError.quotaExceeded
+            throw AIError.costLimitReached
         }
 
         let model = config.defaultModel ?? config.provider.suggestedModels.first ?? ""
@@ -849,34 +949,46 @@ final class PipelineOrchestrator: ObservableObject {
         project.status = .conceptDevelopment
         let job = beginJob(agent: AgentName.concept, phase: .conceptDevelopment, project: project)
         do {
-            let prompt = PromptFactory.concept(
-                title: project.title, genre: project.genre, subgenre: project.subgenre,
-                language: project.language, style: project.styleProfile,
-                tonality: profile.tonality, audience: profile.targetAudience,
-                perspective: profile.narrativePerspective, tense: profile.tense,
-                pageCount: project.targetPageCount,
-                ideaSeed: profile.premise
-            )
-            let response = try await generate(
-                prompt: prompt,
-                system: "Du bist ein erfahrener Verlagslektor und entwickelst originelle, tragfähige Buchkonzepte.",
-                maxTokens: 1500, temperature: 0.8, config: config
-            )
+            var lastResponse: GenerationResponse?
+            var accepted = false
+            for attempt in 1...3 {
+                let retryHint = attempt == 1 ? "" : "\n\nWichtig: Der vorige Versuch war leer, zu kurz oder nicht im Format. Liefere jetzt zwingend Prämisse, Thema, Zielgruppe, Logline und ein ausführliches Exposé mit konkretem Konflikt."
+                let prompt = PromptFactory.concept(
+                    title: project.title, genre: project.genre, subgenre: project.subgenre,
+                    language: project.language, style: project.styleProfile,
+                    tonality: profile.tonality, audience: profile.targetAudience,
+                    perspective: profile.narrativePerspective, tense: profile.tense,
+                    pageCount: project.targetPageCount,
+                    ideaSeed: profile.premise
+                ) + retryHint
+                let response = try await generate(
+                    prompt: prompt,
+                    system: "Du bist ein erfahrener Verlagslektor und entwickelst originelle, tragfähige Buchkonzepte. Antworte direkt mit Buchkonzept, niemals mit Rückfragen.",
+                    maxTokens: 2200, temperature: 0.8, config: config
+                )
+                lastResponse = response
 
-            let parsed = ConceptParser.parse(response.text)
-            if !parsed.premise.isEmpty { profile.premise = parsed.premise }
-            profile.logline = parsed.logline.isEmpty ? String(response.text.prefix(200)) : parsed.logline
-            profile.synopsis = parsed.synopsis.isEmpty ? response.text : parsed.synopsis
-            if !parsed.theme.isEmpty { profile.theme = parsed.theme }
-            if profile.targetAudience.isEmpty && !parsed.audience.isEmpty {
-                profile.targetAudience = parsed.audience
+                let parsed = ConceptParser.parse(response.text)
+                let candidatePremise = parsed.premise.isEmpty ? profile.premise : parsed.premise
+                let candidateSynopsis = parsed.synopsis.isEmpty ? response.text : parsed.synopsis
+                if candidatePremise.trimmingCharacters(in: .whitespacesAndNewlines).wordCount >= 8,
+                   candidateSynopsis.trimmingCharacters(in: .whitespacesAndNewlines).wordCount >= 20,
+                   !AutonomousContentQuality.containsMetaRequest(candidateSynopsis) {
+                    profile.premise = candidatePremise
+                    profile.logline = parsed.logline.isEmpty ? String(response.text.prefix(200)) : parsed.logline
+                    profile.synopsis = candidateSynopsis
+                    if !parsed.theme.isEmpty { profile.theme = parsed.theme }
+                    if profile.targetAudience.isEmpty && !parsed.audience.isEmpty {
+                        profile.targetAudience = parsed.audience
+                    }
+                    accepted = true
+                    break
+                }
             }
-            if profile.premise.trimmingCharacters(in: .whitespacesAndNewlines).wordCount < 8
-                || (profile.synopsis ?? "").trimmingCharacters(in: .whitespacesAndNewlines).wordCount < 20
-                || AutonomousContentQuality.containsMetaRequest(profile.synopsis ?? "") {
+
+            guard let response = lastResponse, accepted else {
                 throw AIError.systemError("Konzeptentwicklung lieferte kein verwertbares Thema/Exposé.")
             }
-
             completeJob(job, result: response.text, tokens: response.tokensUsed ?? 0)
         } catch {
             failJob(job, error: error)
@@ -1122,7 +1234,7 @@ final class PipelineOrchestrator: ObservableObject {
         aggregateLocations(into: bible, chapters: chapters)
         try? modelContext?.save()
 
-        if hitCostLimit { throw AIError.quotaExceeded }
+        if hitCostLimit { throw AIError.costLimitReached }
         if let error = firstError { throw error }
         try Task.checkCancellation()
     }
@@ -1286,7 +1398,7 @@ final class PipelineOrchestrator: ObservableObject {
                                 sceneTokens += expanded.tokensUsed ?? 0
                             }
                         } catch {
-                            if error is CancellationError || (error as? AIError) == .quotaExceeded {
+                            if error is CancellationError || (error as? AIError) == .quotaExceeded || (error as? AIError) == .costLimitReached {
                                 throw error
                             }
                             // Erweiterung fehlgeschlagen – kurze Szene behalten, Hinweis folgt unten.
@@ -1468,7 +1580,7 @@ final class PipelineOrchestrator: ObservableObject {
         }
         try? modelContext?.save()
 
-        if hitCostLimit { throw AIError.quotaExceeded }
+        if hitCostLimit { throw AIError.costLimitReached }
         if let error = firstError { throw error }
         try Task.checkCancellation()
     }
@@ -1582,7 +1694,7 @@ final class PipelineOrchestrator: ObservableObject {
         }
         try? modelContext?.save()
 
-        if hitCostLimit { throw AIError.quotaExceeded }
+        if hitCostLimit { throw AIError.costLimitReached }
         if let error = firstError { throw error }
         try Task.checkCancellation()
     }
@@ -1646,7 +1758,7 @@ final class PipelineOrchestrator: ObservableObject {
                 failJob(metaJob, error: error)
                 // Marketing-Metadaten sind nicht produktionskritisch – nur bei
                 // Kostenlimit/Abbruch die Pipeline stoppen.
-                if error is CancellationError || (error as? AIError) == .quotaExceeded {
+                if error is CancellationError || (error as? AIError) == .quotaExceeded || (error as? AIError) == .costLimitReached {
                     throw error
                 }
                 addReport(project: project, area: "KDP-Metadaten", type: "Metadaten",
@@ -1797,6 +1909,7 @@ final class PipelineOrchestrator: ObservableObject {
         }
         total += phase.weight * min(max(subProgress, 0), 1)
         progress = min(total, 1.0)
+        publishWorkerStatus()
     }
 
     private func updateEstimatedTime() {
@@ -1830,6 +1943,7 @@ final class PipelineOrchestrator: ObservableObject {
         if !timing.remainingText.isEmpty {
             estimatedTimeRemaining = timing.remainingText
         }
+        publishWorkerStatus()
     }
 
     private func recordCompletedBookDuration() {

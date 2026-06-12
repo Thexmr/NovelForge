@@ -2,6 +2,14 @@ import XCTest
 @testable import NovelForge
 
 final class UnlimitedProductionTests: XCTestCase {
+    func testDefaultBookSettingsIncludeDaveImprintForKDPFrontMatter() {
+        XCTAssertEqual(DefaultBookSettings.authorName, "Dave Demaré")
+        XCTAssertTrue(DefaultBookSettings.imprint.contains("Wohnfelderstraße 1"))
+        XCTAssertTrue(DefaultBookSettings.imprint.contains("E-Mail: davedemare9@gmail.com"))
+        XCTAssertTrue(DefaultBookSettings.imprint.contains("© 2026 Dave Demaré"))
+        XCTAssertFalse(DefaultBookSettings.authorBio.isEmpty)
+    }
+
     func testUnlimitedSettingsAllowFiveHundredPageKDPBooks() {
         let settings = UnlimitedSettings(
             authorName: "Test Autor",
@@ -201,6 +209,8 @@ final class UnlimitedProductionTests: XCTestCase {
                                                                               consecutiveFailures: 1))
         XCTAssertTrue(ProductionStabilityPolicy.shouldHaltUnlimitedProduction(after: AIError.baseURLMissing,
                                                                               consecutiveFailures: 1))
+        XCTAssertFalse(ProductionStabilityPolicy.shouldHaltUnlimitedProduction(after: AIError.costLimitReached,
+                                                                               consecutiveFailures: 1))
         XCTAssertFalse(ProductionStabilityPolicy.shouldHaltUnlimitedProduction(after: AIError.providerUnavailable,
                                                                                consecutiveFailures: 1))
     }
