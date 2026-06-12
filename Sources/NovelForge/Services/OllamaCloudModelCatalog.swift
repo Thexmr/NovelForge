@@ -2,12 +2,16 @@ import Foundation
 
 enum OllamaCloudModelCatalog {
     static let fallbackModels = [
-        "qwen3:235b",
-        "qwen3.5:122b",
-        "deepseek-v3",
-        "llama3.3",
-        "kimi-k2.5:cloud",
-        "glm-5:cloud"
+        "qwen3.5:397b",
+        "gpt-oss:120b",
+        "minimax-m3",
+        "nemotron-3-ultra",
+        "deepseek-v3.2",
+        "deepseek-v4-pro",
+        "deepseek-v4-flash",
+        "mistral-large-3:675b",
+        "glm-5.1",
+        "glm-5"
     ]
 
     static func decodeModelNames(from data: Data) throws -> [String] {
@@ -31,29 +35,17 @@ enum OllamaCloudModelCatalog {
         if isUsefulForLongFormCloudModel(preferred) {
             return preferred
         }
-        return fallbackModels.first ?? "qwen3:235b"
+        return fallbackModels.first ?? "qwen3.5:397b"
     }
 
     static func isUsefulForLongFormCloudModel(_ model: String) -> Bool {
         let lowered = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !lowered.isEmpty else { return false }
-        let excludedFragments = [
-            "coder", "code", "vl", "vision", "embed", "embedding", "clip",
-            "rerank", "guard", "moderation", "audio", "whisper", "small",
-            "mini", "tiny", "3b", "7b", "8b", "14b", "30b", "32b"
-        ]
-        if excludedFragments.contains(where: { lowered.contains($0) }) {
-            return false
-        }
-        let trustedFamilies = [
-            "qwen3:235b", "qwen3.5:122b", "deepseek-v3", "llama3.3",
-            "kimi-k2.5", "glm-5", "command-a", "mixtral-8x22b"
-        ]
-        if trustedFamilies.contains(where: { lowered.hasPrefix($0) }) {
-            return true
-        }
-        return lowered.range(of: #"(^|[^0-9])([7-9][0-9]|[1-9][0-9]{2,})b($|[^0-9])"#,
-                             options: .regularExpression) != nil
+        return curatedModelSet.contains(lowered)
+    }
+
+    private static var curatedModelSet: Set<String> {
+        Set(fallbackModels.map { $0.lowercased() })
     }
 
     private static func stableUnique(_ models: [String]) -> [String] {

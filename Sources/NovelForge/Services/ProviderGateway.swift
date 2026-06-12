@@ -271,13 +271,22 @@ actor ProviderGateway {
                     tokensUsed: result.eval_count,
                     finishReason: result.done ? "stop" : nil
                 )
+            case 401, 403:
+                throw AIError.apiKeyInvalid
             case 404:
                 throw AIError.modelUnavailable
+            case 429:
+                throw AIError.rateLimitExceeded
+            case 500...599:
+                throw AIError.providerUnavailable
             default:
-                throw AIError.systemError("Ollama HTTP \(httpResponse.statusCode)")
+                throw AIError.systemError("Ollama HTTP \(httpResponse.statusCode): \(decodeErrorMessage(from: data) ?? "")")
             }
         } catch let error as AIError {
             if error == .networkError || error == .providerUnavailable {
+                if configuration.provider == .ollamaCloud {
+                    throw AIError.providerUnavailable
+                }
                 throw AIError.ollamaNotRunning
             }
             throw error
