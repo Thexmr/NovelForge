@@ -341,6 +341,7 @@ final class PipelineOrchestrator: ObservableObject {
         var shouldStopLaunching = false
 
         await withTaskGroup(of: UnlimitedBookOutcome.self) { group in
+            @MainActor
             func launchAvailableBooks() {
                 guard !shouldStopLaunching, !Task.isCancelled else { return }
                 let slots = settings.launchSlots(
