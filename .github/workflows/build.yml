@@ -29,6 +29,8 @@ jobs:
     runs-on: macos-14
     needs: build
     timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v5
       - name: App-Bundle bauen
@@ -44,3 +46,15 @@ jobs:
           name: NovelForge-macOS
           path: build/NovelForge-macOS.zip
           retention-days: 7
+      - name: Release "app-latest" aktualisieren
+        # Release-Assets zählen nicht gegen die Actions-Artefakt-Quota.
+        # Liefert den jeweils neuesten main-Build als festen Download-Kanal.
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete app-latest --yes || true
+          gh release create app-latest build/NovelForge-macOS.zip \
+            --title "NovelForge – aktueller Build (main)" \
+            --notes "Automatischer Build von ${GITHUB_SHA}" \
+            --latest=false
