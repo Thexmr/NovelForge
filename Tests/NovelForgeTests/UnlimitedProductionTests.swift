@@ -133,6 +133,35 @@ final class UnlimitedProductionTests: XCTestCase {
         XCTAssertFalse(StoryMemory.isLikelyDuplicate(different, existing: existing))
     }
 
+    func testAutonomousQualityRejectsEmptyIdeasAndGenericPlanning() {
+        XCTAssertFalse(AutonomousContentQuality.hasUsableIdea(nil))
+        XCTAssertFalse(AutonomousContentQuality.hasUsableIdea(
+            ParsedIdea(title: "Roman-Roman", genre: "Roman", premise: "")
+        ))
+        XCTAssertTrue(AutonomousContentQuality.hasUsableIdea(
+            ParsedIdea(title: "Der Nachtarchivar",
+                       genre: "Thriller",
+                       premise: "Ein Archivar entdeckt, dass gelöschte Akten nachts von selbst zurückkehren und eine Mordserie vorhersagen.")
+        ))
+
+        let placeholderChapters = [
+            PlannedChapter(number: 1, title: "Kapitel 1",
+                           goal: "Setze den Plot konsequent fort.", conflict: "")
+        ]
+        XCTAssertFalse(AutonomousContentQuality.hasUsableChapterPlan(placeholderChapters))
+    }
+
+    func testAutonomousQualityRejectsMetaDraftsAsWrittenScenes() {
+        let missingSceneReply = "Der Text der Szene fehlt in deiner Nachricht. Bitte füge ihn nach SZENE ein."
+        let tinyReply = "Sie ging hinaus. Ende."
+        let prose = Array(repeating: "Die Tür knarrte, während Mara den Umschlag fester hielt.", count: 60)
+            .joined(separator: " ")
+
+        XCTAssertFalse(AutonomousContentQuality.acceptsDraftScene(missingSceneReply, targetWords: 625))
+        XCTAssertFalse(AutonomousContentQuality.acceptsDraftScene(tinyReply, targetWords: 625))
+        XCTAssertTrue(AutonomousContentQuality.acceptsDraftScene(prose, targetWords: 120))
+    }
+
     func testLongFormPlanSplitsFiveHundredPagesIntoManageableScenes() {
         let plan = LongFormProductionPlan(pageCount: 500)
 
