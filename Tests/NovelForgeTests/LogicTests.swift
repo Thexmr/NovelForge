@@ -81,6 +81,13 @@ final class LogicTests: XCTestCase {
         XCTAssertFalse(models.contains("qwen3:30b"))
     }
 
+    func testOllamaCloudBestModelRejectsStaleOrWeakPreferredModels() {
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "kimi-k2.6"), "qwen3:235b")
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "qwen3-coder:30b"), "qwen3:235b")
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "qwen3-vl:235b"), "qwen3:235b")
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "qwen3.5:122b"), "qwen3.5:122b")
+    }
+
     // MARK: - Pipeline-Invarianten
 
     /// Die Phasen-Gewichte müssen sich exakt zu 1.0 summieren,

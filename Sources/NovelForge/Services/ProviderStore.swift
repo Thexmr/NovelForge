@@ -78,6 +78,10 @@ final class ProviderSettingsStore: ObservableObject {
         if config.defaultModel == nil || config.defaultModel?.isEmpty == true {
             config.defaultModel = provider.suggestedModels.first
         }
+        if provider == .ollamaCloud {
+            config.defaultModel = OllamaCloudModelCatalog.bestModel(preferred: config.defaultModel)
+            project.preferredModel = config.defaultModel ?? ""
+        }
         config.apiKey = KeychainService.getAPIKey(for: provider)
         return config
     }

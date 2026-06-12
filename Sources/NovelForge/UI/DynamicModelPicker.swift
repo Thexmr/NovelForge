@@ -21,7 +21,7 @@ struct DynamicModelPicker: View {
                 }
             }
 
-            if includeCustomField && !availableModels.isEmpty {
+            if includeCustomField && provider != .ollamaCloud && !availableModels.isEmpty {
                 TextField("Eigenes Modell (optional, überschreibt Auswahl)", text: $customModel)
             }
 

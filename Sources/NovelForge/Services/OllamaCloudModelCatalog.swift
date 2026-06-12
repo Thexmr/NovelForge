@@ -26,6 +26,14 @@ enum OllamaCloudModelCatalog {
         return stableUnique(fallbackModels + cleanedLive)
     }
 
+    static func bestModel(preferred: String?) -> String {
+        let preferred = preferred?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if isUsefulForLongFormCloudModel(preferred) {
+            return preferred
+        }
+        return fallbackModels.first ?? "qwen3:235b"
+    }
+
     static func isUsefulForLongFormCloudModel(_ model: String) -> Bool {
         let lowered = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !lowered.isEmpty else { return false }
