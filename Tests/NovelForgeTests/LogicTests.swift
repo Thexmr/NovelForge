@@ -60,7 +60,7 @@ final class LogicTests: XCTestCase {
         let models = OllamaCloudModelCatalog.mergeWithFallbacks(["gpt-oss:120b", "qwen3.5:397b"])
 
         XCTAssertEqual(models.first, "qwen3.5:397b")
-        XCTAssertTrue(models.contains("gpt-oss:120b"))
+        XCTAssertFalse(models.contains("gpt-oss:120b"))
         XCTAssertEqual(models.filter { $0 == "qwen3.5:397b" }.count, 1)
     }
 
@@ -77,21 +77,23 @@ final class LogicTests: XCTestCase {
         ])
 
         XCTAssertTrue(models.contains("qwen3.5:397b"))
-        XCTAssertTrue(models.contains("minimax-m3"))
         XCTAssertFalse(models.contains("qwen3-coder:30b"))
         XCTAssertFalse(models.contains("qwen3-vl:235b"))
         XCTAssertFalse(models.contains("nomic-embed-text"))
         XCTAssertFalse(models.contains("qwen3-next:80b"))
         XCTAssertFalse(models.contains("kimi-k2.6"))
         XCTAssertFalse(models.contains("minimax-m2"))
+        XCTAssertFalse(models.contains("minimax-m3"))
     }
 
     func testOllamaCloudBestModelRejectsStaleOrWeakPreferredModels() {
         XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "kimi-k2.6"), "qwen3.5:397b")
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "kimi-k2.5:cloud"), "qwen3.5:397b")
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "deepseek-v4-pro:cloud"), "qwen3.5:397b")
         XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "qwen3-coder:480b"), "qwen3.5:397b")
         XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "qwen3-vl:235b"), "qwen3.5:397b")
         XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "qwen3.5:397b"), "qwen3.5:397b")
-        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "gpt-oss:120b"), "gpt-oss:120b")
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "deepseek-v4-pro"), "deepseek-v4-pro")
     }
 
     // MARK: - Pipeline-Invarianten

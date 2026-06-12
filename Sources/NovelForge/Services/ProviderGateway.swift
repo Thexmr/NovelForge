@@ -223,7 +223,8 @@ actor ProviderGateway {
             ? configuration.baseURL!
             : (configuration.provider.defaultBaseURL ?? "http://localhost:11434")
         if base.hasSuffix("/") { base.removeLast() }
-        guard let url = URL(string: "\(base)/api/generate") else {
+        let endpoint = configuration.provider == .ollamaCloud ? "chat" : "generate"
+        guard let url = URL(string: "\(base)/api/\(endpoint)") else {
             throw AIError.systemError("Ungültige URL: \(base)")
         }
 
@@ -241,14 +242,28 @@ actor ProviderGateway {
         // Thinking deaktivieren: Reasoning-Modelle (Kimi, Qwen, DeepSeek …) verbrauchen
         // sonst das gesamte num_predict-Budget für Denkschritte und liefern ein
         // leeres response-Feld zurück.
-        let body: [String: Any] = [
-            "model": request.model,
-            "prompt": request.prompt,
-            "system": request.systemPrompt ?? "",
-            "stream": false,
-            "think": false,
-            "options": options
-        ]
+        let body: [String: Any]
+        if configuration.provider == .ollamaCloud {
+            body = [
+                "model": request.model,
+                "messages": [
+                    ["role": "system", "content": request.systemPrompt ?? ""],
+                    ["role": "user", "content": request.prompt]
+                ],
+                "stream": false,
+                "think": false,
+                "options": options
+            ]
+        } else {
+            body = [
+                "model": request.model,
+                "prompt": request.prompt,
+                "system": request.systemPrompt ?? "",
+                "stream": false,
+                "think": false,
+                "options": options
+            ]
+        }
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         do {
@@ -256,8 +271,8 @@ actor ProviderGateway {
 
             switch httpResponse.statusCode {
             case 200:
-                let result = try JSONDecoder().decode(OllamaResponse.self, from: data)
-                if result.response.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                let result = try decodeOllamaGenerationResponse(data, provider: configuration.provider)
+                if result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                    let thinking = result.thinking, !thinking.isEmpty {
                     // Modell hat trotz think:false das gesamte Token-Budget für
                     // Denkschritte verbraucht – klarer Fehler statt leerem Text.
@@ -267,7 +282,7 @@ actor ProviderGateway {
                     )
                 }
                 return GenerationResponse(
-                    text: result.response,
+                    text: result.text,
                     tokensUsed: result.eval_count,
                     finishReason: result.done ? "stop" : nil
                 )
@@ -291,6 +306,25 @@ actor ProviderGateway {
             }
             throw error
         }
+    }
+
+    private func decodeOllamaGenerationResponse(_ data: Data, provider: AIProvider) throws -> NormalizedOllamaResponse {
+        if provider == .ollamaCloud {
+            let result = try JSONDecoder().decode(OllamaChatResponse.self, from: data)
+            return NormalizedOllamaResponse(
+                text: result.message.content,
+                done: result.done,
+                eval_count: result.eval_count,
+                thinking: result.message.thinking
+            )
+        }
+        let result = try JSONDecoder().decode(OllamaResponse.self, from: data)
+        return NormalizedOllamaResponse(
+            text: result.response,
+            done: result.done,
+            eval_count: result.eval_count,
+            thinking: result.thinking
+        )
     }
 
     // MARK: - Helpers
@@ -403,6 +437,23 @@ struct AnthropicResponse: Codable {
 
 struct OllamaResponse: Codable {
     let response: String
+    let done: Bool
+    let eval_count: Int?
+    let thinking: String?
+}
+
+struct OllamaChatResponse: Codable {
+    struct Message: Codable {
+        let content: String
+        let thinking: String?
+    }
+    let message: Message
+    let done: Bool
+    let eval_count: Int?
+}
+
+struct NormalizedOllamaResponse {
+    let text: String
     let done: Bool
     let eval_count: Int?
     let thinking: String?

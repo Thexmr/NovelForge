@@ -28,6 +28,9 @@ final class ProviderSettingsStore: ObservableObject {
             configurations = decoded
         }
 
+        migrateLegacyProviderDefaults()
+        normalizeConfigurations()
+
         // API-Keys werden erst bei Start/Test geladen. SwiftUI rendert häufig;
         // Keychain-Zugriffe im Renderpfad erzeugen sonst wiederholte macOS-Prompts.
     }
@@ -41,9 +44,9 @@ final class ProviderSettingsStore: ObservableObject {
 
     func upsert(_ config: ProviderConfiguration) {
         if let index = configurations.firstIndex(where: { $0.provider == config.provider }) {
-            configurations[index] = config
+            configurations[index] = Self.normalized(config)
         } else {
-            configurations.append(config)
+            configurations.append(Self.normalized(config))
         }
         save()
     }
@@ -84,5 +87,42 @@ final class ProviderSettingsStore: ObservableObject {
         }
         config.apiKey = KeychainService.getAPIKey(for: provider)
         return config
+    }
+
+    private func normalizeConfigurations() {
+        let normalized = configurations.map(Self.normalized)
+        if normalized != configurations {
+            configurations = normalized
+            save()
+        }
+    }
+
+    private static func normalized(_ config: ProviderConfiguration) -> ProviderConfiguration {
+        var normalized = config
+        if normalized.baseURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
+            normalized.baseURL = normalized.provider.defaultBaseURL
+        }
+        if normalized.provider == .ollamaCloud {
+            normalized.baseURL = AIProvider.ollamaCloud.defaultBaseURL
+            normalized.defaultModel = OllamaCloudModelCatalog.bestModel(preferred: normalized.defaultModel)
+        } else if normalized.defaultModel?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
+            normalized.defaultModel = normalized.provider.suggestedModels.first
+        }
+        return normalized
+    }
+
+    private func migrateLegacyProviderDefaults() {
+        let defaults = UserDefaults.standard
+        for provider in AIProvider.allCases {
+            let secretKey = "local_secret_api_key_\(provider.rawValue)"
+            if let legacyAPIKey = defaults.string(forKey: secretKey),
+               !legacyAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                KeychainService.saveAPIKey(legacyAPIKey, for: provider)
+                defaults.removeObject(forKey: secretKey)
+            }
+            defaults.removeObject(forKey: "provider_base_url_\(provider.rawValue)")
+            defaults.removeObject(forKey: "provider_default_model_\(provider.rawValue)")
+        }
+        defaults.removeObject(forKey: "active_provider")
     }
 }

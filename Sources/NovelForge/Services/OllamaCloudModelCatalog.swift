@@ -3,8 +3,6 @@ import Foundation
 enum OllamaCloudModelCatalog {
     static let fallbackModels = [
         "qwen3.5:397b",
-        "gpt-oss:120b",
-        "minimax-m3",
         "nemotron-3-ultra",
         "deepseek-v3.2",
         "deepseek-v4-pro",
