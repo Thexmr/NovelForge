@@ -238,11 +238,15 @@ actor ProviderGateway {
         if let maxTokens = request.maxTokens {
             options["num_predict"] = maxTokens
         }
+        // Thinking deaktivieren: Reasoning-Modelle (Kimi, Qwen, DeepSeek …) verbrauchen
+        // sonst das gesamte num_predict-Budget für Denkschritte und liefern ein
+        // leeres response-Feld zurück.
         let body: [String: Any] = [
             "model": request.model,
             "prompt": request.prompt,
             "system": request.systemPrompt ?? "",
             "stream": false,
+            "think": false,
             "options": options
         ]
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -253,6 +257,15 @@ actor ProviderGateway {
             switch httpResponse.statusCode {
             case 200:
                 let result = try JSONDecoder().decode(OllamaResponse.self, from: data)
+                if result.response.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   let thinking = result.thinking, !thinking.isEmpty {
+                    // Modell hat trotz think:false das gesamte Token-Budget für
+                    // Denkschritte verbraucht – klarer Fehler statt leerem Text.
+                    throw AIError.systemError(
+                        "Modell \(request.model) lieferte nur Denkschritte und keinen Antworttext. "
+                        + "Bitte ein Modell ohne Thinking-Modus wählen."
+                    )
+                }
                 return GenerationResponse(
                     text: result.response,
                     tokensUsed: result.eval_count,
@@ -383,6 +396,7 @@ struct OllamaResponse: Codable {
     let response: String
     let done: Bool
     let eval_count: Int?
+    let thinking: String?
 }
 
 struct APIErrorEnvelope: Codable {

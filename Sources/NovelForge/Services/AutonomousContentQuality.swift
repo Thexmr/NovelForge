@@ -70,9 +70,18 @@ enum AutonomousContentQuality {
             "ich kann die szene leider nicht schreiben",
             "ich benötige noch",
             "fehlende angaben",
-            "als ki",
-            "kann ich nicht"
+            "als sprachmodell",
+            "als ki-modell",
+            "kann ich nicht schreiben",
+            "kann ich nicht erstellen",
+            "kann ich nicht verfassen",
+            "kann ich nicht generieren",
+            "kann ich nicht beantworten",
+            "kann ich dieser anfrage nicht"
         ]
-        return patterns.contains { normalized.contains($0) }
+        if patterns.contains(where: { normalized.contains($0) }) { return true }
+        // "als ki" nur als eigenständiges Wort – sonst matcht es "als Kind",
+        // "als Kino" usw. und verwirft korrekte Romantexte.
+        return normalized.range(of: #"\bals ki\b"#, options: .regularExpression) != nil
     }
 }
