@@ -34,6 +34,15 @@ actor ProviderGateway {
         }
     }
 
+    func listModels(configuration: ProviderConfiguration) async throws -> [String] {
+        switch configuration.provider {
+        case .ollamaCloud, .ollamaLocal:
+            return try await listOllamaModels(configuration: configuration)
+        default:
+            return configuration.provider.suggestedModels
+        }
+    }
+
     /// Verbindungstest. Gibt nil bei Erfolg zurück, sonst eine Fehlerbeschreibung.
     func testConnection(configuration: ProviderConfiguration) async -> String? {
         let model = configuration.defaultModel ?? configuration.provider.suggestedModels.first ?? ""
@@ -210,7 +219,9 @@ actor ProviderGateway {
 
     private func executeOllamaRequest(request: GenerationRequest,
                                       configuration: ProviderConfiguration) async throws -> GenerationResponse {
-        var base = (configuration.baseURL?.isEmpty == false) ? configuration.baseURL! : "http://localhost:11434"
+        var base = (configuration.baseURL?.isEmpty == false)
+            ? configuration.baseURL!
+            : (configuration.provider.defaultBaseURL ?? "http://localhost:11434")
         if base.hasSuffix("/") { base.removeLast() }
         guard let url = URL(string: "\(base)/api/generate") else {
             throw AIError.systemError("Ungültige URL: \(base)")
@@ -284,6 +295,45 @@ actor ProviderGateway {
             throw CancellationError()
         } catch {
             throw AIError.networkError
+        }
+    }
+
+    private func listOllamaModels(configuration: ProviderConfiguration) async throws -> [String] {
+        if configuration.provider.requiresAPIKey {
+            guard configuration.apiKey?.isEmpty == false else { throw AIError.apiKeyInvalid }
+        }
+
+        var base = (configuration.baseURL?.isEmpty == false)
+            ? configuration.baseURL!
+            : (configuration.provider.defaultBaseURL ?? "http://localhost:11434")
+        if base.hasSuffix("/") { base.removeLast() }
+        guard let url = URL(string: "\(base)/api/tags") else {
+            throw AIError.systemError("Ungültige URL: \(base)")
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "GET"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let apiKey = configuration.apiKey, !apiKey.isEmpty {
+            urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
+
+        let (data, httpResponse) = try await perform(urlRequest)
+        switch httpResponse.statusCode {
+        case 200:
+            let names = try OllamaCloudModelCatalog.decodeModelNames(from: data)
+            if configuration.provider == .ollamaCloud {
+                return OllamaCloudModelCatalog.mergeWithFallbacks(names)
+            }
+            return names
+        case 401, 403:
+            throw AIError.apiKeyInvalid
+        case 429:
+            throw AIError.rateLimitExceeded
+        case 500...599:
+            throw AIError.providerUnavailable
+        default:
+            throw AIError.systemError("HTTP \(httpResponse.statusCode): \(decodeErrorMessage(from: data) ?? "")")
         }
     }
 

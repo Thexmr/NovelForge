@@ -270,10 +270,10 @@ struct AddProviderView: View {
     @Environment(\.dismiss) var dismiss
     let onAdd: (ProviderConfiguration, String) -> Void
 
-    @State private var selectedProvider = AIProvider.openAI
+    @State private var selectedProvider = AIProvider.ollamaCloud
     @State private var apiKey = ""
     @State private var baseURL = ""
-    @State private var selectedModel = AIProvider.openAI.suggestedModels.first ?? ""
+    @State private var selectedModel = AIProvider.ollamaCloud.suggestedModels.first ?? ""
     @State private var customModel = ""
 
     private var effectiveModel: String {
@@ -294,20 +294,18 @@ struct AddProviderView: View {
                     customModel = ""
                 }
 
-                if selectedProvider.suggestedModels.isEmpty {
-                    TextField("Modellname", text: $customModel)
-                } else {
-                    Picker("Modell", selection: $selectedModel) {
-                        ForEach(selectedProvider.suggestedModels, id: \.self) { Text($0).tag($0) }
-                    }
-                    TextField("Eigenes Modell (optional)", text: $customModel)
-                }
+                DynamicModelPicker(provider: selectedProvider,
+                                   selectedModel: $selectedModel,
+                                   customModel: $customModel,
+                                   pendingAPIKey: apiKey)
 
                 if selectedProvider.requiresAPIKey {
                     SecureField("API-Key", text: $apiKey)
                 }
 
-                TextField("Basis-URL (optional)", text: $baseURL)
+                if selectedProvider.needsBaseURLInput {
+                    TextField("Basis-URL", text: $baseURL)
+                }
             }
             .formStyle(.grouped)
             .navigationTitle("Provider hinzufügen")
@@ -318,7 +316,9 @@ struct AddProviderView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Hinzufügen") {
                         var config = ProviderConfiguration(provider: selectedProvider)
-                        config.baseURL = baseURL.isEmpty ? nil : baseURL
+                        if !baseURL.isEmpty {
+                            config.baseURL = baseURL
+                        }
                         config.defaultModel = effectiveModel
                         config.isActive = true
                         onAdd(config, apiKey)

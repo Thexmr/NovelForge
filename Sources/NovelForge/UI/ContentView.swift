@@ -298,8 +298,8 @@ struct UnlimitedProductionSheet: View {
     @State private var pdfFormat = true
     @State private var docxFormat = false
 
-    @State private var selectedProvider = AIProvider.openAI
-    @State private var selectedModel = AIProvider.openAI.suggestedModels.first ?? ""
+    @State private var selectedProvider = AIProvider.ollamaCloud
+    @State private var selectedModel = AIProvider.ollamaCloud.suggestedModels.first ?? ""
     @State private var customModel = ""
 
     private var effectiveModel: String {
@@ -417,13 +417,10 @@ struct UnlimitedProductionSheet: View {
                         customModel = ""
                     }
 
-                    if selectedProvider.suggestedModels.isEmpty {
-                        TextField("Modellname", text: $customModel)
-                    } else {
-                        Picker("Modell", selection: $selectedModel) {
-                            ForEach(selectedProvider.suggestedModels, id: \.self) { Text($0).tag($0) }
-                        }
-                    }
+                    DynamicModelPicker(provider: selectedProvider,
+                                       selectedModel: $selectedModel,
+                                       customModel: $customModel,
+                                       includeCustomField: true)
 
                     if selectedProvider.requiresAPIKey && !hasStoredKey {
                         Label("Für diesen Provider ist kein API-Key hinterlegt (Einstellungen → KI-Provider).",

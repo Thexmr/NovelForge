@@ -37,8 +37,8 @@ struct NewBookWizardView: View {
     @State private var trimSize = TrimSize.sixByNine
 
     // Schritt 4: Provider
-    @State private var selectedProvider = AIProvider.openAI
-    @State private var selectedModel = AIProvider.openAI.suggestedModels.first ?? ""
+    @State private var selectedProvider = AIProvider.ollamaCloud
+    @State private var selectedModel = AIProvider.ollamaCloud.suggestedModels.first ?? ""
     @State private var customModel = ""
     @State private var apiKey = ""
     @State private var baseURL = ""
@@ -343,14 +343,10 @@ struct NewBookWizardView: View {
                     baseURL = ""
                 }
 
-                if selectedProvider.suggestedModels.isEmpty {
-                    TextField("Modellname", text: $customModel)
-                } else {
-                    Picker("Modell", selection: $selectedModel) {
-                        ForEach(selectedProvider.suggestedModels, id: \.self) { Text($0).tag($0) }
-                    }
-                    TextField("Eigenes Modell (optional, überschreibt Auswahl)", text: $customModel)
-                }
+                DynamicModelPicker(provider: selectedProvider,
+                                   selectedModel: $selectedModel,
+                                   customModel: $customModel,
+                                   pendingAPIKey: apiKey)
 
                 if selectedProvider.needsBaseURLInput {
                     TextField("Basis-URL (OpenAI-kompatibler Endpunkt)", text: $baseURL)
@@ -512,7 +508,9 @@ struct NewBookWizardView: View {
         var config = ProviderConfiguration(provider: selectedProvider)
         config.isActive = true
         config.defaultModel = effectiveModel
-        config.baseURL = baseURL.isEmpty ? nil : baseURL
+        if !baseURL.isEmpty {
+            config.baseURL = baseURL
+        }
         config.costLimit = costLimit
         ProviderSettingsStore.shared.upsert(config)
         config.apiKey = KeychainService.getAPIKey(for: selectedProvider)

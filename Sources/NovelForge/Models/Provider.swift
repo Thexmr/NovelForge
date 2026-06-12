@@ -28,7 +28,7 @@ enum AIProvider: String, Codable, CaseIterable, Identifiable, Sendable {
         case .ollamaLocal:
             return ["llama3.1", "qwen2.5", "mistral-nemo"]
         case .ollamaCloud:
-            return ["llama3.1", "qwen2.5"]
+            return OllamaCloudModelCatalog.fallbackModels
         case .kimi:
             return ["kimi-k2-0711-preview", "moonshot-v1-128k", "moonshot-v1-32k"]
         case .custom:
@@ -54,7 +54,7 @@ enum AIProvider: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 
     var needsBaseURLInput: Bool {
-        self == .custom || self == .ollamaCloud
+        self == .custom
     }
 }
 
@@ -79,7 +79,7 @@ struct ProviderConfiguration: Codable, Identifiable, Equatable, Sendable {
         self.provider = provider
         self.isActive = false
         self.defaultModel = provider.suggestedModels.first
-        self.baseURL = nil
+        self.baseURL = provider.defaultBaseURL
         self.costLimit = nil
     }
 }

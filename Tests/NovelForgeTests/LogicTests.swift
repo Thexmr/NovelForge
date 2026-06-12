@@ -25,10 +25,35 @@ final class LogicTests: XCTestCase {
     func testOllamaCloudIsReadyWithoutManualBaseURL() {
         XCTAssertEqual(AIProvider.ollamaCloud.defaultBaseURL, "https://ollama.com")
         XCTAssertFalse(AIProvider.ollamaCloud.needsBaseURLInput)
+        XCTAssertEqual(ProviderConfiguration(provider: .ollamaCloud).baseURL, "https://ollama.com")
     }
 
     func testOllamaCloudDefaultsToBestLongFormModel() {
         XCTAssertEqual(AIProvider.ollamaCloud.suggestedModels.first, "qwen3:235b")
+    }
+
+    func testOllamaCloudModelCatalogDecodesTagsResponse() throws {
+        let json = """
+        {
+          "models": [
+            { "name": "llama3.3" },
+            { "name": "qwen3:235b" },
+            { "name": "" }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let names = try OllamaCloudModelCatalog.decodeModelNames(from: json)
+
+        XCTAssertEqual(names, ["llama3.3", "qwen3:235b"])
+    }
+
+    func testOllamaCloudModelCatalogMergesLiveModelsWithFallbacks() {
+        let models = OllamaCloudModelCatalog.mergeWithFallbacks(["custom-cloud:70b", "qwen3:235b"])
+
+        XCTAssertEqual(models.first, "qwen3:235b")
+        XCTAssertTrue(models.contains("custom-cloud:70b"))
+        XCTAssertEqual(models.filter { $0 == "qwen3:235b" }.count, 1)
     }
 
     // MARK: - Pipeline-Invarianten
