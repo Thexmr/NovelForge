@@ -112,6 +112,7 @@ final class PipelineOrchestrator: ObservableObject {
     private var unlimitedRunID = ""
     private var completedBookDurations: [TimeInterval] = []
     private var currentBookStartedAt: Date?
+    private var unlimitedConsecutiveFailures = 0
     private let gateway = ProviderGateway.shared
 
     func configure(with context: ModelContext) {
@@ -195,6 +196,7 @@ final class PipelineOrchestrator: ObservableObject {
         usedTitles = []
         unlimitedRunID = UUID().uuidString
         completedBookDurations = []
+        unlimitedConsecutiveFailures = 0
         lastBookDuration = ""
         averageBookDuration = ""
 
@@ -239,6 +241,7 @@ final class PipelineOrchestrator: ObservableObject {
                 progress = 1.0
                 recordCompletedBookDuration()
                 unlimitedBooksCompleted += 1
+                unlimitedConsecutiveFailures = 0
                 currentAgent = "Buch \(unlimitedBooksCompleted) abgeschlossen – nächstes Buch wird geplant …"
                 try? modelContext?.save()
 
@@ -262,15 +265,24 @@ final class PipelineOrchestrator: ObservableObject {
                 currentProject?.status = .failed
                 let aiError = error as? AIError
                 lastError = aiError?.errorDescription ?? error.localizedDescription
+                unlimitedConsecutiveFailures += 1
                 try? modelContext?.save()
 
                 // Dauerhaft unbehebbare Fehler beenden die Schleife,
                 // statt alle paar Sekunden erneut zu scheitern.
-                if aiError == .apiKeyInvalid || aiError == .baseURLMissing {
+                if ProductionStabilityPolicy.shouldHaltUnlimitedProduction(
+                    after: error,
+                    consecutiveFailures: unlimitedConsecutiveFailures
+                ) {
+                    currentAgent = "Dauerproduktion gestoppt – \(unlimitedConsecutiveFailures) Fehler in Folge"
                     break
                 }
 
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                let delay = ProductionStabilityPolicy.retryDelay(
+                    forConsecutiveFailures: unlimitedConsecutiveFailures
+                )
+                currentAgent = "Fehler abgefangen – nächster Versuch in \(ProductionStabilityPolicy.formatRetryDelay(delay))"
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 if Task.isCancelled { break }
             }
         }
