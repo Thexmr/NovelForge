@@ -85,6 +85,38 @@ final class ExportEngineTests: XCTestCase {
         XCTAssertTrue(report.contains("hafenkante"))
     }
 
+    func testBookCopyrightPageContainsImprintAndAuthorBioWithoutAIDisclosure() throws {
+        let (container, project) = try makeProjectWithChapter()
+        defer { _ = container }
+        project.imprint = "Test Verlag\nMusterstraße 1\n12345 Berlin"
+        project.authorBio = "Test Autor schreibt präzise Spannungsromane mit psychologischer Tiefe."
+
+        let page = ExportEngine.bookCopyrightPageText(project: project)
+
+        XCTAssertTrue(page.contains("Test Verlag"))
+        XCTAssertTrue(page.contains("Über den Autor"))
+        XCTAssertTrue(page.contains(project.authorBio))
+        XCTAssertFalse(page.localizedCaseInsensitiveContains("KI"))
+        XCTAssertFalse(page.localizedCaseInsensitiveContains("AI"))
+        XCTAssertFalse(page.localizedCaseInsensitiveContains("künstliche intelligenz"))
+        XCTAssertFalse(page.localizedCaseInsensitiveContains("generiert"))
+    }
+
+    func testKDPMetadataPromptForbidsAIDisclosureInCustomerFacingCopy() {
+        let prompt = PromptFactory.kdpMetadata(
+            title: "Nacht über dem Hafen",
+            author: "Test Autor",
+            authorBio: "Schreibt Thriller mit forensischer Genauigkeit.",
+            genre: "Thriller",
+            audience: "Thriller-Fans",
+            synopsis: "Eine Ermittlerin jagt einen Saboteur.",
+            language: "Deutsch"
+        )
+
+        XCTAssertTrue(prompt.contains("Schreibt Thriller"))
+        XCTAssertTrue(prompt.contains("Keine Hinweise auf KI"))
+    }
+
     /// bestText-Priorität: final > überarbeitet > Rohfassung > Szenen.
     func testBestTextPriority() throws {
         let (container, project) = try makeProjectWithChapter()

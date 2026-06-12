@@ -12,12 +12,14 @@ final class UnlimitedProductionTests: XCTestCase {
             costLimitPerBook: 50,
             maxBooks: 0,
             formats: ["EPUB", "PDF"],
-            imprint: "Test Verlag\nMusterstraße 1\n12345 Berlin"
+            imprint: "Test Verlag\nMusterstraße 1\n12345 Berlin",
+            authorBio: "Test Autor schreibt psychologische Thriller."
         )
 
         XCTAssertEqual(settings.pageCount, AppConstants.maxPageCount)
         XCTAssertEqual(settings.targetWordCount, 125_000)
         XCTAssertTrue(settings.imprint.contains("Test Verlag"))
+        XCTAssertTrue(settings.authorBio.contains("psychologische Thriller"))
     }
 
     func testUnlimitedSettingsCycleSelectedGenresInsteadOfRepeatingOneGenre() {
@@ -30,7 +32,8 @@ final class UnlimitedProductionTests: XCTestCase {
             costLimitPerBook: 25,
             maxBooks: 0,
             formats: ["EPUB"],
-            imprint: ""
+            imprint: "",
+            authorBio: ""
         )
 
         XCTAssertEqual(settings.genreForBook(at: 0), "Thriller")
