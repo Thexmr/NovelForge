@@ -56,6 +56,7 @@ struct DashboardView: View {
             .frame(maxWidth: 900, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
+        .background(StudioBackground())
         .navigationTitle("Dashboard")
         .sheet(isPresented: $showingNewBookSheet) {
             NewBookWizardView()
@@ -92,7 +93,7 @@ struct DashboardView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.tint.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+        .studioPanel(accent: StudioTheme.amber)
     }
 
     private func checklistRow(done: Bool, title: String, subtitle: String,
@@ -118,10 +119,19 @@ struct DashboardView: View {
 
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("NovelForge")
-                .font(.largeTitle)
-                .fontWeight(.bold)
-            Text("Autonome KI-Buchproduktion – von der Idee bis zum Export")
+            HStack(spacing: 10) {
+                Text("NovelForge")
+                    .font(.system(.largeTitle, design: .rounded))
+                    .fontWeight(.bold)
+                Text("AUTO STUDIO")
+                    .font(.caption2)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(StudioTheme.cyan)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(StudioTheme.cyan.opacity(0.12), in: Capsule())
+            }
+            Text("Autonome Buchproduktion – Konzept, Manuskript, KDP-Export und Dauerbetrieb")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -149,7 +159,7 @@ struct DashboardView: View {
             }
         }
         .padding(16)
-        .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+        .studioPanel(accent: StudioTheme.cyan)
     }
 
     private var statsSection: some View {
@@ -227,7 +237,7 @@ struct StatCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
+        .studioPanel(accent: color)
     }
 }
 
@@ -262,7 +272,7 @@ struct ProjectCard: View {
             }
         }
         .padding(14)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
+        .studioPanel(accent: .blue)
     }
 }
 
@@ -284,7 +294,7 @@ struct CompletedProjectCard: View {
                 .foregroundStyle(.green)
         }
         .padding(14)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
+        .studioPanel(accent: .green)
     }
 }
 

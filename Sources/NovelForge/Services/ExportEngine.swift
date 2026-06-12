@@ -272,7 +272,7 @@ struct ExportEngine {
     }
 
     private static func generateCopyrightPageHTML(project: Project) -> String {
-        let lines = copyrightPageText(project: project)
+        let lines = bookCopyrightPageText(project: project)
             .components(separatedBy: .newlines)
             .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
             .map { "            <p class=\"first\" style=\"text-align: center;\">\(escapeXML($0))</p>" }
@@ -445,7 +445,7 @@ struct ExportEngine {
         body += paragraph(text: project.title, style: "Title")
         body += paragraph(text: project.authorName, style: "Subtitle")
 
-        for line in copyrightPageText(project: project).components(separatedBy: .newlines) {
+        for line in bookCopyrightPageText(project: project).components(separatedBy: .newlines) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if !trimmed.isEmpty {
                 body += paragraph(text: trimmed, style: nil)
@@ -529,14 +529,14 @@ struct ExportEngine {
         style.alignment = .center
         style.lineHeightMultiple = 1.4
 
-        return NSAttributedString(string: copyrightPageText(project: project), attributes: [
+        return NSAttributedString(string: bookCopyrightPageText(project: project), attributes: [
             .font: bookFont(size: 9),
             .paragraphStyle: style,
             .foregroundColor: NSColor.black
         ])
     }
 
-    private static func copyrightPageText(project: Project) -> String {
+    static func bookCopyrightPageText(project: Project) -> String {
         let year = Calendar.current.component(.year, from: Date())
         var lines = [
             "© \(year) \(project.authorName)",
@@ -547,8 +547,13 @@ struct ExportEngine {
             lines.append("")
             lines.append(contentsOf: imprint.components(separatedBy: .newlines))
         }
+        let authorBio = project.authorBio.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !authorBio.isEmpty {
+            lines.append("")
+            lines.append("Über den Autor")
+            lines.append(authorBio)
+        }
         lines.append("")
-        lines.append("Dieses Werk wurde mit KI-Unterstützung erstellt.")
         return lines.joined(separator: "\n")
     }
 
@@ -780,6 +785,9 @@ struct ExportEngine {
         report += "Sprache: \(project.language)\n"
         report += "Formate: \(project.outputFormats.joined(separator: ", "))\n"
         report += "Trim-Größe (Print): \(project.trimSize.displayName)\n\n"
+        if !project.authorBio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            report += "Autorprofil:\n\(project.authorBio)\n\n"
+        }
         if !project.imprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             report += "Impressum:\n\(project.imprint)\n\n"
         }
@@ -806,8 +814,6 @@ struct ExportEngine {
         report += String(format: "- Konsistenz: %.0f%%\n", scores.consistency * 100)
         report += String(format: "- KDP-Format: %.0f%%\n\n", scores.kdp * 100)
 
-        report += "KI-Offenlegung:\n"
-        report += "Dieses Buch wurde mit KI-Unterstützung erstellt (NovelForge, \(project.pipelineJobs?.count ?? 0) Pipeline-Schritte).\n\n"
         report += "Copyright-Hinweis:\n"
         report += "Dies ist eine interne Prüfung ohne juristische Garantie.\n"
         return report
@@ -820,6 +826,10 @@ struct ExportEngine {
         report += "Autor: \(project.authorName)\n"
         report += "Sprache: \(project.language)\n"
         report += "Trim-Größe (Print): \(project.trimSize.displayName)\n\n"
+        if !project.authorBio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            report += "AUTORPROFIL:\n"
+            report += project.authorBio + "\n\n"
+        }
 
         guard let profile = project.bookProfile else { return report }
 
@@ -836,10 +846,8 @@ struct ExportEngine {
             report += profile.kdpCategories + "\n\n"
         }
         if profile.kdpDescription.isEmpty {
-            report += "Hinweis: Die Metadaten werden in der Pipeline-Phase „KDP-Formatierung\u{201C} automatisch generiert.\n"
+            report += "Hinweis: Die Metadaten fehlen noch und werden in der Phase „KDP-Formatierung“ vorbereitet.\n"
         }
-
-        report += "Hinweis: Bei der Veröffentlichung muss die KI-Unterstützung gemäß KDP-Richtlinien angegeben werden.\n"
         return report
     }
 

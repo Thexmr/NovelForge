@@ -15,6 +15,7 @@ struct UnlimitedSettings {
     var maxBooks: Int          // 0 = unbegrenzt
     var formats: [String]
     var imprint: String
+    var authorBio: String
 
     static let randomToken = "Zufällig"
     static let genrePool = ["Thriller", "Roman", "Fantasy", "Science Fiction", "Krimi",
@@ -25,17 +26,17 @@ struct UnlimitedSettings {
 
     init(authorName: String, language: String, genre: String, style: String,
          pageCount: Int, costLimitPerBook: Double, maxBooks: Int, formats: [String],
-         imprint: String = "") {
+         imprint: String = "", authorBio: String = "") {
         self.init(authorName: authorName, language: language,
                   selectedGenres: genre == Self.randomToken ? [] : [genre],
                   style: style, pageCount: pageCount,
                   costLimitPerBook: costLimitPerBook, maxBooks: maxBooks,
-                  formats: formats, imprint: imprint)
+                  formats: formats, imprint: imprint, authorBio: authorBio)
     }
 
     init(authorName: String, language: String, selectedGenres: [String], style: String,
          pageCount: Int, costLimitPerBook: Double, maxBooks: Int, formats: [String],
-         imprint: String) {
+         imprint: String, authorBio: String) {
         self.authorName = authorName
         self.language = language
         self.selectedGenres = selectedGenres
@@ -47,6 +48,7 @@ struct UnlimitedSettings {
         self.maxBooks = maxBooks
         self.formats = formats
         self.imprint = imprint.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.authorBio = authorBio.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var targetWordCount: Int {
@@ -340,6 +342,7 @@ final class PipelineOrchestrator: ObservableObject {
         }
         project.costLimitUSD = settings.costLimitPerBook
         project.imprint = settings.imprint
+        project.authorBio = settings.authorBio
         project.autoProductionRunID = unlimitedRunID
         project.memorySignature = StoryMemory.signature(
             title: title,
@@ -1400,6 +1403,7 @@ final class PipelineOrchestrator: ObservableObject {
                 let response = try await generate(
                     prompt: PromptFactory.kdpMetadata(
                         title: project.title, author: project.authorName,
+                        authorBio: project.authorBio,
                         genre: project.genre, audience: profile.targetAudience,
                         synopsis: profile.synopsis ?? profile.premise,
                         language: project.language

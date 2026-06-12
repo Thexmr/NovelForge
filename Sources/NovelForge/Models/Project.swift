@@ -18,7 +18,7 @@ final class Project {
     var updatedAt: Date
 
     // Provider-Einstellungen des Projekts (für autonome Produktion & Fortsetzen)
-    var preferredProviderRaw: String = "OpenAI"
+    var preferredProviderRaw: String = "Ollama Cloud"
     var preferredModel: String = ""
     var costLimitUSD: Double = 0
 
@@ -27,6 +27,7 @@ final class Project {
 
     // KDP-/Auto-Produktion
     var imprint: String = ""
+    var authorBio: String = ""
     var memorySignature: String = ""
     var autoProductionRunID: String = ""
 

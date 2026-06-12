@@ -21,6 +21,8 @@ struct NewBookWizardView: View {
     @State private var language = "Deutsch"
     @State private var genre = ""
     @State private var subgenre = ""
+    @State private var imprint = ""
+    @State private var authorBio = ""
 
     // Schritt 2: Stil
     @State private var styleProfile = ""
@@ -164,6 +166,28 @@ struct NewBookWizardView: View {
             Section("Basisdaten") {
                 TextField("Titel", text: $title)
                 TextField("Autorname oder Pseudonym", text: $authorName)
+                TextEditor(text: $authorBio)
+                    .frame(minHeight: 70)
+                    .overlay(alignment: .topLeading) {
+                        if authorBio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text("Über den Autor (kurze Bio für Buch und KDP-Metadaten)")
+                                .foregroundStyle(.tertiary)
+                                .padding(.top, 8)
+                                .padding(.leading, 5)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                TextEditor(text: $imprint)
+                    .frame(minHeight: 70)
+                    .overlay(alignment: .topLeading) {
+                        if imprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text("Impressum / Copyright-Hinweis für KDP")
+                                .foregroundStyle(.tertiary)
+                                .padding(.top, 8)
+                                .padding(.leading, 5)
+                                .allowsHitTesting(false)
+                        }
+                    }
 
                 Picker("Sprache", selection: $language) {
                     ForEach(languages, id: \.self) { Text($0).tag($0) }
@@ -386,6 +410,12 @@ struct NewBookWizardView: View {
             Section("Zusammenfassung") {
                 ReviewRow(label: "Titel", value: title)
                 ReviewRow(label: "Autor", value: authorName)
+                if !authorBio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    ReviewRow(label: "Autorprofil", value: authorBio.truncated(to: 120))
+                }
+                if !imprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    ReviewRow(label: "Impressum", value: imprint.truncated(to: 120))
+                }
                 ReviewRow(label: "Genre", value: subgenre.isEmpty ? genre : "\(genre) / \(subgenre)")
                 ReviewRow(label: "Sprache", value: language)
                 ReviewRow(label: "Stil", value: "\(styleProfile)\(tonality.isEmpty ? "" : ", \(tonality)")")
@@ -479,6 +509,8 @@ struct NewBookWizardView: View {
         project.preferredProviderRaw = selectedProvider.rawValue
         project.preferredModel = effectiveModel
         project.costLimitUSD = costLimit
+        project.imprint = imprint.trimmingCharacters(in: .whitespacesAndNewlines)
+        project.authorBio = authorBio.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let bookProfile = BookProfile(
             premise: seedPremise,

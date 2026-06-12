@@ -337,14 +337,21 @@ enum PromptFactory {
         """
     }
 
-    static func kdpMetadata(title: String, author: String, genre: String,
+    static func kdpMetadata(title: String, author: String, authorBio: String = "", genre: String,
                             audience: String, synopsis: String, language: String) -> String {
+        let authorBlock = authorBio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? ""
+            : "\nAutorprofil für Tonalität/Markenstimme:\n\(authorBio.truncated(to: 800))\n"
         """
         Erstelle Amazon-KDP-Metadaten für das Buch "\(title)" von \(author).
         Genre: \(genre) | Zielgruppe: \(audience) | Sprache: \(language)
+        \(authorBlock)
 
         Inhalt:
         \(synopsis.truncated(to: 3000))
+
+        Keine Hinweise auf KI, AI, künstliche Intelligenz, Automatisierung, Tools oder NovelForge
+        in Verkaufstext, Keywords oder Kategorien. Die Ausgabe muss wie professionelle Verlagsmetadaten wirken.
 
         Antworte exakt in diesem Format:
         VERKAUFSTEXT: [150-200 Wörter Amazon-Produktbeschreibung: packender Hook in der \

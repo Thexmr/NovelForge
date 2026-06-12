@@ -224,6 +224,7 @@ struct ProductionView: View {
             .frame(maxWidth: 760, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
+        .background(StudioBackground())
         .navigationTitle("Produktion")
         .sheet(isPresented: $showingNewBookSheet) {
             NewBookWizardView()
@@ -267,7 +268,7 @@ struct ProductionView: View {
             .buttonStyle(.bordered)
         }
         .padding(14)
-        .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+        .studioPanel(accent: StudioTheme.cyan)
         .confirmationDialog("Dauerproduktion stoppen?", isPresented: $confirmStopUnlimited) {
             Button("Stoppen", role: .destructive) {
                 orchestrator.stopUnlimitedProduction()
@@ -294,6 +295,7 @@ struct UnlimitedProductionSheet: View {
     @State private var costLimitPerBook = 20.0
     @State private var maxBooks = 0
     @State private var imprint = ""
+    @State private var authorBio = ""
     @State private var epubFormat = true
     @State private var pdfFormat = true
     @State private var docxFormat = false
@@ -335,6 +337,17 @@ struct UnlimitedProductionSheet: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     TextField("Autorname oder Pseudonym", text: $authorName)
+                    TextEditor(text: $authorBio)
+                        .frame(minHeight: 74)
+                        .overlay(alignment: .topLeading) {
+                            if authorBio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Text("Über den Autor (erscheint im Buch und prägt KDP-Metadaten)")
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.top, 8)
+                                    .padding(.leading, 5)
+                                    .allowsHitTesting(false)
+                            }
+                        }
                     TextEditor(text: $imprint)
                         .frame(minHeight: 74)
                         .overlay(alignment: .topLeading) {
@@ -485,7 +498,8 @@ struct UnlimitedProductionSheet: View {
             costLimitPerBook: costLimitPerBook,
             maxBooks: maxBooks,
             formats: selectedFormats,
-            imprint: imprint
+            imprint: imprint,
+            authorBio: authorBio
         )
         defaultAuthor = settings.authorName
 
@@ -519,7 +533,7 @@ struct ResumableProjectRow: View {
             .disabled(disabled)
         }
         .padding(14)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+        .studioPanel(cornerRadius: 12, accent: disabled ? .gray : StudioTheme.lime)
     }
 }
 
@@ -658,6 +672,6 @@ struct PipelineProgressView: View {
             }
         }
         .padding(20)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 14))
+        .studioPanel(accent: StudioTheme.cyan)
     }
 }

@@ -69,7 +69,8 @@ final class ExportEngineTests: XCTestCase {
         let report = ExportEngine.generateKDPReport(project: project)
         XCTAssertTrue(report.contains(project.title))
         XCTAssertTrue(report.contains("Trim-Größe"))
-        XCTAssertTrue(report.contains("KI-Offenlegung"))
+        XCTAssertFalse(report.localizedCaseInsensitiveContains("KI-Offenlegung"))
+        XCTAssertFalse(report.localizedCaseInsensitiveContains("KI-Unterstützung"))
     }
 
     func testKDPReportContainsImprintAndStoryMemorySignature() throws {

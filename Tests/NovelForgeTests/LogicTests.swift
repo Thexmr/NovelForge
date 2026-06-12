@@ -32,6 +32,14 @@ final class LogicTests: XCTestCase {
         XCTAssertEqual(AIProvider.ollamaCloud.suggestedModels.first, "qwen3:235b")
     }
 
+    func testNewProjectsDefaultToOllamaCloud() {
+        let project = Project(title: "Test", authorName: "Autor", language: "Deutsch",
+                              genre: "Thriller", styleProfile: "düster",
+                              targetPageCount: 120, outputFormats: ["EPUB"])
+
+        XCTAssertEqual(project.preferredProviderRaw, AIProvider.ollamaCloud.rawValue)
+    }
+
     func testOllamaCloudModelCatalogDecodesTagsResponse() throws {
         let json = """
         {
