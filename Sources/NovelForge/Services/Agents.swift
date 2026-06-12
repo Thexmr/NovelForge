@@ -27,7 +27,7 @@ enum PromptFactory {
     /// Drei kommerziell vielversprechende Buchideen für den Wizard.
     static func bookIdeas(genre: String, language: String, avoidanceBrief: String = "") -> String {
         let memoryBlock = avoidanceBrief.isEmpty ? "" : "\n\(avoidanceBrief)\n"
-        """
+        return """
         Entwickle 3 eigenständige, kommerziell vielversprechende Buchideen \
         (Genre-Schwerpunkt: \(genre.isEmpty ? "frei wählbar" : genre), Sprache: \(language)). \
         Jede Idee braucht einen frischen Dreh und einen klaren zentralen Konflikt – \
