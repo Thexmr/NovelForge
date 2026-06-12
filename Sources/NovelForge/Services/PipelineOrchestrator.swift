@@ -968,9 +968,13 @@ final class PipelineOrchestrator: ObservableObject {
 
     private func runChapterPlanning(project: Project, config: ProviderConfiguration) async throws {
         // Bereits geplant? (Fortsetzen) – verhindert auch doppelte Kapitel.
-        if !(project.chapters ?? []).isEmpty {
-            project.status = .chapterPlanning
-            return
+        let existingChapters = sortedChapters(project)
+        if !existingChapters.isEmpty {
+            if hasUsableExistingChapterPlan(existingChapters) {
+                project.status = .chapterPlanning
+                return
+            }
+            resetChapterPlan(for: project)
         }
         guard let bible = project.storyBible else {
             throw AIError.systemError("Story Bible fehlt")
@@ -1030,6 +1034,9 @@ final class PipelineOrchestrator: ObservableObject {
         let plan = LongFormProductionPlan(pageCount: project.targetPageCount)
 
         let chapters = sortedChapters(project)
+        for chapter in chapters where !hasUsableExistingScenePlan(chapter, expectedCount: plan.scenesPerChapter) {
+            resetScenePlan(for: chapter)
+        }
         let pending = chapters.filter { ($0.scenes ?? []).isEmpty } // Fortsetzen: nur ungeplante
         guard !pending.isEmpty else { return }
 
@@ -1720,6 +1727,47 @@ final class PipelineOrchestrator: ObservableObject {
             return false
         }
         return scene.status == .written || scene.status == .finalized || scene.status == .checking
+    }
+
+    private func hasUsableExistingChapterPlan(_ chapters: [Chapter]) -> Bool {
+        let planned = chapters.map {
+            PlannedChapter(number: $0.chapterNumber, title: $0.title,
+                           goal: $0.goal, conflict: $0.conflict)
+        }
+        return AutonomousContentQuality.hasUsableChapterPlan(planned)
+    }
+
+    private func hasUsableExistingScenePlan(_ chapter: Chapter, expectedCount: Int) -> Bool {
+        let planned = sortedScenes(chapter).map {
+            PlannedScene(number: $0.sceneNumber, perspective: $0.perspective,
+                         location: $0.location, time: $0.time,
+                         goal: $0.goal, obstacle: $0.obstacle, turn: $0.cliffhanger)
+        }
+        return AutonomousContentQuality.hasUsableScenePlan(planned, expectedCount: expectedCount)
+    }
+
+    private func resetChapterPlan(for project: Project) {
+        for chapter in project.chapters ?? [] {
+            modelContext?.delete(chapter)
+        }
+        project.chapters = []
+        project.updatedAt = Date()
+        try? modelContext?.save()
+    }
+
+    private func resetScenePlan(for chapter: Chapter) {
+        for scene in chapter.scenes ?? [] {
+            modelContext?.delete(scene)
+        }
+        chapter.scenes = []
+        chapter.draftText = nil
+        chapter.revisedText = nil
+        chapter.finalText = nil
+        chapter.summary = nil
+        chapter.actualWordCount = 0
+        chapter.status = .planned
+        chapter.updatedAt = Date()
+        try? modelContext?.save()
     }
 
     private func compactCharacterSummary(_ bible: StoryBible) -> String {
