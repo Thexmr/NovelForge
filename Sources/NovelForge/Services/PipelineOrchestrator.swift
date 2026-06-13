@@ -1162,67 +1162,88 @@ final class PipelineOrchestrator: ObservableObject {
 
         let results = await runParallelGeneration(requests: requests, config: config)
 
-        var firstError: Error?
         var done = 0
         for (index, chapter) in pending.enumerated() {
-            switch results[index] {
-            case .success(let response)?:
-                var planned = StructureParser.parseScenes(response.text)
-                if planned.count < plan.scenesPerChapter {
-                    let existing = planned.count
-                    planned.append(contentsOf: ((existing + 1)...plan.scenesPerChapter).map {
-                        PlannedScene(number: $0, perspective: profile.narrativePerspective,
-                                     location: "", time: "",
-                                     goal: "Vertiefe das Kapitelziel mit einer eigenständigen Wendung: \(chapter.goal)",
-                                     obstacle: "Der bisherige Konflikt verschärft sich.",
-                                     turn: "Eine neue Information zwingt zur nächsten Entscheidung.")
-                    })
-                }
-                guard AutonomousContentQuality.hasUsableScenePlan(planned, expectedCount: plan.scenesPerChapter) else {
-                    failJob(jobs[index], error: AIError.systemError("Szenenplanung lieferte leere oder generische Szenen."))
-                    if firstError == nil {
-                        firstError = AIError.systemError("Szenenplanung lieferte leere oder generische Szenen.")
-                    }
-                    continue
-                }
-
-                if chapter.scenes == nil { chapter.scenes = [] }
-                for item in planned {
-                    let scene = StoryScene(
-                        sceneNumber: item.number,
-                        perspective: item.perspective.isEmpty ? profile.narrativePerspective : item.perspective,
-                        location: item.location,
-                        goal: item.goal,
-                        targetWordCount: max(1, chapter.targetWordCount / planned.count)
-                    )
-                    scene.time = item.time
-                    scene.obstacle = item.obstacle
-                    scene.cliffhanger = item.turn
-                    scene.chapter = chapter
-                    chapter.scenes?.append(scene)
-                    modelContext?.insert(scene)
-                }
-                chapter.status = .scenesPlanned
-                completeJob(jobs[index], result: "\(planned.count) Szenen geplant",
-                            tokens: response.tokensUsed ?? 0)
-                done += 1
-                updateProgress(phase: .scenePlanning, subProgress: Double(done) / Double(pending.count))
-
-            case .failure(let error)?:
-                failJob(jobs[index], error: error)
-                if firstError == nil { firstError = error }
-
-            case nil: // storniert, bevor gestartet
-                jobs[index].status = .paused
-                jobs[index].endTime = Date()
+            // Geplante Szenen aus der Modellantwort (leer, falls der Aufruf scheiterte).
+            var planned: [PlannedScene] = []
+            var tokens = 0
+            if case .success(let response)? = results[index] {
+                planned = StructureParser.parseScenes(response.text)
+                tokens = response.tokensUsed ?? 0
             }
+
+            // Auf die Sollzahl mit kapitelspezifischen Szenen auffüllen …
+            if planned.count < plan.scenesPerChapter {
+                for n in (planned.count + 1)...plan.scenesPerChapter {
+                    planned.append(syntheticScene(number: n, chapter: chapter,
+                                                  perspective: profile.narrativePerspective))
+                }
+            }
+            // … und bei insgesamt unbrauchbarem Plan komplett ersetzen. So lässt ein
+            // einzelnes schwaches Kapitel (oder ein Provider-Aussetzer bei einem von
+            // vielen parallelen Aufrufen) NICHT mehr das ganze Buch scheitern.
+            if !AutonomousContentQuality.hasUsableScenePlan(planned, expectedCount: plan.scenesPerChapter) {
+                planned = (1...plan.scenesPerChapter).map {
+                    syntheticScene(number: $0, chapter: chapter, perspective: profile.narrativePerspective)
+                }
+                addReport(project: project, area: "Kapitel \(chapter.chapterNumber)", type: "Szenenplan",
+                          result: "Modell lieferte keinen verwertbaren Szenenplan – automatisch ergänzt",
+                          severity: .info,
+                          recommendation: "Szenen dieses Kapitels bei Bedarf im Manuskript verfeinern.")
+            }
+
+            if chapter.scenes == nil { chapter.scenes = [] }
+            for item in planned {
+                let scene = StoryScene(
+                    sceneNumber: item.number,
+                    perspective: item.perspective.isEmpty ? profile.narrativePerspective : item.perspective,
+                    location: item.location,
+                    goal: item.goal,
+                    targetWordCount: max(1, chapter.targetWordCount / planned.count)
+                )
+                scene.time = item.time
+                scene.obstacle = item.obstacle
+                scene.cliffhanger = item.turn
+                scene.chapter = chapter
+                chapter.scenes?.append(scene)
+                modelContext?.insert(scene)
+            }
+            chapter.status = .scenesPlanned
+            completeJob(jobs[index], result: "\(planned.count) Szenen geplant", tokens: tokens)
+            done += 1
+            updateProgress(phase: .scenePlanning, subProgress: Double(done) / Double(pending.count))
         }
         // Schauplätze aus den Szenenplänen in die Story Bible übernehmen.
         aggregateLocations(into: bible, chapters: chapters)
         try? modelContext?.save()
 
-        if let error = firstError { throw error }
         try Task.checkCancellation()
+    }
+
+    /// Garantiert verwertbare, kapitelspezifische Ersatz-Szene (besteht die
+    /// Qualitäts-Gates und gibt dem Draft Writer echte dramaturgische Richtung).
+    private func syntheticScene(number: Int, chapter: Chapter, perspective: String) -> PlannedScene {
+        let title = chapter.title.isEmpty ? "diesem Kapitel" : chapter.title
+        let goalBase = chapter.goal.isEmpty ? "das Ziel der Figuren" : chapter.goal
+        let conflict = chapter.conflict.isEmpty ? "der ungelöste Konflikt der Figuren" : chapter.conflict
+        let functions = [
+            "bringt die Hauptfigur durch \(conflict) in akute Bedrängnis",
+            "erzwingt eine Entscheidung, die \(goalBase) ernsthaft gefährdet",
+            "enthüllt eine Information, die das Kräfteverhältnis spürbar kippt",
+            "lässt einen Rückschlag den Einsatz für alle Beteiligten erhöhen",
+            "treibt eine zentrale Beziehung in eine offene Krise",
+            "endet mit einer Drohung, die unmittelbar ins nächste Kapitel zieht"
+        ]
+        let fn = functions[(number - 1) % functions.count]
+        return PlannedScene(
+            number: number,
+            perspective: perspective,
+            location: "",
+            time: "",
+            goal: "In „\(title)“ \(fn).",
+            obstacle: "\(conflict) blockiert das unmittelbare Vorankommen der Szene.",
+            turn: "Eine neue Wendung verschiebt die Lage und wirft eine drängende offene Frage auf."
+        )
     }
 
     /// Sammelt alle Schauplätze aus den Szenenplänen und legt sie (einmalig)

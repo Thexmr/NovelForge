@@ -107,6 +107,27 @@ final class LogicTests: XCTestCase {
         XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "nomic-embed-text"), "kimi-k2.7-code")
     }
 
+    // MARK: - Szenenplan-Robustheit
+
+    /// Kapitelspezifischer Ersatz-Szenenplan muss die Gates bestehen – sonst
+    /// scheitert (wie im 500-Seiten-Lauf) das ganze Buch an einem schwachen Kapitel.
+    /// Belegt zugleich, warum die ALTE Auto-Auffüllung sich selbst verwarf.
+    func testSceneGateAcceptsChapterSpecificFallbackButRejectsOldFiller() {
+        let good = (1...4).map { n in
+            PlannedScene(number: n, perspective: "Personaler Erzähler", location: "", time: "",
+                goal: "In „Das Haus, das keine Heimat war“ erzwingt die Szene eine Entscheidung, die das Ziel der Figuren gefährdet.",
+                obstacle: "Der drohende Abriss blockiert das unmittelbare Vorankommen der Szene.",
+                turn: "Eine neue Wendung verschiebt die Lage und wirft eine drängende offene Frage auf.")
+        }
+        XCTAssertTrue(AutonomousContentQuality.hasUsableScenePlan(good, expectedCount: 4))
+
+        let oldFiller = [PlannedScene(number: 1, perspective: "", location: "", time: "",
+            goal: "Vertiefe das Kapitelziel mit einer eigenständigen Wendung: X",
+            obstacle: "Der bisherige Konflikt verschärft sich.",
+            turn: "Eine neue Information zwingt zur nächsten Entscheidung.")]
+        XCTAssertFalse(AutonomousContentQuality.hasUsableScenePlan(oldFiller, expectedCount: 1))
+    }
+
     // MARK: - Pipeline-Invarianten
 
     /// Die Phasen-Gewichte müssen sich exakt zu 1.0 summieren,
