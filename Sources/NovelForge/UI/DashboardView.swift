@@ -121,15 +121,15 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 10) {
                 Text("NovelForge")
-                    .font(.system(.largeTitle, design: .rounded))
-                    .fontWeight(.bold)
+                    .font(.system(size: 38, weight: .bold, design: .rounded))
+                    .foregroundStyle(StudioTheme.heroGradient)
                 Text("AUTO STUDIO")
                     .font(.caption2)
                     .fontWeight(.semibold)
-                    .foregroundStyle(StudioTheme.cyan)
-                    .padding(.horizontal, 8)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 9)
                     .padding(.vertical, 4)
-                    .background(StudioTheme.cyan.opacity(0.12), in: Capsule())
+                    .background(StudioTheme.brandGradient, in: Capsule())
             }
             Text("Autonome Buchproduktion – Konzept, Manuskript, KDP-Export und Dauerbetrieb")
                 .font(.subheadline)
@@ -150,16 +150,16 @@ struct DashboardView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            VStack(alignment: .trailing, spacing: 4) {
+            VStack(alignment: .trailing, spacing: 6) {
                 Text("\(Int(orchestrator.progress * 100)) %")
                     .font(.headline)
                     .monospacedDigit()
-                ProgressView(value: orchestrator.progress)
+                StudioProgressBar(value: orchestrator.progress)
                     .frame(width: 140)
             }
         }
-        .padding(16)
-        .studioPanel(accent: StudioTheme.cyan)
+        .padding(18)
+        .studioFeaturedPanel()
     }
 
     private var statsSection: some View {
@@ -222,21 +222,22 @@ struct StatCard: View {
     let color: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Image(systemName: icon)
-                .font(.title3)
-                .foregroundStyle(color)
-            Text(value)
-                .font(.system(.title2, design: .rounded))
-                .fontWeight(.bold)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 32, height: 32)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(StudioTheme.accentGradient(color))
+                )
+            StudioStatNumber(value: value, gradient: StudioTheme.accentGradient(color))
             Text(title)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .padding(16)
         .studioPanel(accent: color)
     }
 }
@@ -258,8 +259,7 @@ struct ProjectCard: View {
                 StatusBadge(status: project.status)
             }
 
-            ProgressView(value: project.status.progressFraction)
-                .progressViewStyle(.linear)
+            StudioProgressBar(value: project.status.progressFraction, height: 7)
 
             HStack {
                 Text("\(FormattingHelpers.formatWordCount(project.totalWordCount)) von ca. \(FormattingHelpers.formatWordCount(project.targetWordCount)) Wörtern")

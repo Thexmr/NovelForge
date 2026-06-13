@@ -88,8 +88,12 @@ final class LogicTests: XCTestCase {
         XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "kimi-k2.6"), "kimi-k2.6")
         XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "kimi-k2.5:cloud"), "kimi-k2.5:cloud")
         XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "deepseek-v4-pro"), "deepseek-v4-pro")
+        // Reale, performante Modelle bleiben erhalten (gegen ollama.com verifiziert).
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "qwen3.5:397b"), "qwen3.5:397b")
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "mistral-large-3:675b"), "mistral-large-3:675b")
         // Ungeeignete bzw. leere Eingaben fallen auf den Default zurück.
         XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "qwen3-vl:235b"), "kimi-k2.6")
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "gpt-oss:120b"), "kimi-k2.6")
         XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: ""), "kimi-k2.6")
         XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "nomic-embed-text"), "kimi-k2.6")
     }

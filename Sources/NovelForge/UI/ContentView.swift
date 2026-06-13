@@ -86,10 +86,8 @@ struct ContentView: View {
                     showingNewBookSheet = true
                 } label: {
                     Label("Neues Buch", systemImage: "plus.circle.fill")
-                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .buttonStyle(StudioPrimaryButtonStyle())
                 .keyboardShortcut("n", modifiers: .command)
                 .padding(12)
             }
@@ -235,45 +233,56 @@ struct ProductionView: View {
     }
 
     private var unlimitedBanner: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "infinity.circle.fill")
-                .font(.title2)
-                .foregroundStyle(.tint)
-                .symbolEffect(.pulse)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Dauerproduktion aktiv – läuft bis Stopp")
-                    .font(.headline)
-                Text("\(orchestrator.unlimitedBooksCompleted) Bücher fertig · \(orchestrator.activeUnlimitedBooks)/\(orchestrator.parallelUnlimitedBooks) parallel aktiv")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                if let title = orchestrator.currentProject?.title, orchestrator.parallelUnlimitedBooks == 1 {
-                    Text("Aktuell: \(title)")
-                        .font(.caption2)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                Image(systemName: "infinity.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(StudioTheme.heroGradient)
+                    .symbolEffect(.pulse)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Dauerproduktion aktiv – läuft bis Stopp")
+                        .font(.headline)
+                    Text("\(orchestrator.unlimitedBooksCompleted) Bücher fertig · \(orchestrator.activeUnlimitedBooks)/\(orchestrator.parallelUnlimitedBooks) parallel aktiv")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
+                    if let title = orchestrator.currentProject?.title, orchestrator.parallelUnlimitedBooks == 1 {
+                        Text("Aktuell: \(title)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    if !orchestrator.currentBookElapsed.isEmpty {
+                        Text("Aktueller Durchlauf: \(orchestrator.currentBookElapsed)"
+                             + (orchestrator.currentBookEstimatedTotal.isEmpty ? "" : " · gesamt ca. \(orchestrator.currentBookEstimatedTotal)"))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    if !orchestrator.lastBookDuration.isEmpty {
+                        Text("Letzter Durchlauf: \(orchestrator.lastBookDuration)"
+                             + (orchestrator.averageBookDuration.isEmpty ? "" : " · Ø/Buch: \(orchestrator.averageBookDuration)"))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                if !orchestrator.currentBookElapsed.isEmpty {
-                    Text("Aktueller Durchlauf: \(orchestrator.currentBookElapsed)"
-                         + (orchestrator.currentBookEstimatedTotal.isEmpty ? "" : " · gesamt ca. \(orchestrator.currentBookEstimatedTotal)"))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                Spacer()
+                Button(role: .destructive) {
+                    confirmStopUnlimited = true
+                } label: {
+                    Label("Stoppen", systemImage: "stop.fill")
                 }
-                if !orchestrator.lastBookDuration.isEmpty {
-                    Text("Letzter Durchlauf: \(orchestrator.lastBookDuration)"
-                         + (orchestrator.averageBookDuration.isEmpty ? "" : " · Ø/Buch: \(orchestrator.averageBookDuration)"))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                .buttonStyle(.bordered)
+            }
+
+            if orchestrator.parallelUnlimitedBooks > 1 && !orchestrator.workerStatuses.isEmpty {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 10)],
+                          alignment: .leading, spacing: 10) {
+                    ForEach(orchestrator.workerStatuses) { worker in
+                        WorkerStatusChip(worker: worker)
+                    }
                 }
             }
-            Spacer()
-            Button(role: .destructive) {
-                confirmStopUnlimited = true
-            } label: {
-                Label("Stoppen", systemImage: "stop.fill")
-            }
-            .buttonStyle(.bordered)
         }
-        .padding(14)
-        .studioPanel(accent: StudioTheme.cyan)
+        .padding(16)
+        .studioFeaturedPanel()
         .confirmationDialog("Dauerproduktion stoppen?", isPresented: $confirmStopUnlimited) {
             Button("Stoppen", role: .destructive) {
                 orchestrator.stopUnlimitedProduction()
@@ -547,6 +556,45 @@ struct ResumableProjectRow: View {
         }
         .padding(14)
         .studioPanel(cornerRadius: 12, accent: disabled ? .gray : StudioTheme.lime)
+    }
+}
+
+/// Kompakte Live-Kachel eines parallelen Buch-Workers (Titel, Phase, Fortschritt).
+struct WorkerStatusChip: View {
+    let worker: PipelineOrchestrator.UnlimitedWorkerStatus
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "book.pages")
+                    .font(.caption2)
+                    .foregroundStyle(StudioTheme.cyan)
+                Text(worker.title)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Text("\(Int(worker.progress * 100)) %")
+                    .font(.caption2)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            StudioProgressBar(value: worker.progress, height: 5)
+            Text(worker.phase.rawValue + (worker.totalScenes > 0 ? " · \(worker.completedScenes)/\(worker.totalScenes) Szenen" : ""))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.05))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.08))
+                }
+        )
     }
 }
 
