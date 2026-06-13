@@ -16,7 +16,22 @@ struct ManuscriptView: View {
     }
 
     private var sortedChapters: [Chapter] {
-        (appState.selectedProject?.chapters ?? []).sorted { $0.chapterNumber < $1.chapterNumber }
+        // modelContext == nil ⇒ Objekt wurde gelöscht (z.B. resetChapterPlan während
+        // einer laufenden Produktion). Zugriff darauf würde den Prozess beenden.
+        guard let project = appState.selectedProject, project.modelContext != nil else { return [] }
+        return (project.chapters ?? []).sorted { $0.chapterNumber < $1.chapterNumber }
+    }
+
+    /// Liefert das gewählte Kapitel nur, solange es noch im Datenspeicher existiert.
+    /// Verhindert „use-of-deleted-object"-Crashes, wenn die Pipeline Kapitel neu plant.
+    private var liveSelectedChapter: Chapter? {
+        guard let chapter = selectedChapter, chapter.modelContext != nil else { return nil }
+        return chapter
+    }
+
+    private var liveSelectedProject: Project? {
+        guard let project = appState.selectedProject, project.modelContext != nil else { return nil }
+        return project
     }
 
     var body: some View {
@@ -39,7 +54,7 @@ struct ManuscriptView: View {
 
             // Kapitel
             Group {
-                if appState.selectedProject != nil {
+                if liveSelectedProject != nil {
                     if sortedChapters.isEmpty {
                         ContentUnavailableView("Noch keine Kapitel", systemImage: "doc.text",
                                                description: Text("Kapitel entstehen während der Produktion."))
@@ -86,9 +101,9 @@ struct ManuscriptView: View {
 
             // Inhalt
             Group {
-                if readingWholeBook, let project = appState.selectedProject {
+                if readingWholeBook, let project = liveSelectedProject {
                     BookReaderView(project: project)
-                } else if let chapter = selectedChapter {
+                } else if let chapter = liveSelectedChapter {
                     ChapterDetailView(chapter: chapter, viewMode: $viewMode)
                         .id(chapter.id) // erzwingt frischen Editor-Zustand beim Kapitelwechsel
                 } else {
