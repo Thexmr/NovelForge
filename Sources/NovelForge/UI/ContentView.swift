@@ -589,10 +589,10 @@ struct WorkerStatusChip: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.black.opacity(0.025))
+                .fill(.ultraThinMaterial)
                 .overlay {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(StudioTheme.hairline)
+                        .strokeBorder(Color.white.opacity(0.35), lineWidth: 1)
                 }
         )
     }
