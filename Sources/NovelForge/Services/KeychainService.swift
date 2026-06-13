@@ -98,6 +98,17 @@ enum KeychainService {
     static func hasCachedAPIKey(for provider: AIProvider) -> Bool {
         cachedAPIKeys[provider]?.isEmpty == false
     }
+
+    /// Prompt-freier Check, ob ein Key hinterlegt ist (Cache oder App-Einstellungen,
+    /// nie Keychain). Für den Render-Pfad geeignet – löst keinen Dialog aus.
+    static func hasStoredAPIKey(for provider: AIProvider) -> Bool {
+        if hasCachedAPIKey(for: provider) { return true }
+        if let stored = UserDefaults.standard.string(forKey: defaultsKey(for: provider)),
+           let value = decode(stored), !value.isEmpty {
+            return true
+        }
+        return false
+    }
     
     static func deleteAPIKey(for provider: AIProvider) {
         let key = "api_key_\(provider.rawValue)"

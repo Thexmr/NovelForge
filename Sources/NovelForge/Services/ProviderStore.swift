@@ -64,7 +64,7 @@ final class ProviderSettingsStore: ObservableObject {
     }
 
     func hasAPIKey(for provider: AIProvider) -> Bool {
-        if KeychainService.hasCachedAPIKey(for: provider) { return true }
+        if KeychainService.hasStoredAPIKey(for: provider) { return true }
         return configurations.first(where: { $0.provider == provider })?.apiKey?.isEmpty == false
     }
 
