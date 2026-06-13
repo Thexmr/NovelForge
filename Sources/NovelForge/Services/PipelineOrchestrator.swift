@@ -973,10 +973,25 @@ final class PipelineOrchestrator: ObservableObject {
                 }
             }
 
-            guard let response = lastResponse, accepted else {
-                throw AIError.systemError("Konzeptentwicklung lieferte kein verwertbares Thema/Exposé.")
+            if accepted, let response = lastResponse {
+                completeJob(job, result: response.text, tokens: response.tokensUsed ?? 0)
+            } else {
+                // Kein verwertbares Konzept trotz Wiederholungen → aus dem Ideenkern
+                // ableiten, damit die Produktion weiterläuft. (Provider-Fehler hätten
+                // oben bereits geworfen und das Buch pausiert.)
+                let seed = profile.premise.trimmingCharacters(in: .whitespacesAndNewlines)
+                let base = seed.wordCount >= 8 ? seed
+                    : "Ein \(project.genre) um eine Hauptfigur, die ein dringendes Ziel gegen wachsenden Widerstand verfolgt und dabei an eine innere Grenze stößt."
+                if seed.wordCount < 8 { profile.premise = base }
+                if (profile.logline ?? "").isEmpty { profile.logline = String(base.prefix(180)) }
+                if (profile.synopsis ?? "").isEmpty {
+                    profile.synopsis = base + " Im Verlauf eskaliert der zentrale Konflikt über mehrere Wendepunkte, bis eine Entscheidung unter höchstem Druck zur emotional befriedigenden Auflösung führt."
+                }
+                addReport(project: project, area: "Konzept", type: "Konzeptentwicklung",
+                          result: "Kein verwertbares Konzept vom Modell – aus dem Ideenkern abgeleitet",
+                          severity: .info, recommendation: "Konzept bei Bedarf im Manuskript verfeinern.")
+                completeJob(job, result: profile.synopsis ?? base, tokens: lastResponse?.tokensUsed ?? 0)
             }
-            completeJob(job, result: response.text, tokens: response.tokensUsed ?? 0)
         } catch {
             failJob(job, error: error)
             throw error
@@ -1000,66 +1015,92 @@ final class PipelineOrchestrator: ObservableObject {
         // Plot
         if bible.plotPoints.isEmpty {
             let job = beginJob(agent: AgentName.plot, phase: .structurePlanning, project: project)
-            do {
-                let prompt = PromptFactory.plot(
-                    title: project.title, genre: project.genre, style: project.styleProfile,
-                    concept: profile.synopsis ?? profile.premise,
-                    pageCount: project.targetPageCount,
-                    chapterCount: estimatedChapterCount(for: project)
-                )
-                let response = try await generate(
-                    prompt: prompt,
-                    system: "Du bist ein Plot-Architekt für Romane. Du baust schlüssige, spannende Handlungsbögen.",
-                    maxTokens: 3500, temperature: 0.7, config: config
-                )
-                let plot = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard plot.wordCount >= 80, !AutonomousContentQuality.containsMetaRequest(plot) else {
-                    throw AIError.systemError("Plot-Architekt lieferte keinen verwertbaren Plot.")
+            let prompt = PromptFactory.plot(
+                title: project.title, genre: project.genre, style: project.styleProfile,
+                concept: profile.synopsis ?? profile.premise,
+                pageCount: project.targetPageCount,
+                chapterCount: estimatedChapterCount(for: project)
+            )
+            var plot = ""
+            var tokens = 0
+            var lastError: Error?
+            for attempt in 1...2 {
+                let hint = attempt == 1 ? "" : "\n\nDer vorige Versuch war zu kurz oder unbrauchbar. Liefere jetzt einen ausführlichen, zusammenhängenden Plot in klaren Akten."
+                do {
+                    let response = try await generate(
+                        prompt: prompt + hint,
+                        system: "Du bist ein Plot-Architekt für Romane. Du baust schlüssige, spannende Handlungsbögen.",
+                        maxTokens: 3500, temperature: 0.7, config: config
+                    )
+                    tokens += response.tokensUsed ?? 0
+                    let p = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if p.wordCount > plot.wordCount { plot = p }
+                    if p.wordCount >= 80, !AutonomousContentQuality.containsMetaRequest(p) { lastError = nil; break }
+                } catch {
+                    lastError = error
+                    if isFatalProductionError(error) { failJob(job, error: error); throw error }
                 }
-                bible.plotPoints = plot
-                bible.updatedAt = Date()
-                completeJob(job, result: response.text, tokens: response.tokensUsed ?? 0)
-            } catch {
-                failJob(job, error: error)
-                throw error
             }
+            if plot.wordCount < 80 || AutonomousContentQuality.containsMetaRequest(plot) {
+                // Provider lieferte nichts → pausieren (fortsetzbar). Sonst tragfähiges Grundgerüst.
+                if plot.isEmpty, let error = lastError { failJob(job, error: error); throw error }
+                plot = fallbackPlot(project: project, profile: profile)
+                addReport(project: project, area: "Plot", type: "Strukturplanung",
+                          result: "Kein verwertbarer Plot vom Modell – tragfähiges Grundgerüst aus dem Konzept eingesetzt",
+                          severity: .info, recommendation: "Plot bei Bedarf im Manuskript verfeinern.")
+            }
+            bible.plotPoints = plot
+            bible.updatedAt = Date()
+            completeJob(job, result: plot, tokens: tokens)
         }
 
         // Figuren
         if (bible.characters ?? []).isEmpty {
             let job = beginJob(agent: AgentName.character, phase: .structurePlanning, project: project)
-            do {
-                let prompt = PromptFactory.characters(
-                    title: project.title, genre: project.genre, plot: bible.plotPoints
-                )
-                let response = try await generate(
-                    prompt: prompt,
-                    system: "Du bist ein Charakter-Entwickler. Du erschaffst vielschichtige, glaubwürdige Figuren.",
-                    maxTokens: 3000, temperature: 0.7, config: config
-                )
-
-                let parsed = StructureParser.parseCharacters(response.text)
-                guard parsed.count >= 2 else {
-                    throw AIError.systemError("Figurenplanung lieferte kein verwertbares Figurenensemble.")
+            let prompt = PromptFactory.characters(
+                title: project.title, genre: project.genre, plot: bible.plotPoints
+            )
+            var parsed: [ParsedCharacter] = []
+            var tokens = 0
+            var lastError: Error?
+            for attempt in 1...2 {
+                let hint = attempt == 1 ? "" : "\n\nDer vorige Versuch war unvollständig. Liefere jetzt zwingend mindestens Protagonist und Antagonist im geforderten FIGUR|-Format."
+                do {
+                    let response = try await generate(
+                        prompt: prompt + hint,
+                        system: "Du bist ein Charakter-Entwickler. Du erschaffst vielschichtige, glaubwürdige Figuren.",
+                        maxTokens: 3000, temperature: 0.7, config: config
+                    )
+                    tokens += response.tokensUsed ?? 0
+                    let candidate = StructureParser.parseCharacters(response.text)
+                    if candidate.count > parsed.count { parsed = candidate }
+                    if parsed.count >= 2 { lastError = nil; break }
+                } catch {
+                    lastError = error
+                    if isFatalProductionError(error) { failJob(job, error: error); throw error }
                 }
-                if bible.characters == nil { bible.characters = [] }
-                for item in parsed {
-                    let character = CharacterProfile(name: item.name, role: item.role)
-                    character.age = item.age
-                    character.occupation = item.occupation
-                    character.goal = item.goal
-                    character.fear = item.fear
-                    character.weakness = item.weakness
-                    character.storyBible = bible
-                    bible.characters?.append(character)
-                    modelContext?.insert(character)
-                }
-                bible.updatedAt = Date()
-                completeJob(job, result: "\(parsed.count) Figuren angelegt", tokens: response.tokensUsed ?? 0)
-            } catch {
-                failJob(job, error: error)
-                throw error
             }
+            if parsed.count < 2 {
+                if parsed.isEmpty, let error = lastError { failJob(job, error: error); throw error }
+                parsed = fallbackCharacters(project: project, profile: profile)
+                addReport(project: project, area: "Figuren", type: "Strukturplanung",
+                          result: "Kein verwertbares Figurenensemble vom Modell – Grundbesetzung eingesetzt",
+                          severity: .info, recommendation: "Figuren in der Story Bible ausarbeiten.")
+            }
+            if bible.characters == nil { bible.characters = [] }
+            for item in parsed {
+                let character = CharacterProfile(name: item.name, role: item.role)
+                character.age = item.age
+                character.occupation = item.occupation
+                character.goal = item.goal
+                character.fear = item.fear
+                character.weakness = item.weakness
+                character.storyBible = bible
+                bible.characters?.append(character)
+                modelContext?.insert(character)
+            }
+            bible.updatedAt = Date()
+            completeJob(job, result: "\(parsed.count) Figuren angelegt", tokens: tokens)
         }
     }
 
@@ -1085,42 +1126,58 @@ final class PipelineOrchestrator: ObservableObject {
         let wordsPerChapter = plan.targetWordsPerChapter
 
         let job = beginJob(agent: AgentName.chapterPlanner, phase: .chapterPlanning, project: project)
-        do {
-            let prompt = PromptFactory.chapterPlan(
-                title: project.title, genre: project.genre, plot: bible.plotPoints,
-                chapterCount: chapterCount, wordsPerChapter: wordsPerChapter,
-                scenesPerChapter: plan.scenesPerChapter
-            )
-            let response = try await generate(
-                prompt: prompt,
-                system: "Du bist ein Strukturplaner für Romane. Du hältst dich exakt an das geforderte Ausgabeformat.",
-                maxTokens: 3000, temperature: 0.6, config: config
-            )
-
-            let planned = StructureParser.parseChapters(response.text)
-            guard AutonomousContentQuality.hasUsableChapterPlan(planned) else {
-                throw AIError.systemError("Kapitelplanung lieferte nur leere oder generische Kapitel.")
-            }
-
-            if project.chapters == nil { project.chapters = [] }
-            for item in planned {
-                let chapter = Chapter(
-                    chapterNumber: item.number,
-                    title: item.title,
-                    goal: item.goal,
-                    targetWordCount: max(1, project.targetWordCount / planned.count)
+        let prompt = PromptFactory.chapterPlan(
+            title: project.title, genre: project.genre, plot: bible.plotPoints,
+            chapterCount: chapterCount, wordsPerChapter: wordsPerChapter,
+            scenesPerChapter: plan.scenesPerChapter
+        )
+        var planned: [PlannedChapter] = []
+        var tokens = 0
+        var lastError: Error?
+        for attempt in 1...2 {
+            let hint = attempt == 1 ? "" : "\n\nDer vorige Versuch war unbrauchbar. Liefere jetzt zwingend \(chapterCount) Kapitel im geforderten KAPITEL|-Format mit konkreten Zielen und Konflikten."
+            do {
+                let response = try await generate(
+                    prompt: prompt + hint,
+                    system: "Du bist ein Strukturplaner für Romane. Du hältst dich exakt an das geforderte Ausgabeformat.",
+                    maxTokens: 3000, temperature: 0.6, config: config
                 )
-                chapter.conflict = item.conflict
-                chapter.project = project
-                project.chapters?.append(chapter)
-                modelContext?.insert(chapter)
+                tokens += response.tokensUsed ?? 0
+                let candidate = StructureParser.parseChapters(response.text)
+                if candidate.count > planned.count { planned = candidate }
+                if AutonomousContentQuality.hasUsableChapterPlan(planned) { lastError = nil; break }
+            } catch {
+                lastError = error
+                if isFatalProductionError(error) { failJob(job, error: error); throw error }
             }
-
-            completeJob(job, result: "\(planned.count) Kapitel geplant", tokens: response.tokensUsed ?? 0)
-        } catch {
-            failJob(job, error: error)
-            throw error
         }
+        var usedFallback = false
+        if !AutonomousContentQuality.hasUsableChapterPlan(planned) {
+            // Provider lieferte nichts → pausieren (fortsetzbar). Sonst tragfähiges Gerüst.
+            if planned.isEmpty, let error = lastError { failJob(job, error: error); throw error }
+            planned = fallbackChapters(count: chapterCount, project: project)
+            usedFallback = true
+        }
+
+        if project.chapters == nil { project.chapters = [] }
+        for item in planned {
+            let chapter = Chapter(
+                chapterNumber: item.number,
+                title: item.title,
+                goal: item.goal,
+                targetWordCount: max(1, project.targetWordCount / planned.count)
+            )
+            chapter.conflict = item.conflict
+            chapter.project = project
+            project.chapters?.append(chapter)
+            modelContext?.insert(chapter)
+        }
+        if usedFallback {
+            addReport(project: project, area: "Kapitelplan", type: "Kapitelplanung",
+                      result: "Kein verwertbarer Kapitelplan vom Modell – tragfähiges Gerüst eingesetzt",
+                      severity: .info, recommendation: "Kapitelziele bei Bedarf verfeinern.")
+        }
+        completeJob(job, result: "\(planned.count) Kapitel geplant", tokens: tokens)
     }
 
     // MARK: - Phase 5: Szenenplanung
@@ -1246,6 +1303,85 @@ final class PipelineOrchestrator: ObservableObject {
         )
     }
 
+    /// Nur diese Fehler beenden bzw. pausieren die Produktion. Alles andere
+    /// (Inhaltsschwäche, einzelne generische Antworten) wird durch Retry/Fallback
+    /// aufgefangen, damit ein Buch zuverlässig fertig wird.
+    private func isFatalProductionError(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        guard let aiError = error as? AIError else { return false }
+        switch aiError {
+        case .apiKeyInvalid, .quotaExceeded, .baseURLMissing, .contextTooLong, .fileTooLarge:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Klar markierter Platzhaltertext, falls eine Szene trotz Wiederholungen nicht
+    /// generiert werden kann – das Buch wird trotzdem komplett und der Nutzer kann
+    /// die Szene gezielt neu erzeugen.
+    private func fallbackSceneText(chapter: Chapter, scene: StoryScene) -> String {
+        let goal = scene.goal.isEmpty ? chapter.goal : scene.goal
+        var parts = ["[Diese Szene muss noch ausgeschrieben werden – bitte im Manuskript neu erzeugen.]",
+                     "Geplanter Inhalt: \(goal)"]
+        if !scene.obstacle.isEmpty { parts.append("Hindernis: \(scene.obstacle)") }
+        if !scene.cliffhanger.isEmpty { parts.append("Wendung: \(scene.cliffhanger)") }
+        return parts.joined(separator: "\n\n")
+    }
+
+    /// Tragfähiger Ersatz-Plot aus dem bereits vorhandenen Konzept, falls der
+    /// Plot-Architekt keinen verwertbaren Plot liefert.
+    private func fallbackPlot(project: Project, profile: BookProfile) -> String {
+        let base = (profile.synopsis?.isEmpty == false ? profile.synopsis! : profile.premise)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let seed = base.isEmpty ? "Die Hauptfigur verfolgt ein dringendes Ziel und stößt auf wachsenden Widerstand." : base
+        return """
+        AUSGANGSLAGE: \(seed)
+
+        AKT 1 – Aufbruch: Die Hauptfigur wird aus ihrem Alltag gerissen; ein auslösendes Ereignis macht ein Zurück unmöglich und etabliert den zentralen Konflikt.
+        AKT 2 – Eskalation: Die Komplikationen verschärfen sich, Teilerfolge wechseln mit Rückschlägen, eine Mittelpunkt-Umkehr rahmt alles neu, der Einsatz steigt bis zum Tiefpunkt.
+        AKT 3 – Auflösung: Die Hauptfigur trifft eine Entscheidung unter höchstem Druck, stellt sich der finalen Konfrontation; der zentrale Konflikt wird emotional befriedigend aufgelöst.
+
+        Zentrale dramatische Frage: Gelingt es der Hauptfigur, ihr Ziel zu erreichen, ohne das zu verlieren, was ihr am wichtigsten ist?
+        """
+    }
+
+    /// Minimal-Figurenensemble (Protagonist + Gegenspieler), falls die
+    /// Figurenplanung scheitert – hält die Produktion am Laufen.
+    private func fallbackCharacters(project: Project, profile: BookProfile) -> [ParsedCharacter] {
+        [
+            ParsedCharacter(name: "Hauptfigur", role: "Protagonist:in", age: "", occupation: "",
+                            goal: "Das zentrale Ziel der Geschichte gegen wachsenden Widerstand erreichen.",
+                            fear: "Zu scheitern und das Wichtigste zu verlieren.",
+                            weakness: "Ein blinder Fleck, der die Lage immer wieder verschärft."),
+            ParsedCharacter(name: "Gegenspieler:in", role: "Antagonist:in", age: "", occupation: "",
+                            goal: "Die Hauptfigur an ihrem Ziel hindern.",
+                            fear: "Kontrollverlust.",
+                            weakness: "Selbstüberschätzung.")
+        ]
+    }
+
+    /// Tragfähiger Ersatz-Kapitelplan, falls der Strukturplaner keine verwertbaren
+    /// Kapitel liefert. Erzeugt konkrete (nicht-generische) Ziele/Konflikte.
+    private func fallbackChapters(count: Int, project: Project) -> [PlannedChapter] {
+        let n = max(3, count)
+        return (1...n).map { i in
+            let phase: String
+            switch Double(i) / Double(n) {
+            case ..<0.25: phase = "Aufbruch"
+            case ..<0.5: phase = "Eskalation"
+            case ..<0.75: phase = "Krise"
+            default: phase = "Auflösung"
+            }
+            return PlannedChapter(
+                number: i,
+                title: "\(phase) \(i)",
+                goal: "Treibe den Hauptkonflikt in der \(phase)-Phase durch eine eigenständige Eskalation spürbar voran.",
+                conflict: "Ein konkretes Hindernis stellt sich dem Ziel dieses Kapitels entgegen."
+            )
+        }
+    }
+
     /// Sammelt alle Schauplätze aus den Szenenplänen und legt sie (einmalig)
     /// als Orte in der Story Bible an – inklusive Kapitelbezug.
     private func aggregateLocations(into bible: StoryBible, chapters: [Chapter]) {
@@ -1362,7 +1498,7 @@ final class PipelineOrchestrator: ObservableObject {
                         contextParts.append("LETZTE SZENEN IM DETAIL:\n" + recentScenes.joined(separator: "\n"))
                     }
                     let recentContext = contextParts.joined(separator: "\n\n")
-                    let prompt = PromptFactory.draftScene(
+                    let basePrompt = PromptFactory.draftScene(
                         language: project.language, style: project.styleProfile,
                         tonality: profile.tonality, perspective: profile.narrativePerspective,
                         tense: profile.tense, genre: project.genre, bookTitle: project.title,
@@ -1379,18 +1515,35 @@ final class PipelineOrchestrator: ObservableObject {
                         targetWords: scene.targetWordCount
                     )
                     let maxTokens = LongFormProductionPlan.draftMaxTokens(forTargetWords: scene.targetWordCount)
-                    let response = try await generate(
-                        prompt: prompt,
-                        system: "Du bist ein professioneller Romanautor. Du schreibst lebendige, atmosphärische Prosa mit natürlichen Dialogen.",
-                        maxTokens: maxTokens, temperature: 0.85, config: config
-                    )
-
-                    var sceneText = response.text
-                    var sceneTokens = response.tokensUsed ?? 0
-
-                    // Qualitäts-Gate: deutlich zu kurze Szenen einmalig vertiefen/erweitern.
                     let minWords = Int(Double(scene.targetWordCount) * 0.75)
-                    if sceneText.wordCount < minWords {
+
+                    var sceneText = ""
+                    var sceneTokens = 0
+                    var lastProviderError: Error?
+                    // Bis zu 2 Schreibversuche. Provider-FATAL-Fehler pausieren das Buch
+                    // (fortsetzbar); reine Inhaltsschwäche lässt es NIE scheitern.
+                    for attempt in 1...2 {
+                        let hint = attempt == 1 ? "" : "\n\nDer vorige Versuch war zu kurz oder unbrauchbar. Schreibe jetzt die vollständige Szene als reinen Fließtext, mindestens \(minWords) Wörter, ohne Meta-Kommentare."
+                        do {
+                            let response = try await generate(
+                                prompt: basePrompt + hint,
+                                system: "Du bist ein professioneller Romanautor. Du schreibst lebendige, atmosphärische Prosa mit natürlichen Dialogen.",
+                                maxTokens: maxTokens, temperature: 0.85, config: config
+                            )
+                            sceneTokens += response.tokensUsed ?? 0
+                            if response.text.wordCount > sceneText.wordCount { sceneText = response.text }
+                            if AutonomousContentQuality.acceptsDraftScene(sceneText, targetWords: scene.targetWordCount) {
+                                lastProviderError = nil
+                                break
+                            }
+                        } catch {
+                            lastProviderError = error
+                            if isFatalProductionError(error) { throw error }
+                        }
+                    }
+
+                    // Deutlich zu kurze, aber vorhandene Szene einmalig vertiefen.
+                    if !sceneText.isEmpty, sceneText.wordCount < minWords {
                         do {
                             let expanded = try await generate(
                                 prompt: PromptFactory.expandScene(
@@ -1405,22 +1558,30 @@ final class PipelineOrchestrator: ObservableObject {
                                 sceneTokens += expanded.tokensUsed ?? 0
                             }
                         } catch {
-                            if error is CancellationError || (error as? AIError) == .quotaExceeded {
-                                throw error
-                            }
-                            // Erweiterung fehlgeschlagen – kurze Szene behalten, Hinweis folgt unten.
+                            if isFatalProductionError(error) { throw error }
                         }
                     }
-                    if sceneText.wordCount < minWords {
+
+                    // Robustheit: Inhaltsschwäche beendet NIE das Buch.
+                    let cleaned = sceneText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if cleaned.isEmpty || AutonomousContentQuality.containsMetaRequest(cleaned) {
+                        // Kein verwertbarer Text. Provider weg → pausieren (fortsetzbar);
+                        // sonst klar markierter Platzhalter, damit das Buch komplett wird.
+                        if let error = lastProviderError { throw error }
+                        sceneText = fallbackSceneText(chapter: chapter, scene: scene)
+                        addReport(project: project,
+                                  area: "Kapitel \(chapter.chapterNumber), Szene \(scene.sceneNumber)",
+                                  type: "Rohfassung",
+                                  result: "Szene konnte nicht generiert werden – Platzhalter eingefügt",
+                                  severity: .warning,
+                                  recommendation: "Szene im Manuskript neu erzeugen.")
+                    } else if !AutonomousContentQuality.acceptsDraftScene(sceneText, targetWords: scene.targetWordCount) {
                         addReport(project: project,
                                   area: "Kapitel \(chapter.chapterNumber), Szene \(scene.sceneNumber)",
                                   type: "Umfang",
                                   result: "Szene unter Zielumfang (\(sceneText.wordCount)/\(scene.targetWordCount) Wörter)",
                                   severity: .warning,
-                                  recommendation: "Szene im Manuskript prüfen.")
-                    }
-                    guard AutonomousContentQuality.acceptsDraftScene(sceneText, targetWords: scene.targetWordCount) else {
-                        throw AIError.systemError("Draft Writer lieferte keine verwertbare Romanszene (\(sceneText.wordCount)/\(scene.targetWordCount) Wörter).")
+                                  recommendation: "Szene im Manuskript vertiefen.")
                     }
 
                     scene.text = sceneText

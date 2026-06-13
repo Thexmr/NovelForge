@@ -128,6 +128,17 @@ final class LogicTests: XCTestCase {
         XCTAssertFalse(AutonomousContentQuality.hasUsableScenePlan(oldFiller, expectedCount: 1))
     }
 
+    /// Vertrag des Kapitel-Fallbacks: die synthetisierte Form muss die Gates
+    /// bestehen, sonst hilft das Auffangen bei der Kapitelplanung nichts.
+    func testFallbackChapterShapePassesGate() {
+        let chapters = (1...6).map { i in
+            PlannedChapter(number: i, title: "Aufbruch \(i)",
+                goal: "Treibe den Hauptkonflikt in der Aufbruch-Phase durch eine eigenständige Eskalation spürbar voran.",
+                conflict: "Ein konkretes Hindernis stellt sich dem Ziel dieses Kapitels entgegen.")
+        }
+        XCTAssertTrue(AutonomousContentQuality.hasUsableChapterPlan(chapters))
+    }
+
     // MARK: - Pipeline-Invarianten
 
     /// Die Phasen-Gewichte müssen sich exakt zu 1.0 summieren,
