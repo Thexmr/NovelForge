@@ -24,7 +24,7 @@ final class UnlimitedProductionTests: XCTestCase {
             authorBio: "Test Autor schreibt psychologische Thriller."
         )
 
-        XCTAssertEqual(settings.pageCount, AppConstants.maxPageCount)
+        XCTAssertEqual(settings.pageCount, 500)
         XCTAssertEqual(settings.targetWordCount, 125_000)
         XCTAssertEqual(settings.parallelBooks, 10)
         XCTAssertTrue(settings.imprint.contains("Test Verlag"))
@@ -173,6 +173,26 @@ final class UnlimitedProductionTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(plan.scenesPerChapter, 4)
         XCTAssertLessThanOrEqual(plan.targetWordsPerScene, 900)
         XCTAssertGreaterThanOrEqual(plan.totalPlannedScenes, 200)
+    }
+
+    func testLongFormPlanScalesToThousandPages() {
+        XCTAssertEqual(AppConstants.maxPageCount, 1000)
+        let plan = LongFormProductionPlan(pageCount: 1000)
+
+        XCTAssertEqual(plan.targetWordCount, 250_000)
+        XCTAssertEqual(plan.chapterCount, 80)
+        XCTAssertEqual(plan.scenesPerChapter, 5)
+        XCTAssertEqual(plan.totalPlannedScenes, 400)
+        XCTAssertLessThanOrEqual(plan.targetWordsPerScene, 900)
+
+        // 1000 wird nicht mehr auf 500 gedeckelt.
+        let settings = UnlimitedSettings(
+            authorName: "A", language: "Deutsch", selectedGenres: ["Roman"], style: "episch",
+            pageCount: 1000, maxBooks: 0, parallelBooks: 1, formats: ["EPUB"],
+            imprint: "", authorBio: ""
+        )
+        XCTAssertEqual(settings.pageCount, 1000)
+        XCTAssertEqual(settings.targetWordCount, 250_000)
     }
 
     func testDraftTokenBudgetSupportsLongScenesWithoutTinyCaps() {

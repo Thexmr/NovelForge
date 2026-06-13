@@ -4,7 +4,7 @@ import SwiftUI
 struct AppConstants {
     static let appName = "NovelForge"
     static let appVersion = "2.0.0"
-    static let maxPageCount = 500
+    static let maxPageCount = 1000 // bis zu 1000 Seiten (~250.000 Wörter); Plan skaliert automatisch
     static let minPageCount = 50
     static let wordsPerPage = 250
 }
