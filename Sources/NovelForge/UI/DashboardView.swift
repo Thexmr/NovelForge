@@ -380,6 +380,14 @@ struct ProjectsListView: View {
                                 }
                                 .disabled(isRunning(project))
                             }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    projectToDelete = project
+                                } label: {
+                                    Label("Löschen", systemImage: "trash")
+                                }
+                                .disabled(isRunning(project))
+                            }
                         }
                     }
                 }
@@ -466,6 +474,13 @@ struct ProjectDetailView: View {
         orchestrator.isRunning && orchestrator.currentProject?.id == project.id
     }
 
+    /// True, sobald dieses Projekt aktiv produziert wird – auch von einem
+    /// parallelen Hintergrund-Worker (dessen currentProject NICHT auf .shared zeigt).
+    /// Schützt das Löschen vor einem Use-of-deleted-object-Crash in SwiftData.
+    private var isProjectActive: Bool {
+        isRunningThisProject || orchestrator.activeProjectIDs.contains(project.id)
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -526,8 +541,8 @@ struct ProjectDetailView: View {
                     } label: {
                         Image(systemName: "trash")
                     }
-                    .help("Projekt löschen")
-                    .disabled(isRunningThisProject)
+                    .help(isProjectActive ? "Während der Produktion nicht löschbar" : "Projekt löschen")
+                    .disabled(isProjectActive)
                 }
                 .buttonStyle(.bordered)
 
@@ -607,14 +622,13 @@ struct ProjectDetailView: View {
         .confirmationDialog("Projekt \"\(project.title)\" wirklich löschen?",
                             isPresented: $confirmDelete) {
             Button("Endgültig löschen", role: .destructive) {
+                guard !isProjectActive else { return }
                 if AppState.shared.selectedProject?.id == project.id {
                     AppState.shared.selectedProject = nil
                 }
-                if !isRunningThisProject {
-                    modelContext.delete(project)
-                    try? modelContext.save()
-                    dismiss()
-                }
+                modelContext.delete(project)
+                try? modelContext.save()
+                dismiss()
             }
             Button("Abbrechen", role: .cancel) {}
         } message: {

@@ -29,7 +29,7 @@ final class LogicTests: XCTestCase {
     }
 
     func testOllamaCloudDefaultsToBestLongFormModel() {
-        XCTAssertEqual(AIProvider.ollamaCloud.suggestedModels.first, "qwen3.5:397b")
+        XCTAssertEqual(AIProvider.ollamaCloud.suggestedModels.first, "kimi-k2.6")
     }
 
     func testNewProjectsDefaultToOllamaCloud() {
@@ -44,8 +44,8 @@ final class LogicTests: XCTestCase {
         let json = """
         {
           "models": [
-            { "name": "gpt-oss:120b" },
-            { "name": "qwen3.5:397b" },
+            { "name": "kimi-k2.6:cloud" },
+            { "name": "deepseek-v4-pro:cloud" },
             { "name": "" }
           ]
         }
@@ -53,47 +53,45 @@ final class LogicTests: XCTestCase {
 
         let names = try OllamaCloudModelCatalog.decodeModelNames(from: json)
 
-        XCTAssertEqual(names, ["gpt-oss:120b", "qwen3.5:397b"])
+        XCTAssertEqual(names, ["kimi-k2.6:cloud", "deepseek-v4-pro:cloud"])
     }
 
-    func testOllamaCloudModelCatalogMergesLiveModelsWithFallbacks() {
-        let models = OllamaCloudModelCatalog.mergeWithFallbacks(["gpt-oss:120b", "qwen3.5:397b"])
+    func testOllamaCloudModelCatalogKeepsRealLiveModels() {
+        // Echte vom Server gemeldete Schreib-Modelle dürfen NICHT herausgefiltert werden.
+        let models = OllamaCloudModelCatalog.mergeWithFallbacks(["kimi-k2.6:cloud", "glm-5.1:cloud"])
 
-        XCTAssertEqual(models.first, "qwen3.5:397b")
-        XCTAssertFalse(models.contains("gpt-oss:120b"))
-        XCTAssertEqual(models.filter { $0 == "qwen3.5:397b" }.count, 1)
+        XCTAssertEqual(models.first, "kimi-k2.6")
+        XCTAssertTrue(models.contains("kimi-k2.6:cloud"))
+        XCTAssertTrue(models.contains("glm-5.1:cloud"))
     }
 
-    func testOllamaCloudModelCatalogFiltersWeakOrUnhelpfulModels() {
+    func testOllamaCloudModelCatalogFiltersOnlyUnsuitableModels() {
         let models = OllamaCloudModelCatalog.mergeWithFallbacks([
             "qwen3-coder:30b",
             "qwen3-vl:235b",
             "nomic-embed-text",
-            "qwen3-next:80b",
-            "kimi-k2.6",
-            "minimax-m2",
-            "minimax-m3",
-            "qwen3.5:397b"
+            "kimi-k2.6:cloud",
+            "minimax-m2.5:cloud"
         ])
 
-        XCTAssertTrue(models.contains("qwen3.5:397b"))
+        // Schreib-Modelle bleiben erhalten …
+        XCTAssertTrue(models.contains("kimi-k2.6:cloud"))
+        XCTAssertTrue(models.contains("minimax-m2.5:cloud"))
+        // … nur Coder/Vision/Embedding werden entfernt.
         XCTAssertFalse(models.contains("qwen3-coder:30b"))
         XCTAssertFalse(models.contains("qwen3-vl:235b"))
         XCTAssertFalse(models.contains("nomic-embed-text"))
-        XCTAssertFalse(models.contains("qwen3-next:80b"))
-        XCTAssertFalse(models.contains("kimi-k2.6"))
-        XCTAssertFalse(models.contains("minimax-m2"))
-        XCTAssertFalse(models.contains("minimax-m3"))
     }
 
-    func testOllamaCloudBestModelRejectsStaleOrWeakPreferredModels() {
-        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "kimi-k2.6"), "qwen3.5:397b")
-        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "kimi-k2.5:cloud"), "qwen3.5:397b")
-        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "deepseek-v4-pro:cloud"), "qwen3.5:397b")
-        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "qwen3-coder:480b"), "qwen3.5:397b")
-        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "qwen3-vl:235b"), "qwen3.5:397b")
-        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "qwen3.5:397b"), "qwen3.5:397b")
+    func testOllamaCloudBestModelKeepsValidPreferredModels() {
+        // Ein bereits gültiges Schreib-Modell wird NIE verworfen.
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "kimi-k2.6"), "kimi-k2.6")
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "kimi-k2.5:cloud"), "kimi-k2.5:cloud")
         XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "deepseek-v4-pro"), "deepseek-v4-pro")
+        // Ungeeignete bzw. leere Eingaben fallen auf den Default zurück.
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "qwen3-vl:235b"), "kimi-k2.6")
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: ""), "kimi-k2.6")
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "nomic-embed-text"), "kimi-k2.6")
     }
 
     // MARK: - Pipeline-Invarianten

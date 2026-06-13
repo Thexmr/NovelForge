@@ -833,10 +833,23 @@ final class PipelineOrchestrator: ObservableObject {
         let response = try await gateway.generateText(request: request, configuration: config)
 
         if let tokens = response.tokensUsed {
-            totalTokensUsed += tokens
-            estimatedCostUSD += ModelPricing.estimatedCost(model: model, tokens: tokens)
+            recordTokenUsage(tokens, model: model)
         }
         return response
+    }
+
+    /// Bucht Token-/Kostenverbrauch und meldet ihn im Parallelmodus zusätzlich an
+    /// den Haupt-Orchestrator, dessen Werte die UI beobachtet. Ohne dieses
+    /// Hochreichen zeigte die Kostenanzeige bei parallelen Büchern immer 0.
+    private func recordTokenUsage(_ tokens: Int, model: String) {
+        guard tokens > 0 else { return }
+        let cost = ModelPricing.estimatedCost(model: model, tokens: tokens)
+        totalTokensUsed += tokens
+        estimatedCostUSD += cost
+        if let parent = parentOrchestrator {
+            parent.totalTokensUsed += tokens
+            parent.estimatedCostUSD += cost
+        }
     }
 
     /// Führt mehrere unabhängige LLM-Anfragen parallel aus (begrenzte Nebenläufigkeit).
@@ -871,8 +884,7 @@ final class PipelineOrchestrator: ObservableObject {
             for await (index, result) in group {
                 results[index] = result
                 if case .success(let response) = result, let tokens = response.tokensUsed {
-                    totalTokensUsed += tokens
-                    estimatedCostUSD += ModelPricing.estimatedCost(model: requests[index].model, tokens: tokens)
+                    recordTokenUsage(tokens, model: requests[index].model)
                 }
 
                 if Task.isCancelled {
