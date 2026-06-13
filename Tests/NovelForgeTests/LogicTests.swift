@@ -164,4 +164,23 @@ final class LogicTests: XCTestCase {
         XCTAssertTrue(StructureParser.parseIdeas("IDEE|nur ein Feld").isEmpty)
         XCTAssertTrue(StructureParser.parseIdeas("Keine Marker hier").isEmpty)
     }
+
+    /// Modelle nummerieren Marker oft inline ("IDEE 1|…", "**KAPITEL 2**|…").
+    /// Der Parser muss das tolerieren, sonst reißen die Qualitäts-Gates.
+    func testParsersTolerateInlineNumbersAndMarkdown() {
+        let ideas = StructureParser.parseIdeas("""
+        IDEE 1|Die Vermieterin von nebenan|Liebesroman|Ein Architekt flieht vor einem Skandal und mietet heimlich bei seiner Erzfeindin.
+        - **IDEE 2**|Salz und Asche|Historisch|Eine Salzhändlerin kämpft gegen ein Kartell.
+        """)
+        XCTAssertEqual(ideas.count, 2)
+        XCTAssertEqual(ideas[0].title, "Die Vermieterin von nebenan")
+        XCTAssertEqual(ideas[1].genre, "Historisch")
+
+        let chapters = StructureParser.parseChapters("KAPITEL 1|Der Riss|Rosa erbt die Bäckerei|Drohender Abriss")
+        XCTAssertEqual(chapters.count, 1)
+        XCTAssertEqual(chapters[0].title, "Der Riss")
+
+        // Falschtreffer-Schutz: "IDEENKERN|…" darf NICHT als IDEE durchgehen.
+        XCTAssertTrue(StructureParser.parseIdeas("IDEENKERN|etwas|noch was|und mehr").isEmpty)
+    }
 }

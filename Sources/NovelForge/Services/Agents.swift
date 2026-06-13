@@ -537,10 +537,25 @@ struct ParsedIdea {
 enum StructureParser {
 
     /// Zerlegt eine Zeile "MARKER|a|b|c" in ihre Felder. Toleriert führende
-    /// Aufzählungszeichen und Markdown-Reste.
+    /// Aufzählungszeichen, Markdown-Reste UND vom Modell eingefügte Nummern oder
+    /// Doppelpunkte hinter dem Marker (z.B. "IDEE 1|…", "- **KAPITEL**: |…").
+    /// Ohne diese Toleranz verwirft die Pipeline gültige Plan-Zeilen und die
+    /// Qualitäts-Gates lassen die Produktion fälschlich scheitern.
     private static func fields(in line: String, marker: String) -> [String]? {
-        guard let range = line.range(of: marker + "|") else { return nil }
-        let payload = String(line[range.upperBound...])
+        guard let pipe = line.firstIndex(of: "|") else { return nil }
+        let head = String(line[..<pipe])
+            .replacingOccurrences(of: "*", with: "")
+            .replacingOccurrences(of: "#", with: "")
+            .trimmingCharacters(in: CharacterSet(charactersIn: " \t-•·.)("))
+            .uppercased()
+        let upperMarker = marker.uppercased()
+        guard head.hasPrefix(upperMarker) else { return nil }
+        // Verhindert Falschtreffer wie "IDEENKERN" für Marker "IDEE":
+        // direkt nach dem Marker darf kein weiterer Buchstabe folgen.
+        let remainder = head.dropFirst(upperMarker.count)
+        if let next = remainder.first, next.isLetter { return nil }
+
+        let payload = String(line[line.index(after: pipe)...])
         return payload.components(separatedBy: "|").map {
             $0.trimmingCharacters(in: .whitespaces)
                 .replacingOccurrences(of: "**", with: "")
