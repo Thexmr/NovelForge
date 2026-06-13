@@ -29,7 +29,7 @@ final class LogicTests: XCTestCase {
     }
 
     func testOllamaCloudDefaultsToBestLongFormModel() {
-        XCTAssertEqual(AIProvider.ollamaCloud.suggestedModels.first, "kimi-k2.7-code")
+        XCTAssertEqual(AIProvider.ollamaCloud.suggestedModels.first, "kimi-k2.6")
     }
 
     func testOllamaCloudKeepsCuratedModelDespiteCodeSuffix() {
@@ -69,7 +69,7 @@ final class LogicTests: XCTestCase {
         // Echte vom Server gemeldete Schreib-Modelle dürfen NICHT herausgefiltert werden.
         let models = OllamaCloudModelCatalog.mergeWithFallbacks(["kimi-k2.6:cloud", "glm-5.1:cloud"])
 
-        XCTAssertEqual(models.first, "kimi-k2.7-code")
+        XCTAssertEqual(models.first, "kimi-k2.6")
         XCTAssertTrue(models.contains("kimi-k2.6:cloud"))
         XCTAssertTrue(models.contains("glm-5.1:cloud"))
     }
@@ -85,11 +85,11 @@ final class LogicTests: XCTestCase {
 
         // Schreib-Modelle bleiben erhalten …
         XCTAssertTrue(models.contains("kimi-k2.6:cloud"))
-        XCTAssertTrue(models.contains("minimax-m2.5:cloud"))
-        // … nur Coder/Vision/Embedding werden entfernt.
+        // … Coder/Vision/Embedding und das leer liefernde minimax werden entfernt.
         XCTAssertFalse(models.contains("qwen3-coder:30b"))
         XCTAssertFalse(models.contains("qwen3-vl:235b"))
         XCTAssertFalse(models.contains("nomic-embed-text"))
+        XCTAssertFalse(models.contains("minimax-m2.5:cloud"))
     }
 
     func testOllamaCloudBestModelKeepsValidPreferredModels() {
@@ -101,10 +101,10 @@ final class LogicTests: XCTestCase {
         XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "qwen3.5:397b"), "qwen3.5:397b")
         XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "mistral-large-3:675b"), "mistral-large-3:675b")
         // Ungeeignete bzw. leere Eingaben fallen auf den Default zurück.
-        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "qwen3-vl:235b"), "kimi-k2.7-code")
-        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "gpt-oss:120b"), "kimi-k2.7-code")
-        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: ""), "kimi-k2.7-code")
-        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "nomic-embed-text"), "kimi-k2.7-code")
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "qwen3-vl:235b"), "kimi-k2.6")
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "gpt-oss:120b"), "kimi-k2.6")
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: ""), "kimi-k2.6")
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "nomic-embed-text"), "kimi-k2.6")
     }
 
     // MARK: - Szenenplan-Robustheit

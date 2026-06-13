@@ -9,8 +9,8 @@ enum OllamaCloudModelCatalog {
     /// Modelle sind bewusst ausgeschlossen, weil sie hier leere/ungeeignete
     /// Ergebnisse liefern.
     static let fallbackModels = [
-        "kimi-k2.7-code",
         "kimi-k2.6",
+        "kimi-k2.7-code",
         "kimi-k2.5",
         "kimi-k2:1t",
         "deepseek-v4-pro",
@@ -19,14 +19,16 @@ enum OllamaCloudModelCatalog {
         "glm-5.1",
         "glm-5",
         "glm-4.7",
-        "minimax-m2.5",
         "qwen3.5:397b",
         "qwen3.5",
         "nemotron-3-ultra",
         "mistral-large-3:675b"
     ]
 
-    static let defaultModel = "kimi-k2.7-code"
+    // kimi-k2.6: beste deutsche Prosa UND ~2× schneller als k2.7-code (im
+    // Head-to-Head gemessen) – ideal für die Dauerproduktion. minimax-m2.5 wurde
+    // entfernt, weil es leeren Text liefert (reines Thinking-Modell).
+    static let defaultModel = "kimi-k2.6"
 
     static func decodeModelNames(from data: Data) throws -> [String] {
         let response = try JSONDecoder().decode(OllamaTagsResponse.self, from: data)
@@ -72,7 +74,7 @@ enum OllamaCloudModelCatalog {
             "whisper", "-tts", "-stt", "audio",
             "-vl", "vision", "ocr",
             "coder", "code-", "-code", "devstral",
-            "thinking", "gpt-oss",
+            "thinking", "gpt-oss", "minimax",
             "nomic"
         ]
         return !unsuitableMarkers.contains { lowered.contains($0) }
