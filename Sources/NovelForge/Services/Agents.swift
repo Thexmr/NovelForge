@@ -562,17 +562,28 @@ enum StructureParser {
         }
     }
 
+    /// Entfernt ein führendes reines Nummern-Feld. Modelle liefern die Nummer mal
+    /// als eigenes Feld ("KAPITEL|1|Titel"), mal inline am Marker ("KAPITEL 1|Titel",
+    /// dann von fields() bereits geschluckt). Dieses Angleichen sorgt dafür, dass
+    /// Titel/Ziel/… in BEIDEN Fällen am selben Index liegen.
+    private static func droppingLeadingNumber(_ parts: [String]) -> [String] {
+        guard let first = parts.first, !first.isEmpty else { return parts }
+        let isPureNumber = first.allSatisfy { $0.isNumber || $0 == "." || $0 == ")" || $0 == "#" }
+        return isPureNumber ? Array(parts.dropFirst()) : parts
+    }
+
     static func parseChapters(_ text: String) -> [PlannedChapter] {
         var result: [PlannedChapter] = []
         for line in text.components(separatedBy: .newlines) {
-            guard let parts = fields(in: line, marker: "KAPITEL"), parts.count >= 2 else { continue }
-            let title = parts.count > 1 ? parts[1] : ""
+            guard let raw = fields(in: line, marker: "KAPITEL") else { continue }
+            let parts = droppingLeadingNumber(raw)
+            let title = parts.first ?? ""
             guard !title.isEmpty else { continue }
             result.append(PlannedChapter(
                 number: result.count + 1, // fortlaufend nummerieren, Modell-Nummern können lückenhaft sein
                 title: title,
-                goal: parts.count > 2 ? parts[2] : "",
-                conflict: parts.count > 3 ? parts[3] : ""
+                goal: parts.count > 1 ? parts[1] : "",
+                conflict: parts.count > 2 ? parts[2] : ""
             ))
         }
         return result
@@ -581,15 +592,17 @@ enum StructureParser {
     static func parseScenes(_ text: String) -> [PlannedScene] {
         var result: [PlannedScene] = []
         for line in text.components(separatedBy: .newlines) {
-            guard let parts = fields(in: line, marker: "SZENE"), parts.count >= 2 else { continue }
+            guard let raw = fields(in: line, marker: "SZENE") else { continue }
+            let parts = droppingLeadingNumber(raw)
+            guard !parts.isEmpty else { continue }
             result.append(PlannedScene(
                 number: result.count + 1,
-                perspective: parts.count > 1 ? parts[1] : "",
-                location: parts.count > 2 ? parts[2] : "",
-                time: parts.count > 3 ? parts[3] : "",
-                goal: parts.count > 4 ? parts[4] : "",
-                obstacle: parts.count > 5 ? parts[5] : "",
-                turn: parts.count > 6 ? parts[6] : ""
+                perspective: parts.first ?? "",
+                location: parts.count > 1 ? parts[1] : "",
+                time: parts.count > 2 ? parts[2] : "",
+                goal: parts.count > 3 ? parts[3] : "",
+                obstacle: parts.count > 4 ? parts[4] : "",
+                turn: parts.count > 5 ? parts[5] : ""
             ))
         }
         return result
