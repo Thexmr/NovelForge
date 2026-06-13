@@ -3,7 +3,7 @@ import SwiftData
 
 @main
 struct NovelForgeApp: App {
-    @AppStorage("colorScheme") private var colorSchemeSetting = "system"
+    @AppStorage("colorScheme") private var colorSchemeSetting = "light"
     @AppStorage("accentColor") private var accentSetting = "blue"
 
     init() {
@@ -34,9 +34,8 @@ struct NovelForgeApp: App {
 
     private var preferredScheme: ColorScheme? {
         switch colorSchemeSetting {
-        case "light": return .light
         case "dark": return .dark
-        default: return nil
+        default: return .light // helles, luftiges Studio-Design ist der Standard
         }
     }
 
