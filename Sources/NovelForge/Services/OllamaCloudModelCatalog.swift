@@ -9,6 +9,7 @@ enum OllamaCloudModelCatalog {
     /// Modelle sind bewusst ausgeschlossen, weil sie hier leere/ungeeignete
     /// Ergebnisse liefern.
     static let fallbackModels = [
+        "kimi-k2.7-code",
         "kimi-k2.6",
         "kimi-k2.5",
         "kimi-k2:1t",
@@ -25,7 +26,7 @@ enum OllamaCloudModelCatalog {
         "mistral-large-3:675b"
     ]
 
-    static let defaultModel = "kimi-k2.6"
+    static let defaultModel = "kimi-k2.7-code"
 
     static func decodeModelNames(from data: Data) throws -> [String] {
         let response = try JSONDecoder().decode(OllamaTagsResponse.self, from: data)
@@ -63,6 +64,9 @@ enum OllamaCloudModelCatalog {
     static func isUsefulForLongFormCloudModel(_ model: String) -> Bool {
         let lowered = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !lowered.isEmpty else { return false }
+        // Kuratierte, verifizierte Schreib-Modelle haben Vorrang vor der Denylist –
+        // z.B. kimi-k2.7-code, das trotz "-code"-Namen exzellente Prosa liefert.
+        if curatedKeys.contains(lowered) { return true }
         let unsuitableMarkers = [
             "embed", "rerank", "guard", "moderation",
             "whisper", "-tts", "-stt", "audio",
@@ -73,6 +77,8 @@ enum OllamaCloudModelCatalog {
         ]
         return !unsuitableMarkers.contains { lowered.contains($0) }
     }
+
+    private static let curatedKeys = Set(fallbackModels.map { $0.lowercased() })
 
     private static func stableUnique(_ models: [String]) -> [String] {
         var seen = Set<String>()

@@ -29,7 +29,16 @@ final class LogicTests: XCTestCase {
     }
 
     func testOllamaCloudDefaultsToBestLongFormModel() {
-        XCTAssertEqual(AIProvider.ollamaCloud.suggestedModels.first, "kimi-k2.6")
+        XCTAssertEqual(AIProvider.ollamaCloud.suggestedModels.first, "kimi-k2.7-code")
+    }
+
+    func testOllamaCloudKeepsCuratedModelDespiteCodeSuffix() {
+        // kimi-k2.7-code schreibt verifiziert exzellente Prosa und ist kuratiert –
+        // die "-code"-Sperre darf es NICHT verwerfen.
+        XCTAssertTrue(OllamaCloudModelCatalog.isUsefulForLongFormCloudModel("kimi-k2.7-code"))
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "kimi-k2.7-code"), "kimi-k2.7-code")
+        // Ein echtes Coder-Modell bleibt ausgeschlossen.
+        XCTAssertFalse(OllamaCloudModelCatalog.isUsefulForLongFormCloudModel("qwen3-coder:480b"))
     }
 
     func testNewProjectsDefaultToOllamaCloud() {
@@ -60,7 +69,7 @@ final class LogicTests: XCTestCase {
         // Echte vom Server gemeldete Schreib-Modelle dürfen NICHT herausgefiltert werden.
         let models = OllamaCloudModelCatalog.mergeWithFallbacks(["kimi-k2.6:cloud", "glm-5.1:cloud"])
 
-        XCTAssertEqual(models.first, "kimi-k2.6")
+        XCTAssertEqual(models.first, "kimi-k2.7-code")
         XCTAssertTrue(models.contains("kimi-k2.6:cloud"))
         XCTAssertTrue(models.contains("glm-5.1:cloud"))
     }
@@ -92,10 +101,10 @@ final class LogicTests: XCTestCase {
         XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "qwen3.5:397b"), "qwen3.5:397b")
         XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "mistral-large-3:675b"), "mistral-large-3:675b")
         // Ungeeignete bzw. leere Eingaben fallen auf den Default zurück.
-        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "qwen3-vl:235b"), "kimi-k2.6")
-        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "gpt-oss:120b"), "kimi-k2.6")
-        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: ""), "kimi-k2.6")
-        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "nomic-embed-text"), "kimi-k2.6")
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "qwen3-vl:235b"), "kimi-k2.7-code")
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "gpt-oss:120b"), "kimi-k2.7-code")
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: ""), "kimi-k2.7-code")
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "nomic-embed-text"), "kimi-k2.7-code")
     }
 
     // MARK: - Pipeline-Invarianten
