@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import Foundation
 
 @main
 struct NovelForgeApp: App {
@@ -7,6 +8,12 @@ struct NovelForgeApp: App {
     @AppStorage("accentColor") private var accentSetting = "teal"
 
     init() {
+        let defaults = UserDefaults.standard
+        if !defaults.bool(forKey: "novelforge.liquidGlassAppearanceMigrated") {
+            defaults.set("dark", forKey: "colorScheme")
+            defaults.set("teal", forKey: "accentColor")
+            defaults.set(true, forKey: "novelforge.liquidGlassAppearanceMigrated")
+        }
         _ = ProviderSettingsStore.shared
     }
 
@@ -28,7 +35,7 @@ struct NovelForgeApp: App {
             PipelineJob.self,
             QualityReport.self
         ])
-        .windowStyle(.titleBar)
+        .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1280, height: 840)
     }
 

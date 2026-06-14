@@ -86,8 +86,8 @@ struct GeneralSettingsView: View {
 // MARK: - Erscheinungsbild
 
 struct AppearanceSettingsView: View {
-    @AppStorage("colorScheme") private var colorScheme = "system"
-    @AppStorage("accentColor") private var accentColor = "blue"
+    @AppStorage("colorScheme") private var colorScheme = "dark"
+    @AppStorage("accentColor") private var accentColor = "teal"
 
     var body: some View {
         Form {
