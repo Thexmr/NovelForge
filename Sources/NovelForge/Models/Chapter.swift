@@ -38,15 +38,26 @@ final class Chapter {
     }
     
     /// Bester verfügbarer Text: final > überarbeitet > Rohfassung > zusammengesetzte Szenen.
+    /// Entfernt zusätzlich durchgesickerte Prompt-Anweisungen/Labels – dadurch sind
+    /// auch bereits geschriebene Bücher beim (erneuten) Export sauber.
     var bestText: String? {
-        if let text = finalText, !text.isEmpty { return text }
-        if let text = revisedText, !text.isEmpty { return text }
-        if let text = draftText, !text.isEmpty { return text }
-        let joined = (scenes ?? [])
-            .sorted { $0.sceneNumber < $1.sceneNumber }
-            .compactMap { $0.text }
-            .joined(separator: "\n\n")
-        return joined.isEmpty ? nil : joined
+        let raw: String?
+        if let text = finalText, !text.isEmpty {
+            raw = text
+        } else if let text = revisedText, !text.isEmpty {
+            raw = text
+        } else if let text = draftText, !text.isEmpty {
+            raw = text
+        } else {
+            let joined = (scenes ?? [])
+                .sorted { $0.sceneNumber < $1.sceneNumber }
+                .compactMap { $0.text }
+                .joined(separator: "\n\n")
+            raw = joined.isEmpty ? nil : joined
+        }
+        guard let raw, !raw.isEmpty else { return nil }
+        let cleaned = AutonomousContentQuality.strippingPromptArtifacts(raw)
+        return cleaned.isEmpty ? nil : cleaned
     }
 
     var computedWordCount: Int {

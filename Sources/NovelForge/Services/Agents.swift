@@ -233,7 +233,7 @@ enum PromptFactory {
 
             WÖRTLICHES ENDE DER VORHERIGEN SZENE:
             „…\(previousSceneEnding)“
-            Knüpfe nahtlos daran an – ohne das Geschehene zu wiederholen oder zusammenzufassen.
+            Setze die Szene unmittelbar fort, ohne das Geschehene zu wiederholen.
             """
         }
 
@@ -276,7 +276,9 @@ enum PromptFactory {
         - Der letzte Satz der Szene muss einen Grund zum Weiterlesen geben.
         \(genreCraft(genre))
         \(positionNote)
-        Keine Überschriften, keine Meta-Kommentare – gib NUR den Prosatext der Szene aus.
+        Gib AUSSCHLIESSLICH den fertigen Prosatext der Szene aus. Übernimm NIEMALS
+        Anweisungen, Labels (z.B. „Ort:", „Ziel:", „Zielumfang"), Überschriften oder
+        Hinweise aus diesem Auftrag in den Text – schreibe ausschließlich die Geschichte selbst.
         """
     }
 

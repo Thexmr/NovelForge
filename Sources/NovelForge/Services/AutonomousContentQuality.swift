@@ -84,4 +84,59 @@ enum AutonomousContentQuality {
         // "als Kino" usw. und verwirft korrekte Romantexte.
         return normalized.range(of: #"\bals ki\b"#, options: .regularExpression) != nil
     }
+
+    /// Entfernt durchgesickerte Prompt-Anweisungen und -Labels aus generierter
+    /// Prosa. LLMs kopieren gelegentlich Instruktionen wie
+    /// „Knüpfe nahtlos daran an – ohne das Geschehene zu wiederholen …" oder
+    /// Labels wie „Ort:" / „Zielumfang:" wörtlich in den Text – das darf NIE im
+    /// fertigen Buch landen. Arbeitet zeilenweise (Leaks erscheinen praktisch
+    /// immer als eigene Zeile/Absatz) und ist konservativ: nur unverwechselbare
+    /// Instruktions-Fragmente und Prompt-Labels werden entfernt, niemals normale
+    /// Erzählsätze.
+    static func strippingPromptArtifacts(_ text: String) -> String {
+        let phraseMarkers = [
+            "knüpfe nahtlos daran an",
+            "ohne das geschehene zu wiederholen",
+            "ohne das geschehene zu wiederholen oder zusammenzufassen",
+            "wörtliches ende der vorherigen szene",
+            "bisherige handlung",
+            "letzte szenen im detail",
+            "bisherige kapitel",
+            "genre-handwerk",
+            "verbotene floskeln",
+            "sog-techniken",
+            "keine überschriften",
+            "meta-kommentar",
+            "langform-pflicht",
+            "schreibe ausschließlich auf",
+            "schreibe die szene",
+            "der erste satz ist der wichtigste",
+            "erste szene des buches",
+            "letzte szene des buches",
+            "beginne mitten in der bewegung",
+            "zeigen statt behaupten",
+            "dialog mit subtext",
+            "bestseller-standard",
+            "knüpfe daran an"
+        ]
+        let labelPrefixes = [
+            "stil:", "stilregeln:", "kapitelziel:", "sprache:", "tonalität:",
+            "perspektive:", "erzählperspektive:", "zeitform:", "ort:", "zeit:",
+            "ziel:", "hindernis:", "wendung am ende:", "wendung:", "figuren:",
+            "szene:", "thema:", "zielumfang", "zielwörter", "zielwortzahl",
+            "zielumfang:"
+        ]
+        let kept = text.components(separatedBy: .newlines).filter { line in
+            let l = line.trimmingCharacters(in: .whitespaces).lowercased()
+            if l.isEmpty { return true }
+            if phraseMarkers.contains(where: { l.contains($0) }) { return false }
+            if labelPrefixes.contains(where: { l.hasPrefix($0) }) { return false }
+            return true
+        }
+        var result = kept.joined(separator: "\n")
+        while result.contains("\n\n\n") {
+            result = result.replacingOccurrences(of: "\n\n\n", with: "\n\n")
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }

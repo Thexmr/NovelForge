@@ -139,6 +139,36 @@ final class LogicTests: XCTestCase {
         XCTAssertTrue(AutonomousContentQuality.hasUsableChapterPlan(chapters))
     }
 
+    // MARK: - Prompt-Leak-Sanitizer
+
+    /// Durchgesickerte Prompt-Anweisungen/Labels müssen aus der Prosa verschwinden,
+    /// echte Erzählsätze müssen bleiben (gemeldeter Fehler aus „Erdbeerstreuselliebe").
+    func testStripsLeakedPromptInstructionsButKeepsProse() {
+        let leaked = """
+        Rosa öffnete die Tür der Bäckerei und der Duft von Vanille schlug ihr entgegen.
+
+        Knüpfe nahtlos daran an – ohne das Geschehene zu wiederholen oder zusammenzufassen.
+
+        „Du bist also zurück“, sagte Finn leise.
+        Ort: Bäckerei
+        Zielumfang: ca. 600 Wörter
+        Sie nickte, ohne ihn anzusehen.
+        """
+        let clean = AutonomousContentQuality.strippingPromptArtifacts(leaked)
+
+        XCTAssertFalse(clean.contains("Knüpfe nahtlos daran an"))
+        XCTAssertFalse(clean.contains("Ort: Bäckerei"))
+        XCTAssertFalse(clean.lowercased().contains("zielumfang"))
+
+        XCTAssertTrue(clean.contains("Duft von Vanille"))
+        XCTAssertTrue(clean.contains("„Du bist also zurück“"))
+        XCTAssertTrue(clean.contains("Sie nickte, ohne ihn anzusehen."))
+
+        // Normale Prosa mit den Wörtern „Ziel"/„Stil" mitten im Satz bleibt unangetastet.
+        let normal = "Ihr Ziel war es zu fliehen. Der Stil des Hauses gefiel ihr."
+        XCTAssertEqual(AutonomousContentQuality.strippingPromptArtifacts(normal), normal)
+    }
+
     // MARK: - Pipeline-Invarianten
 
     /// Die Phasen-Gewichte müssen sich exakt zu 1.0 summieren,

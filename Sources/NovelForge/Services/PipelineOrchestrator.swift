@@ -1562,6 +1562,10 @@ final class PipelineOrchestrator: ObservableObject {
                         }
                     }
 
+                    // Durchgesickerte Prompt-Anweisungen/Labels aus der Prosa entfernen
+                    // (z.B. „Knüpfe nahtlos daran an …"), bevor irgendetwas gespeichert wird.
+                    sceneText = AutonomousContentQuality.strippingPromptArtifacts(sceneText)
+
                     // Robustheit: Inhaltsschwäche beendet NIE das Buch.
                     let cleaned = sceneText.trimmingCharacters(in: .whitespacesAndNewlines)
                     if cleaned.isEmpty || AutonomousContentQuality.containsMetaRequest(cleaned) {
