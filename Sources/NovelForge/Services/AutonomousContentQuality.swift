@@ -168,6 +168,27 @@ enum AutonomousContentQuality {
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Macht die Prosa „menschlicher": entfernt Gedankenstriche (—, – als
+    /// Stilmittel), die ein typisches KI-Erkennungsmerkmal sind, und ersetzt sie
+    /// durch natürliche Interpunktion. Zahlenbereiche (z.B. „12–13") bleiben
+    /// unangetastet. Räumt anschließend doppelte Satzzeichen/Leerzeichen auf.
+    static func humanizeProse(_ text: String) -> String {
+        var t = text
+        // En-Dash als Gedankenstrich (zwischen Wörtern) → Komma.
+        // Zahlenbereiche wie „12–13" bleiben unangetastet (verlangen Buchstaben).
+        t = t.replacingOccurrences(
+            of: "(?<=\\p{L})\\s*–\\s*(?=\\p{L})", with: ", ", options: .regularExpression)
+        // Em-Dash ist nie ein Zahlenbereich → immer durch Komma ersetzen.
+        t = t.replacingOccurrences(of: "\\s*—\\s*", with: ", ", options: .regularExpression)
+        // Aufräumen: Leerzeichen vor Satzzeichen, doppelte Kommas, führende Kommas,
+        // doppelte Leerzeichen.
+        t = t.replacingOccurrences(of: "\\s+([,.;:!?])", with: "$1", options: .regularExpression)
+        t = t.replacingOccurrences(of: ",\\s*,", with: ",", options: .regularExpression)
+        t = t.replacingOccurrences(of: "(?m)^\\s*,\\s*", with: "", options: .regularExpression)
+        t = t.replacingOccurrences(of: " {2,}", with: " ", options: .regularExpression)
+        return t
+    }
+
     private static func removingInstructionSentences(from line: String) -> String {
         let lower = line.lowercased()
         guard promptInstructionMarkers.contains(where: { lower.contains($0) }) else {

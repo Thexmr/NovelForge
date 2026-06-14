@@ -169,6 +169,19 @@ final class LogicTests: XCTestCase {
         XCTAssertEqual(AutonomousContentQuality.strippingPromptArtifacts(normal), normal)
     }
 
+    /// KI-typische Gedankenstriche müssen verschwinden, Zahlenbereiche bleiben,
+    /// damit das Buch nicht „nach KI" aussieht.
+    func testHumanizeProseRemovesAiDashesButKeepsNumberRanges() {
+        let input = "Sie sah ihn an — lange. Der Kuchen, frisch gebacken – noch warm. Siehe Seiten 12–13."
+        let out = AutonomousContentQuality.humanizeProse(input)
+
+        XCTAssertFalse(out.contains("—"))
+        XCTAssertFalse(out.contains(" – "))
+        XCTAssertTrue(out.contains("12–13"))            // Zahlenbereich bleibt
+        XCTAssertTrue(out.contains("Sie sah ihn an, lange."))
+        XCTAssertTrue(out.contains("frisch gebacken, noch warm."))
+    }
+
     // MARK: - Pipeline-Invarianten
 
     /// Die Phasen-Gewichte müssen sich exakt zu 1.0 summieren,

@@ -1572,8 +1572,10 @@ final class PipelineOrchestrator: ObservableObject {
                     }
 
                     // Durchgesickerte Prompt-Anweisungen/Labels aus der Prosa entfernen
-                    // (z.B. „Knüpfe nahtlos daran an …"), bevor irgendetwas gespeichert wird.
+                    // (z.B. „Knüpfe nahtlos daran …") und KI-typische Gedankenstriche
+                    // in natürliche Interpunktion umwandeln – bevor etwas gespeichert wird.
                     sceneText = AutonomousContentQuality.strippingPromptArtifacts(sceneText)
+                    sceneText = AutonomousContentQuality.humanizeProse(sceneText)
 
                     // Robustheit: Inhaltsschwäche beendet NIE das Buch.
                     let cleaned = sceneText.trimmingCharacters(in: .whitespacesAndNewlines)

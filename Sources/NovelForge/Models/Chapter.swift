@@ -56,7 +56,8 @@ final class Chapter {
             raw = joined.isEmpty ? nil : joined
         }
         guard let raw, !raw.isEmpty else { return nil }
-        let cleaned = AutonomousContentQuality.strippingPromptArtifacts(raw)
+        let cleaned = AutonomousContentQuality.humanizeProse(
+            AutonomousContentQuality.strippingPromptArtifacts(raw))
         return cleaned.isEmpty ? nil : cleaned
     }
 
