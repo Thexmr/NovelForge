@@ -583,6 +583,11 @@ struct ProjectsListView: View {
                                     set: { if !$0 { projectToDelete = nil } })) {
                 Button("Endgültig löschen", role: .destructive) {
                     if let project = projectToDelete, !isRunning(project) {
+                        // Globale Auswahl lösen, sonst zeigt sie auf ein gelöschtes
+                        // Objekt und andere Views stürzen beim Lesen ab.
+                        if AppState.shared.selectedProject?.id == project.id {
+                            AppState.shared.selectedProject = nil
+                        }
                         modelContext.delete(project)
                         try? modelContext.save()
                     }

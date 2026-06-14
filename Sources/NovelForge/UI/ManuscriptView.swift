@@ -355,6 +355,7 @@ struct ChapterDetailView: View {
                 }
                 Spacer()
                 Button("Speichern") {
+                    guard chapter.modelContext != nil else { hasUnsavedChanges = false; return }
                     chapter.finalText = editedText
                     chapter.actualWordCount = editedText.wordCount
                     chapter.updatedAt = Date()

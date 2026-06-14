@@ -236,6 +236,11 @@ final class PipelineOrchestrator: ObservableObject {
                     model: model, provider: config.provider, maxTokens: 8000, temperature: 0.6
                 )
                 let response = try await gateway.generateText(request: request, configuration: config)
+                // Während des Aufrufs könnten Kapitel/Projekt gelöscht/neu geplant worden
+                // sein → Zugriff auf ein gelöschtes SwiftData-Objekt würde abstürzen.
+                guard chapter.modelContext != nil, project.modelContext != nil else {
+                    return "Das Kapitel ist nicht mehr verfügbar (es wurde gelöscht oder neu geplant)."
+                }
                 let revised = AutonomousContentQuality.humanizeProse(
                     AutonomousContentQuality.strippingPromptArtifacts(response.text))
                 guard revised.wordCount >= max(50, current.wordCount / 3),

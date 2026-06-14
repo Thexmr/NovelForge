@@ -13,7 +13,11 @@ struct EditorChatView: View {
     @State private var input = ""
     @State private var isProcessing = false
 
-    private var project: Project? { appState.selectedProject ?? projects.first }
+    private var project: Project? {
+        // modelContext == nil ⇒ gelöscht: dann nicht weiter darauf zugreifen.
+        if let p = appState.selectedProject, p.modelContext != nil { return p }
+        return projects.first
+    }
 
     private var chapters: [Chapter] {
         (project?.chapters ?? []).sorted { $0.chapterNumber < $1.chapterNumber }
@@ -164,8 +168,11 @@ struct EditorChatView: View {
         let chapter = selectedChapter
         Task { @MainActor in
             let reply = await PipelineOrchestrator.shared.processEditorMessage(text, project: project, chapter: chapter)
-            modelContext.insert(ChatMessage(projectID: project.id, role: .assistant, text: reply))
-            try? modelContext.save()
+            // Projekt könnte während des Aufrufs gelöscht worden sein → nicht darauf zugreifen.
+            if project.modelContext != nil {
+                modelContext.insert(ChatMessage(projectID: project.id, role: .assistant, text: reply))
+                try? modelContext.save()
+            }
             isProcessing = false
         }
     }
