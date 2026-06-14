@@ -694,19 +694,19 @@ struct ProjectDetailView: View {
                     }
 
                     Button {
-                        AppState.shared.open(.manuscript, project: project)
+                        openProjectArea(.manuscript)
                     } label: {
                         Label("Manuskript", systemImage: "doc.text")
                     }
 
                     Button {
-                        AppState.shared.open(.storyBible, project: project)
+                        openProjectArea(.storyBible)
                     } label: {
                         Label("Story Bible", systemImage: "book.closed")
                     }
 
                     Button {
-                        AppState.shared.open(.export, project: project)
+                        openProjectArea(.export)
                     } label: {
                         Label("Export", systemImage: "square.and.arrow.up")
                     }
@@ -832,6 +832,11 @@ struct ProjectDetailView: View {
 
     private var totalTokens: Int {
         (project.pipelineJobs ?? []).reduce(0) { $0 + $1.tokenUsage }
+    }
+
+    private func openProjectArea(_ item: SidebarItem) {
+        AppState.shared.open(item, project: project)
+        dismiss()
     }
 
     @ViewBuilder

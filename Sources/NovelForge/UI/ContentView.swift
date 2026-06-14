@@ -17,6 +17,7 @@ final class AppState: ObservableObject {
         if let project {
             selectedProject = project
         }
+        pendingProjectDetail = nil
         selectedSidebarItem = item
     }
 
@@ -86,6 +87,7 @@ struct ContentView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .id(appState.selectedSidebarItem)
         }
         .sheet(isPresented: $showingNewBookSheet) {
             NewBookWizardView(onStarted: {
@@ -128,7 +130,7 @@ struct StudioSidebar: View {
                                                       isSelected: appState.selectedSidebarItem == item,
                                                       badge: badge(for: item)) {
                                             withAnimation(.snappy(duration: 0.18)) {
-                                                appState.selectedSidebarItem = item
+                                                appState.open(item)
                                             }
                                         }
                                     }
