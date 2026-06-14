@@ -182,7 +182,6 @@ struct DashboardView: View {
             Image(systemName: "gearshape.2.fill")
                 .font(.title3)
                 .foregroundStyle(StudioTheme.cyan)
-                .symbolEffect(.pulse)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Produktion läuft: \(orchestrator.currentProject?.title ?? "")")
                     .font(.headline)
@@ -229,8 +228,7 @@ struct DashboardView: View {
                     .foregroundStyle(StudioTheme.textMuted)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(14)
-                    .background(StudioTheme.surfaceDeep.opacity(0.44), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(StudioTheme.hairline, lineWidth: 1))
+                    .studioGlassTile(cornerRadius: 8, accent: StudioTheme.cyan, opacity: 0.82)
             } else {
                 ForEach(activeProjects.prefix(5)) { project in
                     Button {
@@ -260,8 +258,7 @@ struct DashboardView: View {
                     .foregroundStyle(StudioTheme.textMuted)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(14)
-                    .background(StudioTheme.surfaceDeep.opacity(0.44), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(StudioTheme.hairline, lineWidth: 1))
+                    .studioGlassTile(cornerRadius: 8, accent: StudioTheme.lime, opacity: 0.82)
             } else {
                 ForEach(completedProjects.prefix(5)) { project in
                     Button {
@@ -285,8 +282,7 @@ struct DashboardView: View {
                     .font(.system(size: 28, weight: .semibold))
                     .foregroundStyle(StudioTheme.heroGradient)
                     .frame(width: 44, height: 44)
-                    .background(StudioTheme.surfaceDeep.opacity(0.58), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(StudioTheme.hairline, lineWidth: 1))
+                    .studioGlassTile(cornerRadius: 8, accent: StudioTheme.violet)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Noch kein Buchprojekt")
                         .font(.title3.weight(.semibold))
@@ -353,8 +349,7 @@ struct DashboardView: View {
         }
         .padding(11)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(StudioTheme.surfaceDeep.opacity(0.42), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(StudioTheme.hairline, lineWidth: 1))
+        .studioGlassTile(cornerRadius: 8, accent: color, opacity: 0.86)
     }
 }
 
@@ -419,8 +414,7 @@ struct ProjectCard: View {
             }
         }
         .padding(14)
-        .background(StudioTheme.surfaceDeep.opacity(0.36), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(StudioTheme.hairline, lineWidth: 1))
+        .studioGlassTile(cornerRadius: 8, accent: StudioTheme.cyan, opacity: 0.86)
     }
 }
 
@@ -444,8 +438,7 @@ struct CompletedProjectCard: View {
                 .foregroundStyle(StudioTheme.lime)
         }
         .padding(14)
-        .background(StudioTheme.surfaceDeep.opacity(0.36), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(StudioTheme.hairline, lineWidth: 1))
+        .studioGlassTile(cornerRadius: 8, accent: StudioTheme.lime, opacity: 0.86)
     }
 }
 
@@ -634,8 +627,7 @@ struct ProjectListRow: View {
             }
         }
         .padding(12)
-        .background(StudioTheme.surfaceDeep.opacity(0.34), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(StudioTheme.hairline, lineWidth: 1))
+        .studioGlassTile(cornerRadius: 8, accent: StudioTheme.cyan, opacity: 0.88)
     }
 }
 
@@ -870,8 +862,7 @@ struct ProjectDetailView: View {
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(StudioTheme.surfaceDeep.opacity(0.42), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(StudioTheme.hairline, lineWidth: 1))
+                .studioGlassTile(cornerRadius: 8, accent: StudioTheme.violet, opacity: 0.86)
             }
         }
     }
@@ -907,8 +898,7 @@ struct ProjectDetailView: View {
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(StudioTheme.surfaceDeep.opacity(0.42), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(StudioTheme.hairline, lineWidth: 1))
+                .studioGlassTile(cornerRadius: 8, accent: StudioTheme.cyan, opacity: 0.86)
             }
         }
     }
@@ -976,7 +966,6 @@ struct InfoTile: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
-        .background(StudioTheme.surfaceDeep.opacity(0.42), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(StudioTheme.hairline, lineWidth: 1))
+        .studioGlassTile(cornerRadius: 8, accent: StudioTheme.violet, opacity: 0.82)
     }
 }

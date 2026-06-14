@@ -173,7 +173,7 @@ struct StudioSidebar: View {
                         .foregroundStyle(.black.opacity(0.84))
                 }
                 .frame(width: 38, height: 38)
-                .shadow(color: StudioTheme.cyan.opacity(0.28), radius: 16, y: 8)
+                .shadow(color: StudioTheme.cyan.opacity(0.18), radius: 8, y: 4)
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text("NovelForge")
@@ -280,7 +280,12 @@ struct SidebarButton: View {
             .background {
                 if isSelected {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(.ultraThinMaterial)
+                        .fill(
+                            LinearGradient(colors: [
+                                StudioTheme.cyan.opacity(0.16),
+                                StudioTheme.glassInk.opacity(0.20)
+                            ], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        )
                         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .fill(StudioTheme.cyan.opacity(0.12)))
                         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -484,8 +489,7 @@ struct ProductionView: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(StudioTheme.surfaceDeep.opacity(0.42), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(StudioTheme.hairline, lineWidth: 1))
+        .studioGlassTile(cornerRadius: 8, accent: color, opacity: 0.86)
     }
 
     private var unlimitedBanner: some View {
@@ -494,7 +498,6 @@ struct ProductionView: View {
                 Image(systemName: "infinity.circle.fill")
                     .font(.title2)
                     .foregroundStyle(StudioTheme.heroGradient)
-                    .symbolEffect(.pulse)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Dauerproduktion aktiv – läuft bis Stopp")
                         .font(.headline)
@@ -843,8 +846,7 @@ struct WorkerStatusChip: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(StudioTheme.surfaceDeep.opacity(0.38), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(StudioTheme.hairline, lineWidth: 1))
+        .studioGlassTile(cornerRadius: 8, accent: StudioTheme.cyan, opacity: 0.82)
     }
 }
 
@@ -865,7 +867,6 @@ struct PipelineProgressView: View {
                 Image(systemName: "gearshape.2.fill")
                     .font(.title)
                     .foregroundStyle(StudioTheme.cyan)
-                    .symbolEffect(.pulse)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(orchestrator.currentProject?.title ?? "Buchproduktion")
@@ -940,7 +941,6 @@ struct PipelineProgressView: View {
                         } else if index == currentPhaseIndex {
                             Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
                                 .foregroundStyle(StudioTheme.cyan)
-                                .symbolEffect(.pulse)
                         } else {
                             Image(systemName: "circle")
                                 .foregroundStyle(StudioTheme.textFaint)
