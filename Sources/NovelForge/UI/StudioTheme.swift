@@ -14,6 +14,8 @@ enum StudioTheme {
     static let surface = Color(red: 0.060, green: 0.070, blue: 0.092)
     static let surfaceElevated = Color(red: 0.095, green: 0.110, blue: 0.145)
     static let surfaceDeep = Color(red: 0.030, green: 0.036, blue: 0.050)
+    static let glassBase = Color(red: 0.020, green: 0.026, blue: 0.038)
+    static let glassInk = Color(red: 0.006, green: 0.010, blue: 0.018)
     static let hairline = Color.white.opacity(0.12)
     static let hairlineBright = Color.white.opacity(0.24)
     static let textMuted = Color.white.opacity(0.66)
@@ -51,9 +53,9 @@ enum StudioTheme {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .strokeBorder(
                 LinearGradient(colors: [
-                    Color.white.opacity(0.30),
-                    accent.opacity(0.26),
-                    Color.white.opacity(0.07)
+                    Color.white.opacity(0.54),
+                    accent.opacity(0.34),
+                    Color.white.opacity(0.08)
                 ], startPoint: .topLeading, endPoint: .bottomTrailing),
                 lineWidth: 1
             )
@@ -65,16 +67,43 @@ struct StudioBackground: View {
         ZStack {
             LinearGradient(colors: [StudioTheme.pageTop, StudioTheme.pageMiddle, StudioTheme.pageBottom],
                            startPoint: .top, endPoint: .bottom)
-            RadialGradient(colors: [StudioTheme.cyan.opacity(0.20), .clear],
+            RadialGradient(colors: [StudioTheme.cyan.opacity(0.24), .clear],
                            center: UnitPoint(x: 0.10, y: 0.02), startRadius: 20, endRadius: 680)
-            RadialGradient(colors: [StudioTheme.violet.opacity(0.18), .clear],
+            RadialGradient(colors: [StudioTheme.violet.opacity(0.22), .clear],
                            center: UnitPoint(x: 0.88, y: 0.20), startRadius: 40, endRadius: 760)
-            RadialGradient(colors: [StudioTheme.lime.opacity(0.10), .clear],
+            RadialGradient(colors: [StudioTheme.lime.opacity(0.14), .clear],
                            center: UnitPoint(x: 0.70, y: 1.05), startRadius: 40, endRadius: 620)
+            StudioBackdropGrid()
+                .opacity(0.42)
             Rectangle()
-                .fill(.black.opacity(0.22))
+                .fill(.black.opacity(0.34))
         }
         .ignoresSafeArea()
+    }
+}
+
+struct StudioBackdropGrid: View {
+    var body: some View {
+        Canvas { context, size in
+            var vertical = Path()
+            var x: CGFloat = 0
+            while x <= size.width {
+                vertical.move(to: CGPoint(x: x, y: 0))
+                vertical.addLine(to: CGPoint(x: x, y: size.height))
+                x += 46
+            }
+
+            var horizontal = Path()
+            var y: CGFloat = 0
+            while y <= size.height {
+                horizontal.move(to: CGPoint(x: 0, y: y))
+                horizontal.addLine(to: CGPoint(x: size.width, y: y))
+                y += 46
+            }
+
+            context.stroke(vertical, with: .color(.white.opacity(0.035)), lineWidth: 0.6)
+            context.stroke(horizontal, with: .color(StudioTheme.cyan.opacity(0.025)), lineWidth: 0.6)
+        }
     }
 }
 
@@ -83,34 +112,67 @@ private struct GlassSurface: ViewModifier {
     var bloom: CGFloat
     var tint: Color?
     var accent: Color
+    var materialOpacity: Double
+    var isInteractiveGlass: Bool
 
     func body(content: Content) -> some View {
         content
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(.ultraThinMaterial)
+                    .fill(StudioTheme.glassBase.opacity(isInteractiveGlass ? 0.58 : 0.72))
                     .overlay(
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill((tint ?? StudioTheme.surfaceElevated).opacity(tint == nil ? 0.44 : 0.18))
+                            .fill(.ultraThinMaterial)
+                            .opacity(materialOpacity)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(
+                                LinearGradient(colors: [
+                                    Color.white.opacity(isInteractiveGlass ? 0.13 : 0.08),
+                                    (tint ?? accent).opacity(isInteractiveGlass ? 0.06 : 0.035),
+                                    StudioTheme.glassInk.opacity(0.50)
+                                ], startPoint: .topLeading, endPoint: .bottomTrailing)
+                            )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(
+                                LinearGradient(colors: [
+                                    Color.white.opacity(0.06),
+                                    Color.clear,
+                                    StudioTheme.glassInk.opacity(0.48)
+                                ], startPoint: .top, endPoint: .bottom)
+                            )
                     )
                     .overlay(alignment: .top) {
-                        LinearGradient(colors: [.white.opacity(0.22), .clear],
+                        LinearGradient(colors: [.white.opacity(0.30), .white.opacity(0.08), .clear],
                                        startPoint: .top, endPoint: .bottom)
-                            .frame(height: cornerRadius * 1.4)
-                            .blur(radius: 3)
+                            .frame(height: max(18, cornerRadius * 1.8))
+                            .mask(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                    }
+                    .overlay(alignment: .topLeading) {
+                        RadialGradient(colors: [accent.opacity(isInteractiveGlass ? 0.26 : 0.16), .clear],
+                                       center: .topLeading, startRadius: 8, endRadius: 240)
                             .mask(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                     }
                     .overlay(alignment: .leading) {
-                        LinearGradient(colors: [accent.opacity(0.22), .clear],
+                        LinearGradient(colors: [accent.opacity(isInteractiveGlass ? 0.20 : 0.12), .clear],
                                        startPoint: .leading, endPoint: .trailing)
-                            .frame(width: 70)
-                            .blur(radius: 14)
+                            .frame(width: 96)
+                            .blur(radius: isInteractiveGlass ? 8 : 2)
                             .mask(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                     }
             )
             .overlay { StudioTheme.glassEdge(cornerRadius, accent: accent) }
-            .shadow(color: Color.black.opacity(0.38), radius: 22, x: 0, y: 18)
-            .shadow(color: accent.opacity(0.16 * Double(bloom)), radius: 18 * bloom, x: 0, y: 10)
+            .overlay(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.white.opacity(0.09), lineWidth: 3)
+                    .blur(radius: 3)
+                    .mask(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            }
+            .shadow(color: Color.black.opacity(0.42), radius: isInteractiveGlass ? 22 : 13, x: 0, y: isInteractiveGlass ? 16 : 9)
+            .shadow(color: accent.opacity(0.14 * Double(bloom)), radius: (isInteractiveGlass ? 18 : 9) * bloom, x: 0, y: 8)
     }
 }
 
@@ -118,8 +180,15 @@ private extension View {
     func glassSurface(cornerRadius: CGFloat,
                       bloom: CGFloat = 1,
                       tint: Color? = nil,
-                      accent: Color = StudioTheme.cyan) -> some View {
-        modifier(GlassSurface(cornerRadius: cornerRadius, bloom: bloom, tint: tint, accent: accent))
+                      accent: Color = StudioTheme.cyan,
+                      materialOpacity: Double = 0.10,
+                      isInteractiveGlass: Bool = false) -> some View {
+        modifier(GlassSurface(cornerRadius: cornerRadius,
+                              bloom: bloom,
+                              tint: tint,
+                              accent: accent,
+                              materialOpacity: materialOpacity,
+                              isInteractiveGlass: isInteractiveGlass))
     }
 }
 
@@ -128,7 +197,11 @@ struct StudioPanel: ViewModifier {
     var accent: Color = StudioTheme.cyan
 
     func body(content: Content) -> some View {
-        content.glassSurface(cornerRadius: cornerRadius, bloom: 0.7, accent: accent)
+        content.glassSurface(cornerRadius: cornerRadius,
+                             bloom: 0.45,
+                             accent: accent,
+                             materialOpacity: 0.06,
+                             isInteractiveGlass: false)
     }
 }
 
@@ -137,7 +210,12 @@ struct StudioFeaturedPanel: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .glassSurface(cornerRadius: cornerRadius, bloom: 1.35, tint: StudioTheme.surfaceElevated, accent: StudioTheme.cyan)
+            .glassSurface(cornerRadius: cornerRadius,
+                          bloom: 1.05,
+                          tint: StudioTheme.surfaceElevated,
+                          accent: StudioTheme.cyan,
+                          materialOpacity: 0.16,
+                          isInteractiveGlass: true)
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(StudioTheme.brandGradient.opacity(0.55), lineWidth: 1.5)
@@ -198,7 +276,9 @@ struct StudioSecondaryButtonStyle: ButtonStyle {
             .glassSurface(cornerRadius: 8,
                           bloom: configuration.isPressed ? 0.35 : 0.8,
                           tint: StudioTheme.surfaceElevated,
-                          accent: isEnabled ? accent : .gray)
+                          accent: isEnabled ? accent : .gray,
+                          materialOpacity: 0.10,
+                          isInteractiveGlass: true)
             .opacity(isEnabled ? 1 : 0.55)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)

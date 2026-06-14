@@ -113,29 +113,35 @@ struct StudioSidebar: View {
     var body: some View {
         ZStack {
             StudioBackground()
-            VStack(alignment: .leading, spacing: 18) {
-                brandHeader
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        brandHeader
 
-                VStack(alignment: .leading, spacing: 16) {
-                    ForEach(sections, id: \.0) { section in
-                        VStack(alignment: .leading, spacing: 7) {
-                            StudioSectionLabel(text: section.0)
-                                .padding(.horizontal, 4)
-                            ForEach(section.1) { item in
-                                SidebarButton(item: item,
-                                              isSelected: appState.selectedSidebarItem == item,
-                                              badge: badge(for: item)) {
-                                    withAnimation(.snappy(duration: 0.18)) {
-                                        appState.selectedSidebarItem = item
+                        VStack(alignment: .leading, spacing: 16) {
+                            ForEach(sections, id: \.0) { section in
+                                VStack(alignment: .leading, spacing: 7) {
+                                    StudioSectionLabel(text: section.0)
+                                        .padding(.horizontal, 4)
+                                    ForEach(section.1) { item in
+                                        SidebarButton(item: item,
+                                                      isSelected: appState.selectedSidebarItem == item,
+                                                      badge: badge(for: item)) {
+                                            withAnimation(.snappy(duration: 0.18)) {
+                                                appState.selectedSidebarItem = item
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                }
 
-                Spacer(minLength: 16)
-                productionCapsule
+                        productionCapsule
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .scrollIndicators(.hidden)
 
                 Button {
                     showingNewBookSheet = true
@@ -144,8 +150,14 @@ struct StudioSidebar: View {
                 }
                 .buttonStyle(StudioPrimaryButtonStyle())
                 .keyboardShortcut("n", modifiers: .command)
+                .padding(16)
+                .background(StudioTheme.glassInk.opacity(0.72))
+                .overlay(alignment: .top) {
+                    LinearGradient(colors: [StudioTheme.hairlineBright, .clear],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(height: 1)
+                }
             }
-            .padding(16)
         }
         .frame(minWidth: 238, maxWidth: 310, maxHeight: .infinity, alignment: .topLeading)
     }
