@@ -67,6 +67,27 @@ final class QualityScoreTests: XCTestCase {
         XCTAssertLessThan(scores.kdp, 0.2)
     }
 
+    func testProjectTotalWordCountUsesFastChapterCounts() throws {
+        let (container, project) = try makeProject()
+        defer { _ = container }
+
+        project.chapters = []
+        let first = Chapter(chapterNumber: 1, title: "Eins", goal: "Ziel", targetWordCount: 5000)
+        let second = Chapter(chapterNumber: 2, title: "Zwei", goal: "Ziel", targetWordCount: 5000)
+        first.actualWordCount = 4_000
+        second.actualWordCount = 5_000
+        first.finalText = Array(repeating: "Wort", count: 20_000).joined(separator: " ")
+        second.finalText = Array(repeating: "Wort", count: 20_000).joined(separator: " ")
+        first.project = project
+        second.project = project
+        project.chapters?.append(first)
+        project.chapters?.append(second)
+        container.mainContext.insert(first)
+        container.mainContext.insert(second)
+
+        XCTAssertEqual(project.totalWordCount, 9_000)
+    }
+
     func testConsistencyScoreDropsWithSevereIssues() throws {
         let (container, project) = try makeProject()
         defer { _ = container }

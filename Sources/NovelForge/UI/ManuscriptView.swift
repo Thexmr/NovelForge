@@ -83,7 +83,7 @@ struct ManuscriptView: View {
                                             .foregroundStyle(.secondary)
                                     }
                                     Spacer()
-                                    Text("\(FormattingHelpers.formatWordCount(chapter.computedWordCount))")
+                                    Text("\(FormattingHelpers.formatWordCount(chapter.displayWordCount))")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                         .monospacedDigit()
@@ -138,10 +138,11 @@ struct ManuscriptView: View {
     }
 }
 
-/// Liest das gesamte Buch als durchgehenden Lesefluss (Serifen-Typografie,
-/// zentrierte Szenentrenner, Lesezeit-Anzeige).
+/// Liest große Bücher kapitelweise, damit 500-Seiten-Manuskripte nicht komplett
+/// auf einmal gelayoutet werden.
 struct BookReaderView: View {
     let project: Project
+    @State private var selectedIndex = 0
 
     private var chapters: [Chapter] {
         (project.chapters ?? []).sorted { $0.chapterNumber < $1.chapterNumber }
@@ -156,25 +157,58 @@ struct BookReaderView: View {
     }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 16) {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(project.title)
-                        .font(.system(.largeTitle, design: .serif))
-                        .fontWeight(.bold)
-                    Text("\(project.authorName) · \(FormattingHelpers.formatWordCount(project.totalWordCount)) Wörter · Lesezeit ca. \(readingTimeText)")
+                        .font(.title2.weight(.semibold))
+                        .lineLimit(1)
+                    Text("\(project.authorName) · \(FormattingHelpers.formatWordCount(project.totalWordCount)) Wörter · \(chapters.count) Kapitel · Lesezeit ca. \(readingTimeText)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                .padding(.bottom, 16)
 
-                ForEach(chapters) { chapter in
-                    ChapterReaderSection(chapter: chapter)
+                Spacer()
+
+                if !chapters.isEmpty {
+                    Text("Kapitel \(selectedIndex + 1) / \(chapters.count)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+
+                    Button {
+                        selectedIndex = max(0, selectedIndex - 1)
+                    } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                    .disabled(selectedIndex == 0)
+
+                    Button {
+                        selectedIndex = min(chapters.count - 1, selectedIndex + 1)
+                    } label: {
+                        Image(systemName: "chevron.right")
+                    }
+                    .disabled(selectedIndex >= chapters.count - 1)
                 }
             }
-            .padding(32)
-            .frame(maxWidth: 720, alignment: .leading)
-            .frame(maxWidth: .infinity)
+            .padding(12)
+            .background(.bar)
+
+            Divider()
+
+            if chapters.isEmpty {
+                ContentUnavailableView("Noch keine Kapitel", systemImage: "doc.text")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                let chapter = chapters[min(selectedIndex, chapters.count - 1)]
+                ScrollView {
+                    ChapterReaderSection(chapter: chapter)
+                        .padding(32)
+                        .frame(maxWidth: 720, alignment: .leading)
+                        .frame(maxWidth: .infinity)
+                }
+                .id(chapter.id)
+            }
         }
     }
 }
@@ -195,19 +229,24 @@ struct ChapterReaderSection: View {
                 .font(.system(.title, design: .serif))
                 .fontWeight(.semibold)
                 .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.top, 32)
+                .padding(.top, 12)
 
-            ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, paragraph in
-                if paragraph.replacingOccurrences(of: " ", with: "") == "***" {
-                    Text("* * *")
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, 4)
-                } else {
-                    Text(paragraph)
-                        .font(.system(.body, design: .serif))
-                        .lineSpacing(7)
-                        .textSelection(.enabled)
+            if paragraphs.isEmpty {
+                Text("Für dieses Kapitel liegt noch kein Text vor.")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, paragraph in
+                    if paragraph.replacingOccurrences(of: " ", with: "") == "***" {
+                        Text("* * *")
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, 4)
+                    } else {
+                        Text(paragraph)
+                            .font(.system(.body, design: .serif))
+                            .lineSpacing(7)
+                            .textSelection(.enabled)
+                    }
                 }
             }
         }
@@ -233,7 +272,7 @@ struct ChapterDetailView: View {
 
                 Spacer()
 
-                Text("\(FormattingHelpers.formatWordCount(chapter.computedWordCount)) Wörter")
+                Text("\(FormattingHelpers.formatWordCount(chapter.displayWordCount)) Wörter")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

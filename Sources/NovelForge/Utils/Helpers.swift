@@ -111,7 +111,7 @@ enum TrimSize: String, CaseIterable, Identifiable {
 
 extension Project {
     var totalWordCount: Int {
-        (chapters ?? []).reduce(0) { $0 + $1.computedWordCount }
+        (chapters ?? []).reduce(0) { $0 + $1.displayWordCount }
     }
 
     var trimSize: TrimSize {

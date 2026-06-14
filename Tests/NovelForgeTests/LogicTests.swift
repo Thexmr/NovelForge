@@ -92,6 +92,15 @@ final class LogicTests: XCTestCase {
         XCTAssertFalse(models.contains("minimax-m2.5:cloud"))
     }
 
+    func testDisplayWordCountPrefersStoredCountForLargeChapters() {
+        let chapter = Chapter(chapterNumber: 1, title: "Langkapitel",
+                              goal: "Ziel", targetWordCount: 5000)
+        chapter.actualWordCount = 4321
+        chapter.finalText = Array(repeating: "Wort", count: 12_000).joined(separator: " ")
+
+        XCTAssertEqual(chapter.displayWordCount, 4321)
+    }
+
     func testOllamaCloudBestModelKeepsValidPreferredModels() {
         // Ein bereits gültiges Schreib-Modell wird NIE verworfen.
         XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "kimi-k2.6"), "kimi-k2.6")

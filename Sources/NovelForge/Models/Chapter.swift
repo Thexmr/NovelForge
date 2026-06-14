@@ -64,6 +64,22 @@ final class Chapter {
     var computedWordCount: Int {
         return bestText?.wordCount ?? 0
     }
+
+    /// Schneller Zähler für Listen, Dashboards und Fortschrittsanzeigen.
+    /// Die teurere `bestText`-Bereinigung wird erst beim tatsächlichen Lesen/Export gebraucht.
+    var displayWordCount: Int {
+        if actualWordCount > 0 { return actualWordCount }
+        return rawBestTextWordCount
+    }
+
+    private var rawBestTextWordCount: Int {
+        if let text = finalText, !text.isEmpty { return text.wordCount }
+        if let text = revisedText, !text.isEmpty { return text.wordCount }
+        if let text = draftText, !text.isEmpty { return text.wordCount }
+        return (scenes ?? [])
+            .compactMap { $0.text?.wordCount }
+            .reduce(0, +)
+    }
 }
 
 enum ChapterStatus: String, Codable {
