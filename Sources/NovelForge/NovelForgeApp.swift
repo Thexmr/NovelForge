@@ -33,7 +33,8 @@ struct NovelForgeApp: App {
             Chapter.self,
             StoryScene.self,
             PipelineJob.self,
-            QualityReport.self
+            QualityReport.self,
+            ChatMessage.self
         ])
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1280, height: 840)

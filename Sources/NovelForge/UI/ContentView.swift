@@ -35,6 +35,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
     case agents = "Agenten-Monitor"
     case manuscript = "Manuskript"
     case storyBible = "Story Bible"
+    case editorChat = "Lektor"
     case export = "Export"
     case settings = "Einstellungen"
 
@@ -48,6 +49,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         case .agents: return "cpu"
         case .manuscript: return "doc.text"
         case .storyBible: return "book.closed"
+        case .editorChat: return "text.bubble"
         case .export: return "square.and.arrow.up"
         case .settings: return "gear"
         }
@@ -97,6 +99,8 @@ struct ContentView: View {
             ManuscriptView()
         case .storyBible:
             StoryBibleView()
+        case .editorChat:
+            EditorChatView()
         case .export:
             ExportView()
         case .settings:
@@ -114,7 +118,7 @@ struct StudioSidebar: View {
 
     private let sections: [(String, [SidebarItem])] = [
         ("Studio", [.dashboard, .projects, .production, .agents]),
-        ("Inhalt", [.manuscript, .storyBible]),
+        ("Inhalt", [.manuscript, .storyBible, .editorChat]),
         ("Ausgabe", [.export]),
         ("System", [.settings])
     ]

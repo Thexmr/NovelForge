@@ -214,6 +214,56 @@ final class PipelineOrchestrator: ObservableObject {
         self.modelContext = context
     }
 
+    // MARK: - Lektor-Chat (Korrekturen & Wünsche nach Fertigstellung)
+
+    /// Verarbeitet eine Chat-Nachricht zum Buch. Ist ein Kapitel gewählt, wird es
+    /// exakt nach dem Wunsch überarbeitet und gespeichert; sonst wird die Frage
+    /// bzw. der Wunsch beantwortet. Gibt die Antwort des Lektors zurück.
+    func processEditorMessage(_ text: String, project: Project, chapter: Chapter?) async -> String {
+        let config = ProviderSettingsStore.configuration(for: project)
+        let model = config.defaultModel ?? config.provider.suggestedModels.first ?? ""
+        let chapters = sortedChapters(project)
+        let bookContext = "Titel: \(project.title)\nGenre: \(project.genre)\nKapitel:\n"
+            + chapters.map { "  \($0.chapterNumber). \($0.title)" }.joined(separator: "\n")
+
+        do {
+            if let chapter, let current = chapter.bestText, !current.isEmpty {
+                let request = GenerationRequest(
+                    prompt: PromptFactory.editorRevise(instruction: text, chapterTitle: chapter.title,
+                                                       language: project.language,
+                                                       currentText: current.truncated(to: 14000)),
+                    systemPrompt: "Du bist ein erfahrener Lektor und Überarbeiter. Du setzt Autorenwünsche präzise um.",
+                    model: model, provider: config.provider, maxTokens: 8000, temperature: 0.6
+                )
+                let response = try await gateway.generateText(request: request, configuration: config)
+                let revised = AutonomousContentQuality.humanizeProse(
+                    AutonomousContentQuality.strippingPromptArtifacts(response.text))
+                guard revised.wordCount >= max(50, current.wordCount / 3),
+                      !AutonomousContentQuality.containsMetaRequest(revised) else {
+                    return "Die Überarbeitung kam unvollständig zurück. Formuliere den Wunsch gern konkreter oder versuch es noch einmal."
+                }
+                chapter.finalText = revised
+                chapter.actualWordCount = revised.wordCount
+                chapter.updatedAt = Date()
+                project.updatedAt = Date()
+                try? modelContext?.save()
+                return "Erledigt: Kapitel \(chapter.chapterNumber) „\(chapter.title)“ wurde nach deinem Wunsch überarbeitet (\(revised.wordCount) Wörter). Du siehst es im Manuskript."
+            } else {
+                let request = GenerationRequest(
+                    prompt: PromptFactory.editorChat(instruction: text, bookContext: bookContext),
+                    systemPrompt: "Du bist der Lektor dieses Buches und hilfst dem Autor freundlich und konkret.",
+                    model: model, provider: config.provider, maxTokens: 1200, temperature: 0.7
+                )
+                let response = try await gateway.generateText(request: request, configuration: config)
+                let reply = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                return reply.isEmpty ? "Dazu habe ich gerade keine Antwort. Formuliere es bitte anders." : reply
+            }
+        } catch {
+            let message = (error as? AIError)?.errorDescription ?? error.localizedDescription
+            return "Fehler bei der Lektor-Anfrage: \(message)"
+        }
+    }
+
     // MARK: - Steuerung
 
     func startPipeline(project: Project, providerConfig: ProviderConfiguration) {

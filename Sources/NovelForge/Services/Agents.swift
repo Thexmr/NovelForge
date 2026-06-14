@@ -400,6 +400,37 @@ enum PromptFactory {
         \(text)
         """
     }
+
+    /// Lektor-Chat: Frage zum Buch beantworten oder Wunsch besprechen.
+    static func editorChat(instruction: String, bookContext: String) -> String {
+        """
+        Du bist der Lektor des folgenden Romans und hilfst dem Autor. Antworte konkret, \
+        ehrlich und auf Deutsch. Wenn der Autor eine Änderung an einem bestimmten Kapitel \
+        wünscht, sage ihm, dass er das Kapitel links auswählen kann, damit du es direkt \
+        überarbeitest. Halte dich kurz.
+
+        BUCH:
+        \(bookContext)
+
+        AUTOR: \(instruction)
+        """
+    }
+
+    /// Lektor-Revision: ein Kapitel exakt nach dem Wunsch des Autors überarbeiten.
+    static func editorRevise(instruction: String, chapterTitle: String, language: String, currentText: String) -> String {
+        """
+        Überarbeite das folgende Kapitel „\(chapterTitle)“ eines Romans GENAU nach diesem Wunsch des Autors:
+        WUNSCH: \(instruction)
+
+        Behalte Handlung, Figuren und Kontinuität bei; ändere nur, was der Wunsch verlangt. \
+        Schreibe lebendige Prosa auf \(language), Bestseller-Niveau, ohne Floskeln und ohne \
+        Gedankenstriche als Stilmittel. Gib AUSSCHLIESSLICH den vollständigen überarbeiteten \
+        Kapiteltext aus – keine Anweisungen, Labels, Überschriften oder Erklärungen.
+
+        AKTUELLER KAPITELTEXT:
+        \(currentText)
+        """
+    }
 }
 
 // MARK: - Parser für strukturierte Agenten-Antworten
