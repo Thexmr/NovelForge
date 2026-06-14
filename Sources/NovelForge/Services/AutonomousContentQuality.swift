@@ -308,6 +308,30 @@ enum AutonomousContentQuality {
         "tief in ihrem innersten", "tief in seinem inneren", "in ihrem innersten", "sondern vielmehr",
         "auf gewisse weise", "auf seltsame weise", "auf unerklärliche weise", "wie aus dem nichts",
         "ein zeichen ihrer unsicherheit", "ein zeichen seiner nervosität", "verriet ihre nervosität",
+        "nicht benennen konnte", "nicht benennen wollte", "nicht in worte fassen",
+        "das sie nicht benennen", "das er nicht benennen",
+        // Aus der Diagnose echter Bücher ergänzt (Mehrwort-Floskeln; abstrakte
+        // Leitsubstantive wie Kontrolle/Nähe bewusst NICHT hier, sondern im Prompt
+        // frequenzbegrenzt, sonst würden sie gute Prosa fälschlich markieren).
+        "als hätte jemand", "als ob jemand", "als hätte man", "wie ein krankheitsbild",
+        "wie in trance", "wie betäubt", "wie ferngesteuert", "wie von selbst",
+        "etwas zog sich in ihr zusammen", "etwas brach in ihr", "etwas verschob sich zwischen ihnen",
+        "ein gefühl, das sie nicht einordnen konnte", "ein gefühl, das sie nicht kannte",
+        "sie konnte es nicht in worte fassen", "sie hätte es nicht erklären können",
+        "irgendetwas an ihm", "irgendetwas an ihr", "ein stich von eifersucht", "ein stich von schuld",
+        "ein knoten im magen", "ihr herz zog sich zusammen", "eine seltsame vertrautheit",
+        "merkwürdig vertraut", "ein wohliges kribbeln", "ein kribbeln im bauch",
+        "schmetterlinge im bauch", "tausend schmetterlinge", "still und reglos", "leer und kalt",
+        "fremd und vertraut zugleich", "roh und ehrlich", "zart und zerbrechlich",
+        "klar und unmissverständlich", "müde und ausgelaugt", "nah und doch fern",
+        "ihre blicke trafen sich", "ihre blicke begegneten sich", "die luft zwischen ihnen knisterte",
+        "es knisterte zwischen ihnen", "die anziehung zwischen ihnen war greifbar",
+        "die spannung zwischen ihnen war greifbar", "ein magnetischer sog",
+        "sein blick bohrte sich in ihren", "sein blick durchbohrte sie", "die stille war ohrenbetäubend",
+        "die dunkelheit legte sich wie ein mantel", "ein lächeln, das ihre augen nicht erreichte",
+        "ein lächeln, das seine augen nicht erreichte", "die welt um sie herum verschwand",
+        "alles andere verblasste", "beinahe zärtlich", "fast schon zärtlich",
+        "für den bruchteil einer sekunde", "den bruchteil einer sekunde lang",
         "unweigerlich", "zweifellos", "gleichsam", "nichtsdestotrotz"
     ]
 

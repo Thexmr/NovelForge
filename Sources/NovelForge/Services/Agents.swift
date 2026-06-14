@@ -167,6 +167,7 @@ enum PromptFactory {
         Geschichte kreist NICHT um einen Beruf/Arbeitsplatz als Hauptthema; ein Beruf ist höchstens \
         Kulisse. Bei Liebesroman/Erotik treiben Beziehung und Begehren den Plot (mit der Hitze, die \
         das Genre verlangt), nicht ein nebenbei erzähltes Alltagsleben.
+        \(romanceGenreContract(genre))
 
         Antworte ausschließlich in diesem Format (Labels exakt so verwenden):
         PRÄMISSE: [1-2 Sätze]
@@ -299,7 +300,29 @@ enum PromptFactory {
         - STIMME & EIGENHEIT: Gib der Erzählstimme eine feste Marotte (ein schräges Lieblingswort, einen wiederkehrenden Vergleich aus der Erfahrungswelt genau dieser Figur). Vergleiche nur mit Bildern aus dem Leben DIESER Figur. Greif gelegentlich zu einem unerwarteten, milieuspezifischen Wort, einem echten Orts- oder Markennamen, einer exakten Uhrzeit. Meide die glatteste, wahrscheinlichste Vokabel.
         - WIEDERHOLUNG DARF SEIN: „sagte" darf mehrfach hintereinander stehen – kein Zwangs-Synonym-Karussell bei Redebegleitern („erwiderte/entgegnete/bemerkte" in Folge ist verboten).
         - SELEKTIVE SINNLICHKEIT & WETTER: Pro Moment EIN Sinneseindruck, gern ein unerwarteter – kein Geruch-Klang-Sicht-Inventar. Wetter und Umgebung spiegeln NICHT die Gefühlslage; es darf regnen, während jemand glücklich ist.
-        - SELBSTCHECK vor der Ausgabe (still, nicht in den Text schreiben): Endet ein Absatz auf einer Deutung? Drei gleich lange Sätze in Folge? Ein Gefühl benannt statt gezeigt? Eine Trikola oder ein „nicht X, sondern Y"? – umbauen. Gib nur die korrigierte Prosa aus.
+        - VERGLEICHS-KRÜCKE BEGRENZEN: „als hätte …", „als ob …", „als wäre …", „als würde …" sowie der Reflex-Vergleich „wie ein …" höchstens EINMAL pro Szene. Sonst das Konkrete unvermittelt hinstellen (statt „Ihre Hände zitterten, als hätte jemand die Kälte aufgedreht" lieber „Ihre Hände zitterten. Sie schob sie unter die Oberschenkel."). Keine vagen Innenschau-Formeln wie „etwas, das sie nicht benennen konnte/wollte", „etwas, das sie nicht in Worte fassen konnte" – benenne das Konkrete oder lass es weg.
+        - MOTIV NICHT HÄMMERN: Ein abstraktes Themen-Substantiv (z.B. Kontrolle, Nähe, Schweigen, Protokoll) NICHT als Leitmotiv wiederholen, und das Thema NIE als abstrakten Begriff aussprechen. Zeig es an konkreten Dingen, benenne es nie.
+        - SELBSTCHECK vor der Ausgabe (still, nicht in den Text schreiben): Endet ein Absatz auf einer Deutung? Drei gleich lange Sätze in Folge? Ein Gefühl benannt statt gezeigt? Eine Trikola oder ein „nicht X, sondern Y"? Mehr als ein „als hätte/wäre/würde"? – umbauen. Gib nur die korrigierte Prosa aus.
+        """
+    }
+
+    /// Konzeptphasen-Vertrag, der verhindert, dass aus einem Liebesroman/Erotik-Roman
+    /// ein Thriller mit Job-Plot (und einem Stalker als „Love Interest") wird.
+    /// Greift VOR der ersten Szene; leer für andere Genres.
+    static func romanceGenreContract(_ genre: String) -> String {
+        let g = genre.lowercased()
+        let isRomance = g.contains("liebes") || g.contains("romance")
+            || g.contains("erotik") || g.contains("erotic") || g.contains("spicy")
+        guard isRomance else { return "" }
+        return """
+
+        GENRE-VERTRAG LIEBESROMAN/EROTIK (verbindlich fürs Konzept):
+        - Die zentrale dramatische Frage MUSS eine Beziehungsfrage sein („Finden A und B zueinander / bleiben sie zusammen, obwohl …?"). Verboten als Kernfrage: „Wird das Netz/die Firma/die Stadt gerettet?", „Wird der Täter gefasst?", „Überlebt sie?".
+        - Streich-Test: Bliebe nach dem Entfernen der Liebesgeschichte ein funktionierender Plot übrig, ist das Konzept falsch. Äußerer Konflikt (Beruf, Krise, Gefahr) ist nur Bühne und Druckmittel, das die beiden zusammenzwingt, nie Selbstzweck.
+        - Der dunkle Moment ist ein Beziehungskonflikt (Stolz, Angst vor Nähe, Missverständnis, Vertrauensbruch), nicht Bombe, Anzeige oder Tod.
+        - Der Love Interest wird als rootbare Figur angelegt: eine Wunde, aktive Fürsorge, Respekt vor ihrer Autonomie, eine eigene anziehende Eigenschaft, selbst begehrt. Kein Stalker, kein heimliches Beobachten.
+        - Die Heldin ist Subjekt mit eigenem, aktivem Begehren (POV-Symmetrie), nie nur Objekt.
+        - Pflicht-Ende: emotional erfülltes Happy End (HEA oder HFN).
         """
     }
 
@@ -309,10 +332,10 @@ enum PromptFactory {
             return "GENRE-HANDWERK: Hohes Tempo. Spannung durch Wissensvorsprung oder -rückstand des Lesers. Jede Szene endet mit einem Haken. Kurze Sätze in Actionmomenten."
         }
         if g.contains("erotik") || g.contains("erotic") || g.contains("dark romance") || g.contains("spicy") {
-            return "GENRE-HANDWERK: Sinnliche Spannung und Begehren stehen im Zentrum. Intime und erotische Szenen sind ausdrücklich erwünscht und dürfen explizit und körperlich ausgeschrieben werden – auf dem Niveau zeitgenössischer Bestseller-Erotik (Fifty-Shades-Stil): einvernehmlich zwischen erwachsenen Figuren, geschmackvoll und konkret, nie vulgär, klinisch oder mechanisch. Baue das Verlangen langsam auf (Slow Burn), spannungsgeladene Nähe vor der Erfüllung. Chemie, Konsens und Emotion der Figuren tragen jede intime Szene. Keine illegalen oder nicht-einvernehmlichen Inhalte, keine Minderjährigen."
+            return "GENRE-HANDWERK: Die BEZIEHUNG der Hauptfiguren ist der Motor, nicht ein externer Thriller- oder Job-Plot. Jede Szene mit dem Love Interest bewegt das Paar um EINEN Schritt (Anziehung, Rückschlag, Verletzlichkeit, Begehren, Bruch, Wiederannäherung). Der Love Interest ist rootbar: begehrenswert, verletzlich, mit aktiver Fürsorge für die Heldin und Respekt vor ihrer Autonomie (er handelt MIT ihr, nie heimlich AN ihr) – KEIN Stalker/Täter; heimliches Beobachten, Schlaf-Überwachen oder jemanden „studieren wie ein Krankheitsbild“ ist nicht romantisch, sondern ein Genre-Fehler. Chemie ist gegenseitig: pro Begegnung mindestens ein Begehrens-Detail aus Sicht der Heldin. Slow Burn – Sehnsucht aus noch nicht eingelöster Nähe (Beinahe-Berührung, das Ungesagte, Wollen/Zögern/Erlauben); Gefahr ersetzt NIE die erotische Spannung. Intime und erotische Szenen sind ausdrücklich erwünscht und dürfen explizit und körperlich ausgeschrieben werden, auf Bestseller-Niveau (Fifty-Shades-Stil): einvernehmlich zwischen Erwachsenen, geschmackvoll, sinnlich (Haut, Temperatur, Geruch, Druck, Stimme), nie vulgär, klinisch oder als Körperteil-Inventar, auch in der Hitze aus der inneren Perspektive mit Subtext. Fachjargon nur Kulisse, max. 1-2 Sachbegriffe pro Szene. Keine illegalen oder nicht-einvernehmlichen Inhalte, keine Minderjährigen."
         }
         if g.contains("liebes") || g.contains("romance") {
-            return "GENRE-HANDWERK: Emotionale Innenwelt im Zentrum. Anziehung UND Hindernis müssen in jeder Begegnung spürbar sein. Dialoge leben von dem, was NICHT gesagt wird. Körperliche Nähe und Begehren dürfen sinnlich und, wo die Geschichte es trägt, auch explizit gezeigt werden."
+            return "GENRE-HANDWERK: Die LIEBESGESCHICHTE ist die Haupthandlung, nicht Beiwerk. Die zentrale Frage ist eine Beziehungsfrage (Finden die beiden zueinander, bleiben sie es?), kein Kriminalfall, keine Sabotage, kein Beruf. Faustregel: Ließe sich der Liebes-Strang herausschneiden und der Plot bliebe intakt, ist es kein Liebesroman. Jede Szene mit dem Love Interest bewegt das Paar um EINEN benennbaren Schritt (erster Funke, Anziehung gegen Widerstand, erzwungene Nähe, Verletzlich-Werden, Vertrauen, Begehren, Missverständnis, Geständnis, Bruch, Wiederannäherung); der dunkle Moment ist ein Beziehungs-Bruch (Stolz, Angst vor Nähe, Missverständnis), KEINE Bombe und keine Anzeige. Der Love Interest ist rootbar: eine menschliche Wunde, aktive Fürsorge für die Heldin, Respekt vor ihrer Autonomie (er handelt MIT ihr, nie heimlich AN ihr), eine eigene anziehende Eigenschaft, und er wird selbst begehrt. VERBOTEN als Romantik: heimliches Beobachten, Schlaf-Überwachen, Ausspähen, jemanden „studieren wie ein Krankheitsbild“ – das ist ein Stalker-Muster und ein Genre-Fehler, kein Reiz. Chemie ist wechselseitig und körperlich verankert: pro Begegnung mindestens EIN Wärme-/Begehrens-Detail aus Sicht der Heldin (sein Geruch, wie er den Kopf neigt, ihr Blick, der zu lange hält). Slow Burn: Sehnsucht aus noch nicht eingelöster Nähe; Gefahr ersetzt NIE die emotionale Spannung. Fachjargon des Berufs nur Kulisse, max. 1-2 Sachbegriffe pro Szene. Dialoge leben vom Ungesagten; das Thema wird nie ausgesprochen. Pflicht-Ende: emotional erfülltes Happy End (HEA oder HFN)."
         }
         if g.contains("fantasy") || g.contains("science") {
             return "GENRE-HANDWERK: Die Welt durch konkrete Details im Handlungsfluss zeigen – niemals durch Erklärabsätze oder Infodumps. Regeln der Welt konsequent einhalten."

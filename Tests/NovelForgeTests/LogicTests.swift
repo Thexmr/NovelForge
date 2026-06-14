@@ -334,6 +334,47 @@ final class LogicTests: XCTestCase {
         XCTAssertTrue(prompt.contains("kreist NICHT um einen Beruf"))
     }
 
+    /// Belegt die Korrektur des beobachteten Fehlers: ein „Liebesroman", der als
+    /// Techno-Thriller mit Stalker-Love-Interest endete. Beziehung = Motor,
+    /// Love Interest rootbar, kein Stalker.
+    func testRomanceGenreCraftMakesRelationshipTheEngineAndForbidsStalkerHero() {
+        let romance = PromptFactory.genreCraft("Liebesroman")
+        XCTAssertTrue(romance.contains("LIEBESGESCHICHTE ist die Haupthandlung"))
+        XCTAssertTrue(romance.contains("Beziehungsfrage"))
+        XCTAssertTrue(romance.lowercased().contains("stalker"))
+
+        let erotik = PromptFactory.genreCraft("Erotik")
+        XCTAssertTrue(erotik.contains("BEZIEHUNG"))
+        XCTAssertTrue(erotik.lowercased().contains("rootbar"))
+        XCTAssertTrue(erotik.lowercased().contains("einvernehmlich"))
+    }
+
+    func testDenylistCatchesVagueInteriorityTell() {
+        let text = String(repeating: "Sie stand am Fenster und sah hinaus. ", count: 30)
+            + "Da war etwas, das sie nicht benennen konnte."
+        XCTAssertGreaterThanOrEqual(AutonomousContentQuality.aiTellCount(text), 1)
+    }
+
+    /// Konzeptphase: Liebes-/Erotikbücher bekommen den Genre-Vertrag (zentrale
+    /// Beziehungsfrage, Streich-Test, Happy End), andere Genres NICHT.
+    func testConceptInjectsRomanceGenreContractOnlyForRomance() {
+        let romance = PromptFactory.concept(
+            title: "Vielleicht im nächsten Sommer", genre: "Liebesroman", subgenre: nil,
+            language: "Deutsch", style: "warm", tonality: "sehnsüchtig", audience: "Erwachsene",
+            perspective: "Ich-Erzählerin", tense: "Präteritum", pageCount: 300,
+            ideaSeed: "Zwei Nachbarn, ein Sommer, ein altes Versprechen.")
+        XCTAssertTrue(romance.contains("GENRE-VERTRAG"))
+        XCTAssertTrue(romance.contains("Streich-Test"))
+        XCTAssertTrue(romance.lowercased().contains("happy end"))
+
+        let thriller = PromptFactory.concept(
+            title: "Zähl nicht bis zehn", genre: "Thriller", subgenre: nil,
+            language: "Deutsch", style: "düster", tonality: "kühl", audience: "Erwachsene",
+            perspective: "Personaler Erzähler", tense: "Präteritum", pageCount: 300,
+            ideaSeed: "Eine Verhandlerin und ein Countdown.")
+        XCTAssertFalse(thriller.contains("GENRE-VERTRAG"))
+    }
+
     // MARK: - Anti-KI-Stil (Detektor-Resistenz)
 
     func testHumanCraftRulesCoverBurstinessParagraphEndingsAndTricolon() {
