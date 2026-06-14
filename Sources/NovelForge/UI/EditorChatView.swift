@@ -84,7 +84,7 @@ struct EditorChatView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     if messages.isEmpty {
-                        Text("Noch keine Nachrichten. Frag den Lektor zum Beispiel: „Mach Kapitel 3 spannender" oder „Ist die Hauptfigur glaubwürdig?")
+                        Text("Noch keine Nachrichten. Frag den Lektor zum Beispiel: ‚Mach Kapitel 3 spannender‘ oder ‚Ist die Hauptfigur glaubwürdig?‘")
                             .font(.callout)
                             .foregroundStyle(StudioTheme.textFaint)
                             .padding(.top, 24)
