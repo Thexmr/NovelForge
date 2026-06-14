@@ -150,6 +150,11 @@ enum PromptFactory {
         Erzählperspektive: \(perspective), Zeitform: \(tense)
         Zielumfang: ca. \(pageCount) Seiten
 
+        VERBINDLICH: Titel und Genre sind fest vorgegeben. Entwickle das Konzept so, dass es \
+        exakt zum Titel „\(title)" und zum Genre „\(genreLine)" passt und den Titel erzählerisch \
+        einlöst – er soll nach der Lektüre sinnfällig und treffend wirken. Ändere oder ersetze den \
+        Titel NICHT und weiche nicht ins Genre-Fremde ab.
+
         Antworte ausschließlich in diesem Format (Labels exakt so verwenden):
         PRÄMISSE: [1-2 Sätze]
         LOGLINE: [Ein Satz]

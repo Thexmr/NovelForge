@@ -297,4 +297,78 @@ final class LogicTests: XCTestCase {
         XCTAssertTrue(prompt.contains("High-Concept"))
         XCTAssertTrue(prompt.contains("IDEE|Titel|Genre|"))
     }
+
+    /// Einzelbuch: ein vom Nutzer vorgegebener Titel + Genre müssen verbindlich
+    /// in die Generierung eingehen und dürfen nicht ersetzt werden. (Im Auto-Modus
+    /// ist der Titel ein selbst erfundener viraler Titel – dieselbe Bindung greift.)
+    func testConceptPromptBindsGivenTitleAndGenre() {
+        let prompt = PromptFactory.concept(
+            title: "Zähl nicht bis zehn", genre: "Thriller", subgenre: "Psychothriller",
+            language: "Deutsch", style: "psychologisch", tonality: "düster",
+            audience: "Erwachsene", perspective: "Personaler Erzähler", tense: "Präteritum",
+            pageCount: 320, ideaSeed: "Eine Geiselnehmerin zwingt eine Verhandlerin zu einem Countdown."
+        )
+        XCTAssertTrue(prompt.contains("Zähl nicht bis zehn"))
+        XCTAssertTrue(prompt.contains("VERBINDLICH"))
+        XCTAssertTrue(prompt.contains("Ändere oder ersetze den"))
+        XCTAssertTrue(prompt.contains("Psychothriller"))
+    }
+
+    // MARK: - Cover-Studio
+
+    func testCoverPromptIsBuiltFromBookIdentityAndKDPContext() {
+        let project = Project(title: "Zähl nicht bis zehn", authorName: "Dave Demaré",
+                              language: "Deutsch", genre: "Thriller",
+                              styleProfile: "psychologisch, düster",
+                              targetPageCount: 320, outputFormats: ["EPUB"])
+        project.authorBio = "Dave Demaré schreibt psychologische Thriller mit hohem emotionalem Druck."
+
+        let profile = BookProfile(premise: "Eine Verhandlerin muss einen Countdown stoppen, der ihre eigene Schuld offenlegt.",
+                                  theme: "Schuld", targetAudience: "Thriller-Leser",
+                                  tonality: "düster, nervös",
+                                  narrativePerspective: "Personaler Erzähler",
+                                  tense: "Präteritum")
+        profile.logline = "Eine Geiselnehmerin zwingt eine Verhandlerin, vor laufender Kamera mitzuzählen."
+        profile.synopsis = "Der Countdown beginnt harmlos und wird zur öffentlichen Beichte."
+        profile.kdpDescription = "Ein psychologischer Thriller über Schuld, Kontrolle und einen Countdown ohne Ausweg."
+        project.bookProfile = profile
+
+        let prompt = CoverDesignService.buildPrompt(for: project)
+
+        XCTAssertTrue(prompt.contains("Zähl nicht bis zehn"))
+        XCTAssertTrue(prompt.contains("Dave Demaré"))
+        XCTAssertTrue(prompt.contains("Thriller"))
+        XCTAssertTrue(prompt.contains("Countdown"))
+        XCTAssertTrue(prompt.contains("Amazon KDP"))
+        XCTAssertTrue(prompt.contains("2:3"))
+        XCTAssertTrue(prompt.contains("keine KI-Hinweise"))
+    }
+
+    func testCoverVisibleTextNeverAddsAIDisclosure() {
+        let project = Project(title: "Salz und Asche", authorName: "Dave Demaré",
+                              language: "Deutsch", genre: "Historischer Roman",
+                              styleProfile: "atmosphärisch", targetPageCount: 300,
+                              outputFormats: ["EPUB"])
+
+        let visibleText = CoverDesignService.visibleCoverText(for: project)
+
+        XCTAssertTrue(visibleText.contains("Salz und Asche"))
+        XCTAssertTrue(visibleText.contains("Dave Demaré"))
+        XCTAssertFalse(visibleText.lowercased().contains("ki"))
+        XCTAssertFalse(visibleText.lowercased().contains("ai"))
+    }
+
+    func testCoverImageSettingsNeverEncodeAPIKey() throws {
+        var settings = CoverImageSettings()
+        settings.apiKey = "test_bildmodell_geheim"
+        settings.baseURL = "https://api.openai.com/v1"
+        settings.model = "gpt-image-2"
+
+        let data = try JSONEncoder().encode(settings)
+        let json = String(data: data, encoding: .utf8) ?? ""
+
+        XCTAssertFalse(json.contains("geheim"))
+        XCTAssertFalse(json.contains("apiKey"))
+        XCTAssertNil(try JSONDecoder().decode(CoverImageSettings.self, from: data).apiKey)
+    }
 }

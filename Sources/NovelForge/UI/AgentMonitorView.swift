@@ -227,6 +227,8 @@ struct ExportDetailView: View {
                         .background(.yellow.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
                 }
 
+                CoverStudioPanel(project: project)
+
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Buchformate")
                         .font(.headline)
@@ -289,6 +291,243 @@ struct ExportDetailView: View {
             .padding(24)
             .frame(maxWidth: 760, alignment: .leading)
             .frame(maxWidth: .infinity)
+        }
+    }
+}
+
+struct CoverStudioPanel: View {
+    let project: Project
+
+    @ObservedObject private var coverStore = CoverImageSettingsStore.shared
+    @State private var prompt = ""
+    @State private var promptURL: URL?
+    @State private var coverURL: URL?
+    @State private var isGenerating = false
+    @State private var errorMessage: String?
+    @State private var statusMessage: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Buchcover")
+                        .font(.headline)
+                    Text("Cover-Bild oder professioneller Prompt aus Buchprofil, KDP-Text und Kapitelkontext.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                StudioStatusPill(text: coverStore.hasAPIKey() ? "Bild-API bereit" : "Prompt-Modus",
+                                 systemImage: coverStore.hasAPIKey() ? "wand.and.stars" : "text.quote",
+                                 color: coverStore.hasAPIKey() ? StudioTheme.lime : StudioTheme.amber)
+            }
+
+            HStack(alignment: .top, spacing: 16) {
+                coverPreview
+                    .frame(width: 160, height: 240)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    if prompt.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Noch kein Cover-Prompt")
+                                .font(.callout.weight(.semibold))
+                            Text("Erzeuge zuerst den Prompt. Mit Bild-API-Key kann daraus direkt ein KDP-Cover gespeichert werden.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .studioGlassTile(cornerRadius: 8, accent: StudioTheme.amber, opacity: 0.78)
+                    } else {
+                        TextEditor(text: $prompt)
+                            .font(.system(.caption, design: .monospaced))
+                            .frame(minHeight: 132)
+                            .scrollContentBackground(.hidden)
+                            .background(StudioTheme.glassInk.opacity(0.28), in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(StudioTheme.hairline, lineWidth: 1))
+                    }
+
+                    if isGenerating {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Cover wird vom Bildmodell erzeugt …")
+                                .font(.caption.weight(.semibold))
+                            StudioProgressBar(value: 0.72, height: 6)
+                        }
+                    }
+
+                    if let statusMessage {
+                        Label(statusMessage, systemImage: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(StudioTheme.lime)
+                    }
+
+                    if let errorMessage {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(StudioTheme.danger)
+                    }
+
+                    HStack(spacing: 8) {
+                        Button {
+                            generatePrompt()
+                        } label: {
+                            Label("Prompt erstellen", systemImage: "text.badge.star")
+                        }
+                        .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.cyan))
+                        .disabled(isGenerating)
+
+                        Button {
+                            copyPrompt()
+                        } label: {
+                            Label("Kopieren", systemImage: "doc.on.doc")
+                        }
+                        .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.violet))
+                        .disabled(prompt.isEmpty || isGenerating)
+
+                        Button {
+                            generateCover()
+                        } label: {
+                            Label(isGenerating ? "Generiert …" : "Cover generieren",
+                                  systemImage: "photo.badge.sparkles")
+                        }
+                        .buttonStyle(StudioPrimaryButtonStyle())
+                        .frame(width: 178)
+                        .disabled(isGenerating || !coverStore.hasAPIKey())
+                        .help(coverStore.hasAPIKey() ? "Cover mit Bildmodell erzeugen" : "API-Key unter Einstellungen > Cover-KI hinterlegen")
+                    }
+
+                    HStack(spacing: 8) {
+                        if let promptURL {
+                            Button {
+                                NSWorkspace.shared.activateFileViewerSelecting([promptURL])
+                            } label: {
+                                Label("Prompt-Datei", systemImage: "doc.text")
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                        if let coverURL {
+                            Button {
+                                NSWorkspace.shared.activateFileViewerSelecting([coverURL])
+                            } label: {
+                                Label("Cover-Datei", systemImage: "folder")
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .studioPanel(cornerRadius: 8, accent: StudioTheme.violet)
+        .onAppear(perform: loadExistingArtifacts)
+    }
+
+    @ViewBuilder
+    private var coverPreview: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(StudioTheme.glassInk.opacity(0.54))
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(StudioTheme.hairlineBright, lineWidth: 1)
+
+            if let coverURL, let image = NSImage(contentsOf: coverURL) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(alignment: .bottom) {
+                        LinearGradient(colors: [.clear, .black.opacity(0.58)],
+                                       startPoint: .top, endPoint: .bottom)
+                            .frame(height: 68)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+            } else {
+                VStack(spacing: 10) {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.system(size: 30, weight: .semibold))
+                        .foregroundStyle(StudioTheme.violet)
+                    Text("Cover")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(StudioTheme.textMuted)
+                }
+            }
+        }
+        .shadow(color: StudioTheme.violet.opacity(0.18), radius: 12, y: 6)
+    }
+
+    private func loadExistingArtifacts() {
+        prompt = CoverDesignService.existingPrompt(for: project) ?? ""
+        promptURL = try? CoverDesignService.promptURL(for: project)
+        coverURL = CoverDesignService.existingImageURL(for: project)
+    }
+
+    private func generatePrompt() {
+        errorMessage = nil
+        statusMessage = nil
+        do {
+            let generated = CoverDesignService.buildPrompt(for: project)
+            prompt = generated
+            promptURL = try CoverDesignService.writePrompt(generated, for: project)
+            statusMessage = "Cover-Prompt gespeichert."
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func copyPrompt() {
+        guard !prompt.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(prompt, forType: .string)
+        statusMessage = "Prompt in die Zwischenablage kopiert."
+        errorMessage = nil
+    }
+
+    private func generateCover() {
+        errorMessage = nil
+        statusMessage = nil
+        guard coverStore.hasAPIKey() else {
+            errorMessage = "Für direkte Cover-Erzeugung fehlt der Bild-API-Key."
+            return
+        }
+
+        let activePrompt: String
+        do {
+            activePrompt = prompt.isEmpty ? CoverDesignService.buildPrompt(for: project) : prompt
+            prompt = activePrompt
+            promptURL = try CoverDesignService.writePrompt(activePrompt, for: project)
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+
+        let settings = coverStore.runtimeSettings()
+        let destination: URL
+        do {
+            destination = try CoverDesignService.imageURL(for: project)
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+
+        isGenerating = true
+        Task {
+            do {
+                let url = try await CoverImageGateway.shared.generateImage(
+                    prompt: activePrompt,
+                    destination: destination,
+                    settings: settings
+                )
+                await MainActor.run {
+                    coverURL = url
+                    statusMessage = "Cover als \(CoverDesignService.coverImageFileName) gespeichert."
+                    isGenerating = false
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    isGenerating = false
+                }
+            }
         }
     }
 }

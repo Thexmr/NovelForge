@@ -13,6 +13,9 @@ struct SettingsView: View {
             ProviderSettingsView()
                 .tabItem { Label("KI-Provider", systemImage: "cpu") }
 
+            CoverImageSettingsView()
+                .tabItem { Label("Cover-KI", systemImage: "photo") }
+
             PrivacySettingsView()
                 .tabItem { Label("Datenschutz", systemImage: "lock.shield") }
         }
@@ -353,6 +356,78 @@ struct AddProviderView: View {
             }
         }
         .frame(minWidth: 440, minHeight: 320)
+    }
+}
+
+// MARK: - Cover-KI
+
+struct CoverImageSettingsView: View {
+    @ObservedObject private var store = CoverImageSettingsStore.shared
+    @State private var newAPIKey = ""
+
+    var body: some View {
+        Form {
+            Section("Bildmodell") {
+                Picker("Modell", selection: binding(\.model)) {
+                    ForEach(CoverImageSettings.modelOptions, id: \.self) { model in
+                        Text(model).tag(model)
+                    }
+                }
+
+                Picker("Format", selection: binding(\.size)) {
+                    Text("KDP Frontcover 2:3").tag("1024x1536")
+                    Text("Quadratisch").tag("1024x1024")
+                    Text("Querformat").tag("1536x1024")
+                }
+
+                Picker("Qualität", selection: binding(\.quality)) {
+                    ForEach(CoverImageSettings.qualityOptions, id: \.self) { quality in
+                        Text(quality.capitalized).tag(quality)
+                    }
+                }
+
+                TextField("Basis-URL", text: binding(\.baseURL))
+                    .textFieldStyle(.roundedBorder)
+
+                Text("Standard ist OpenAI Images API. Benutzerdefinierte OpenAI-kompatible Endpunkte sind möglich, solange sie /images/generations unterstützen.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("API-Key") {
+                HStack {
+                    Label(store.hasAPIKey() ? "Bild-API-Key ist hinterlegt" : "Kein Bild-API-Key hinterlegt",
+                          systemImage: store.hasAPIKey() ? "key.fill" : "key.slash")
+                        .foregroundStyle(store.hasAPIKey() ? Color.green : Color.orange)
+                    Spacer()
+                }
+
+                SecureField("OpenAI API-Key für Bildmodell", text: $newAPIKey)
+                HStack {
+                    Spacer()
+                    Button("Key speichern") {
+                        store.saveAPIKey(newAPIKey)
+                        newAPIKey = ""
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(newAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+
+                Text("Ohne Bild-API-Key kann NovelForge trotzdem einen perfekten Cover-Prompt erzeugen, den Sie extern in einem Bildmodell nutzen können.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func binding(_ keyPath: WritableKeyPath<CoverImageSettings, String>) -> Binding<String> {
+        Binding {
+            store.settings[keyPath: keyPath]
+        } set: { newValue in
+            store.settings[keyPath: keyPath] = newValue
+            store.save()
+        }
     }
 }
 
