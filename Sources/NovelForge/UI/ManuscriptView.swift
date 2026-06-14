@@ -113,14 +113,29 @@ struct ManuscriptView: View {
             .frame(minWidth: 400, maxWidth: .infinity)
         }
         .navigationTitle("Manuskript")
+        .onAppear { autoSelect() }
+        .onChange(of: projects.count) { autoSelect() }
         .onChange(of: appState.selectedProject) {
-            selectedChapter = nil
+            // Beim Projektwechsel direkt das erste Kapitel zeigen, statt einen
+            // leeren „Kapitel wählen"-Platzhalter.
             readingWholeBook = false
+            selectedChapter = sortedChapters.first
         }
         .onChange(of: selectedChapter) {
             if selectedChapter != nil {
                 readingWholeBook = false
             }
+        }
+    }
+
+    /// Wählt beim Öffnen automatisch ein Projekt und dessen erstes Kapitel, damit
+    /// die Manuskript-Ansicht sofort Inhalt zeigt (nicht erst nach einem Klick).
+    private func autoSelect() {
+        if liveSelectedProject == nil {
+            appState.selectedProject = projects.first
+        }
+        if liveSelectedChapter == nil, !readingWholeBook {
+            selectedChapter = sortedChapters.first
         }
     }
 

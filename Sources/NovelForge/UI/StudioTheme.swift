@@ -7,34 +7,37 @@ import SwiftUI
 /// DESIGN_VARIANCE 7, MOTION_INTENSITY 4, VISUAL_DENSITY 8; no decorative glow
 /// where plain structure would read faster.
 enum StudioTheme {
-    static let pageTop = Color(red: 0.025, green: 0.031, blue: 0.045)
-    static let pageMiddle = Color(red: 0.050, green: 0.058, blue: 0.078)
-    static let pageBottom = Color(red: 0.018, green: 0.021, blue: 0.030)
+    // Tiefes Indigo-Schwarz als Bühne, damit die Neon-Akzente glühen.
+    static let pageTop = Color(red: 0.030, green: 0.026, blue: 0.060)
+    static let pageMiddle = Color(red: 0.055, green: 0.045, blue: 0.100)
+    static let pageBottom = Color(red: 0.018, green: 0.016, blue: 0.040)
 
-    static let surface = Color(red: 0.060, green: 0.070, blue: 0.092)
-    static let surfaceElevated = Color(red: 0.095, green: 0.110, blue: 0.145)
-    static let surfaceDeep = Color(red: 0.030, green: 0.036, blue: 0.050)
-    static let glassBase = Color(red: 0.020, green: 0.026, blue: 0.038)
-    static let glassInk = Color(red: 0.006, green: 0.010, blue: 0.018)
+    static let surface = Color(red: 0.065, green: 0.060, blue: 0.110)
+    static let surfaceElevated = Color(red: 0.100, green: 0.095, blue: 0.165)
+    static let surfaceDeep = Color(red: 0.032, green: 0.030, blue: 0.060)
+    static let glassBase = Color(red: 0.026, green: 0.024, blue: 0.052)
+    static let glassInk = Color(red: 0.008, green: 0.008, blue: 0.024)
     static let hairline = Color.white.opacity(0.12)
-    static let hairlineBright = Color.white.opacity(0.24)
-    static let textMuted = Color.white.opacity(0.66)
-    static let textFaint = Color.white.opacity(0.44)
+    static let hairlineBright = Color.white.opacity(0.26)
+    static let textMuted = Color.white.opacity(0.68)
+    static let textFaint = Color.white.opacity(0.46)
 
-    static let cyan = Color(red: 0.23, green: 0.86, blue: 0.98)
-    static let violet = Color(red: 0.57, green: 0.46, blue: 0.96)
-    static let magenta = Color(red: 0.94, green: 0.35, blue: 0.67)
-    static let lime = Color(red: 0.55, green: 0.95, blue: 0.48)
-    static let amber = Color(red: 1.00, green: 0.72, blue: 0.30)
-    static let danger = Color(red: 1.00, green: 0.35, blue: 0.42)
+    // Neon-Palette: Blau + Lila als Signatur, durchgängig glühend.
+    static let cyan = Color(red: 0.24, green: 0.62, blue: 1.00)   // Neon-Blau (Primär)
+    static let violet = Color(red: 0.68, green: 0.32, blue: 1.00)  // Neon-Lila (Primär)
+    static let magenta = Color(red: 1.00, green: 0.32, blue: 0.86) // Neon-Pink
+    static let lime = Color(red: 0.36, green: 1.00, blue: 0.70)    // Neon-Türkisgrün
+    static let amber = Color(red: 1.00, green: 0.66, blue: 0.18)   // Neon-Amber
+    static let danger = Color(red: 1.00, green: 0.30, blue: 0.46)  // Neon-Rot
 
+    /// Signatur-Verlauf: Neon-Blau → Neon-Lila (durchgängig in der ganzen App).
     static var brandGradient: LinearGradient {
-        LinearGradient(colors: [cyan, lime],
+        LinearGradient(colors: [cyan, violet],
                        startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
     static var heroGradient: LinearGradient {
-        LinearGradient(colors: [cyan, lime, violet],
+        LinearGradient(colors: [cyan, violet, magenta],
                        startPoint: .leading, endPoint: .trailing)
     }
 
@@ -67,12 +70,12 @@ struct StudioBackground: View {
         ZStack {
             LinearGradient(colors: [StudioTheme.pageTop, StudioTheme.pageMiddle, StudioTheme.pageBottom],
                            startPoint: .top, endPoint: .bottom)
-            RadialGradient(colors: [StudioTheme.cyan.opacity(0.24), .clear],
-                           center: UnitPoint(x: 0.10, y: 0.02), startRadius: 20, endRadius: 680)
-            RadialGradient(colors: [StudioTheme.violet.opacity(0.22), .clear],
-                           center: UnitPoint(x: 0.88, y: 0.20), startRadius: 40, endRadius: 760)
-            RadialGradient(colors: [StudioTheme.lime.opacity(0.14), .clear],
-                           center: UnitPoint(x: 0.70, y: 1.05), startRadius: 40, endRadius: 620)
+            RadialGradient(colors: [StudioTheme.cyan.opacity(0.34), .clear],
+                           center: UnitPoint(x: 0.10, y: 0.02), startRadius: 20, endRadius: 700)
+            RadialGradient(colors: [StudioTheme.violet.opacity(0.32), .clear],
+                           center: UnitPoint(x: 0.88, y: 0.18), startRadius: 40, endRadius: 780)
+            RadialGradient(colors: [StudioTheme.magenta.opacity(0.18), .clear],
+                           center: UnitPoint(x: 0.70, y: 1.05), startRadius: 40, endRadius: 640)
             Rectangle()
                 .fill(.black.opacity(0.34))
             LinearGradient(colors: [
