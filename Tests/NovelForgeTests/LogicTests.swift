@@ -267,4 +267,34 @@ final class LogicTests: XCTestCase {
         // Falschtreffer-Schutz: "IDEENKERN|…" darf NICHT als IDEE durchgehen.
         XCTAssertTrue(StructureParser.parseIdeas("IDEENKERN|etwas|noch was|und mehr").isEmpty)
     }
+
+    /// Der virale Genre-Winkel muss pro Genre unterschiedliche Themen-/Titel-Hinweise
+    /// liefern und in den Ideen-Prompt eingebettet sein – das treibt kreativere,
+    /// genre-typische Titel und Bestseller-Hooks.
+    func testGenreViralAngleIsGenreSpecific() {
+        let thriller = PromptFactory.genreViralAngle("Thriller")
+        let romance = PromptFactory.genreViralAngle("Liebesroman")
+        let fantasy = PromptFactory.genreViralAngle("Fantasy")
+        let dark = PromptFactory.genreViralAngle("Dark Romance")
+
+        XCTAssertTrue(thriller.contains("Thriller"))
+        XCTAssertTrue(thriller.lowercased().contains("twist"))
+        XCTAssertTrue(romance.lowercased().contains("trope"))
+        XCTAssertTrue(fantasy.lowercased().contains("romantasy"))
+        XCTAssertTrue(dark.lowercased().contains("einvernehmlich"))
+
+        // Winkel müssen sich klar unterscheiden (kein generischer Einheitsbrei).
+        XCTAssertNotEqual(thriller, romance)
+        XCTAssertNotEqual(fantasy, dark)
+    }
+
+    func testBookIdeasPromptDemandsCreativeTitlesAndEmbedsViralAngle() {
+        let prompt = PromptFactory.bookIdeas(genre: "Thriller", language: "Deutsch")
+        // Genre-Winkel ist eingebettet …
+        XCTAssertTrue(prompt.contains("VIRALES THEMA"))
+        // … und die kreativen Titel-Regeln samt Klischee-Verbot sind präsent.
+        XCTAssertTrue(prompt.contains("TITEL-PFLICHT"))
+        XCTAssertTrue(prompt.contains("High-Concept"))
+        XCTAssertTrue(prompt.contains("IDEE|Titel|Genre|"))
+    }
 }

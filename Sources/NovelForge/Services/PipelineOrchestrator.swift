@@ -642,7 +642,7 @@ final class PipelineOrchestrator: ObservableObject {
             let response = try await generate(
                 prompt: PromptFactory.bookIdeas(genre: genre, language: settings.language,
                                                 avoidanceBrief: avoidanceBrief) + retryHint,
-                system: "Du bist ein Verlagslektor mit sicherem Gespür für verkäufliche, originelle Buchideen. Du vermeidest Wiederholungen gegenüber dem Story-Gedächtnis strikt.",
+                system: "Du bist ein Bestseller-Lektor und Titel-Experte mit sicherem Gespür für virale, originelle Buchideen und unverwechselbare Titel, die beim Scrollen sofort hängenbleiben. Du denkst in High-Concept-Hooks und genre-typischen Tropes, vermeidest Berufs-/Klischee-Titel und Wiederholungen gegenüber dem Story-Gedächtnis strikt.",
                 maxTokens: 1000, temperature: 0.95, config: config
             )
             let ideas = StructureParser.parseIdeas(response.text)

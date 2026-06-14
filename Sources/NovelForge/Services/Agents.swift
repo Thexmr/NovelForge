@@ -28,24 +28,101 @@ enum PromptFactory {
     static func bookIdeas(genre: String, language: String, avoidanceBrief: String = "") -> String {
         let memoryBlock = avoidanceBrief.isEmpty ? "" : "\n\(avoidanceBrief)\n"
         return """
-        Entwickle 3 eigenständige, kommerziell vielversprechende Buchideen \
+        Entwickle 5 eigenständige, kommerziell durchschlagende Buchideen \
         (Genre-Schwerpunkt: \(genre.isEmpty ? "frei wählbar" : genre), Sprache: \(language)). \
-        Jede Idee braucht einen frischen Dreh und einen klaren zentralen Konflikt – \
-        keine Klischee-Plots, keine Anlehnung an bestehende Werke.
+        Ziel sind Bücher, über die Leser online reden und die sie weiterempfehlen (BookTok/Amazon-Bestseller-Niveau) – \
+        jede Idee braucht einen frischen, überraschenden Dreh und einen klaren zentralen Konflikt. \
+        Keine Klischee-Plots, keine Nacherzählung bestehender Werke.
         \(memoryBlock)
-        Bestseller-Pflicht: Jede Idee braucht eine sofort verständliche Zielgruppe, ein starkes Versprechen,
-        eine emotionale Kernwunde der Hauptfigur, Eskalation mit hohem Einsatz und einen Hook, der als
-        Amazon-KDP-Leseprobe schon auf Seite 1 funktioniert.
-        Titel-Pflicht: Keine austauschbaren Berufs-/Job-Titel wie "Die Imkerin von X",
-        "Der Kassierer aus Y", "Die Bäckerin in Z", "Das Schweigen der Imkerin" oder
-        "Das Geheimnis der Bäckerin". Titel müssen über eine konkrete dramatische Frage,
-        Gefahr, verbotene Beziehung, Schuld, Ort, Symbol oder ein starkes Versprechen tragen,
-        nicht über einen Beruf.
+        \(genreViralAngle(genre))
+
+        KONZEPT-PFLICHT (was ein Buch viral macht): Jede Idee braucht
+        – einen High-Concept-Hook, der sich in EINEM Satz erzählen lässt und sofort neugierig macht ("Was wäre, wenn …"),
+        – eine sofort verständliche Zielgruppe und ein starkes emotionales Versprechen,
+        – eine konkrete Kernwunde der Hauptfigur und einen Einsatz, bei dem viel zu verlieren ist,
+        – eine Eskalation mit Wendung, die man nicht kommen sieht.
+
+        TITEL-PFLICHT – kreativ, kurz, unverwechselbar:
+        – Maximal 2–6 Wörter, eingängig und merkfähig; er soll beim Scrollen STOPPEN lassen.
+        – Erzeuge sofort eine Frage, ein Bild, einen Widerspruch oder ein starkes Versprechen
+          (dramatische Zuspitzung, Gefahr, Begehren, Schuld, ein aufgeladenes Objekt oder ein markanter Ort).
+        – VERBOTEN: austauschbare Berufs-Titel wie "Die Imkerin von X", "Der Kassierer aus Y",
+          "Das Schweigen der Imkerin", "Das Geheimnis der Bäckerin"; ebenso blasse Abstrakta
+          ("Liebe und Hoffnung") und Titel, die nur einen Beruf + Ort nennen.
+        – Jeder der 5 Titel muss anders klingen – kein gemeinsames Schema, keine Nummerierung.
 
         Gib für JEDE Idee GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
-        IDEE|Titel|Genre|Prämisse in 2 Sätzen mit klarem Konflikt
+        IDEE|Titel|Genre|Prämisse in 2 Sätzen – Satz 1 ist der High-Concept-Hook, Satz 2 nennt Konflikt und Einsatz
 
         Keine weiteren Erklärungen.
+        """
+    }
+
+    /// Genre-spezifischer "viraler Winkel": welches Thema/welcher Trope in diesem Genre
+    /// Mundpropaganda und KDP-Verkäufe treibt, plus der passende Titel-Klang mit
+    /// originellen Beispieltiteln (NICHT abgeschrieben, NICHT die verbotenen Berufs-Klischees).
+    /// Bewusst getrennt von `genreCraft` (das die Prosa beim Schreiben steuert).
+    static func genreViralAngle(_ genre: String) -> String {
+        let g = genre.lowercased()
+        if g.contains("thriller") || g.contains("krimi") {
+            return """
+            VIRALES THEMA (Thriller/Krimi): Ein "Was wäre, wenn"-Albtraum mitten im Alltag, eine tickende Uhr,
+            eine unzuverlässige Erzählerin und ein Mittelteil-Twist, der alles davor neu deutet. Der Hook muss
+            den Leser zwingen, die Auflösung wissen zu wollen.
+            TITEL-KLANG: knapp, bedrohlich, mit Sog. Beispiele für die Stoßrichtung (nicht übernehmen):
+            "Sag, dass du mich nicht siehst" · "Die letzten vierzig Sekunden" · "Zähl nicht bis zehn" · "Du warst nie allein im Haus".
+            """
+        }
+        if g.contains("erotik") || g.contains("erotic") || g.contains("dark romance") || g.contains("spicy") {
+            return """
+            VIRALES THEMA (Erotik/Dark Romance): Eine verbotene, aufgeladene Dynamik (Boss, Bodyguard, Rivale,
+            gefährlicher Beschützer), ein morally-grey, possessiver – aber stets einvernehmlicher – Love Interest,
+            Slow Burn mit knisternder Nähe bis zur Eskalation, hohe Hitze und ein Tabu, das man umblättern muss.
+            TITEL-KLANG: verlangend, herausfordernd, mit Spannung. Beispiele für die Stoßrichtung (nicht übernehmen):
+            "Berühr mich, wenn du dich traust" · "Der Vertrag, den niemand lesen sollte" · "Gehörst du mir bis Mitternacht" · "Spiel nicht mit dem Feuer, das du gelegt hast".
+            """
+        }
+        if g.contains("liebes") || g.contains("romance") {
+            return """
+            VIRALES THEMA (Liebesroman): Ein sofort erkennbarer Trope-Hook (Enemies-to-Lovers, verbotene Liebe,
+            Second Chance, Fake-Beziehung, nur-ein-Bett, grummelig/sonnig), unwiderstehliche Chemie und ein klares
+            "Warum dürfen sie nicht?"-Hindernis. BookTok lebt vom Trope plus dem Gefühl, das man weitererzählt.
+            TITEL-KLANG: warm, sehnsüchtig, mit einem Funken Widerstand. Beispiele für die Stoßrichtung (nicht übernehmen):
+            "Vielleicht im nächsten Sommer" · "Tausend Gründe gegen dich" · "Nur dieses eine Mal nicht" · "Bis du mich ansiehst".
+            """
+        }
+        if g.contains("fantasy") || g.contains("science") || g.contains("sci-fi") || g.contains("dystop") {
+            return """
+            VIRALES THEMA (Fantasy/SciFi): Ein in EINEM Satz fassbares, originelles Welt- oder Magie-Konzept,
+            eine regelbrechende Heldin und eine Welt am Abgrund. Die stärkste Verkaufskombination ist Romantasy
+            (große Romanze IN der fantastischen Welt) – Sehnsucht und Hochspannung gleichzeitig.
+            TITEL-KLANG: mythisch, bildstark, neugierig machend. Beispiele für die Stoßrichtung (nicht übernehmen):
+            "Die Stadt, die nur nachts existiert" · "Wer den Sturm ruft" · "Was die Götter vergaßen" · "Sterben lernt man zweimal".
+            """
+        }
+        if g.contains("horror") {
+            return """
+            VIRALES THEMA (Horror): Eine archaische Urangst, ganz konkret gemacht, ein isolierter Ort, eine
+            Falschheit, die langsam eskaliert, und ein persönlicher Einsatz. Der Hook ist ein Bild, das man
+            nicht mehr loswird.
+            TITEL-KLANG: beklemmend, körperlich, mit Drohung. Beispiele für die Stoßrichtung (nicht übernehmen):
+            "Es atmet, wenn du schläfst" · "Das Haus zählt mit" · "Niemand verlässt Talgrund" · "Was unter dem Eis wartet".
+            """
+        }
+        if g.contains("histor") {
+            return """
+            VIRALES THEMA (Historischer Roman): Ein reales dramatisches Ereignis, erzählt durch ein intimes,
+            persönliches Schicksal, ein Geheimnis, das bis heute nachhallt, und eine verbotene Bindung gegen die
+            Regeln der Epoche. Große Geschichte, an einem Herzschlag festgemacht.
+            TITEL-KLANG: atmosphärisch, schicksalhaft, mit Ort/Epoche aufgeladen. Beispiele für die Stoßrichtung (nicht übernehmen):
+            "Was Asche nicht verbrennt" · "Der letzte Zug aus Königsberg" · "Im Schatten der Kathedrale" · "Wir nannten es Heimat".
+            """
+        }
+        return """
+        VIRALES THEMA: Eine universelle emotionale Wunde, hochkonzeptionell zugespitzt und teilbar – eine Frage,
+        die man weitererzählen will. Vertrautes Gefühl, überraschender Dreh.
+        TITEL-KLANG: kurz, bildstark, anziehend. Beispiele für die Stoßrichtung (nicht übernehmen):
+        "Was bleibt, wenn alle gehen" · "Die zweite Hälfte von uns" · "Hundert Namen für Schweigen" · "Bevor das Licht ausgeht".
         """
     }
 
