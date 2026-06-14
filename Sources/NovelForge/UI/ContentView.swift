@@ -60,34 +60,17 @@ struct ContentView: View {
     @State private var showingNewBookSheet = false
 
     var body: some View {
-        NavigationSplitView {
+        HStack(spacing: 0) {
             StudioSidebar(showingNewBookSheet: $showingNewBookSheet)
-                .navigationSplitViewColumnWidth(min: 238, ideal: 268, max: 310)
-        } detail: {
-            Group {
-                switch appState.selectedSidebarItem {
-                case .dashboard:
-                    DashboardView()
-                case .projects:
-                    ProjectsListView()
-                case .production:
-                    ProductionView()
-                case .agents:
-                    AgentMonitorView()
-                case .manuscript:
-                    ManuscriptView()
-                case .storyBible:
-                    StoryBibleView()
-                case .export:
-                    ExportView()
-                case .settings:
-                    SettingsView()
-                case .none:
-                    ContentUnavailableView("Bereich wählen", systemImage: "sidebar.left")
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .id(appState.selectedSidebarItem)
+                .frame(width: 268)
+
+            Rectangle()
+                .fill(StudioTheme.hairline)
+                .frame(width: 1)
+
+            detailContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .id(appState.selectedSidebarItem)
         }
         .sheet(isPresented: $showingNewBookSheet) {
             NewBookWizardView(onStarted: {
@@ -96,6 +79,30 @@ struct ContentView: View {
         }
         .onAppear {
             PipelineOrchestrator.shared.configure(with: modelContext)
+        }
+    }
+
+    @ViewBuilder
+    private var detailContent: some View {
+        switch appState.selectedSidebarItem {
+        case .dashboard:
+            DashboardView()
+        case .projects:
+            ProjectsListView()
+        case .production:
+            ProductionView()
+        case .agents:
+            AgentMonitorView()
+        case .manuscript:
+            ManuscriptView()
+        case .storyBible:
+            StoryBibleView()
+        case .export:
+            ExportView()
+        case .settings:
+            SettingsView()
+        case .none:
+            ContentUnavailableView("Bereich wählen", systemImage: "sidebar.left")
         }
     }
 }
