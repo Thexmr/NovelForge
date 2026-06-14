@@ -1,0 +1,27 @@
+name: Codex Install App
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build app bundle
+        run: bash Scripts/build-app.sh
+      - name: Zip app bundle
+        run: cd build && zip -r -y NovelForge-macOS.zip NovelForge.app
+      - name: Publish temporary release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: codex-novelforge-app-${{ github.run_id }}
+        run: |
+          gh release create "$TAG" build/NovelForge-macOS.zip \
+            --title "NovelForge temporary app build ${{ github.run_id }}" \
+            --notes "Temporary Codex install build from ${GITHUB_SHA}" \
+            --latest=false
