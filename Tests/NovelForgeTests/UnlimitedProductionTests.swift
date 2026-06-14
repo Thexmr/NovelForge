@@ -165,6 +165,16 @@ final class UnlimitedProductionTests: XCTestCase {
                        genre: "Krimi",
                        premise: "Eine Frau findet einen Hinweis auf ein Verbrechen und gerät zwischen alte Schuld und eine gefährliche Entscheidung.")
         ))
+        XCTAssertFalse(AutonomousContentQuality.hasUsableIdea(
+            ParsedIdea(title: "Das Schweigen der Imkerin",
+                       genre: "Roman",
+                       premise: "Eine Frau entdeckt in ihrer Heimat ein Familiengeheimnis und muss entscheiden, ob sie die Wahrheit öffentlich macht.")
+        ))
+        XCTAssertFalse(AutonomousContentQuality.hasUsableIdea(
+            ParsedIdea(title: "Das Geheimnis der Bäckerin",
+                       genre: "Roman",
+                       premise: "Eine Frau entdeckt in ihrer Backstube eine Spur zu einem alten Verrat und muss Familie gegen Wahrheit abwägen.")
+        ))
         XCTAssertTrue(AutonomousContentQuality.hasUsableIdea(
             ParsedIdea(title: "Wenn der Regen schweigt",
                        genre: "Roman",

@@ -58,8 +58,8 @@ enum AutonomousContentQuality {
         return patterns.contains { normalized == $0 || normalized.hasPrefix($0) }
     }
 
-    /// Verhindert Auto-Buchtitel nach dem schwachen Muster
-    /// "Die/Der [Beruf] von/aus/in [Ort]" (z.B. "Die Imkerin von Ulrichstein").
+    /// Verhindert Auto-Buchtitel nach schwachen Berufs-Hooks wie
+    /// "Die Imkerin von Ulrichstein" oder "Das Schweigen der Imkerin".
     /// Berufe dürfen in der Geschichte vorkommen, aber nicht als austauschbarer
     /// Titel-Hook die komplette Idee tragen.
     static func isOccupationalTitleCliche(_ title: String) -> Bool {
@@ -80,16 +80,39 @@ enum AutonomousContentQuality {
             "taxifahrerin", "taxifahrer", "gärtnerin", "gärtner", "wirtin", "wirt"
         ]
         let locationConnectors = [" von ", " aus ", " in ", " am ", " an der ", " im "]
+        let genericGenitiveHooks = [
+            "geheimnis", "schweigen", "lüge", "wahrheit", "versprechen", "tagebuch",
+            "brief", "erbe", "schatten", "lied", "haus", "leben", "liebe",
+            "winter", "sommer", "nacht", "stimme", "spur", "rückkehr"
+        ]
 
-        guard normalized.hasPrefix("die ") || normalized.hasPrefix("der ")
-                || normalized.hasPrefix("das ") || normalized.hasPrefix("eine ")
-                || normalized.hasPrefix("ein ") else {
+        let hasArticlePrefix = normalized.hasPrefix("die ") || normalized.hasPrefix("der ")
+            || normalized.hasPrefix("das ") || normalized.hasPrefix("eine ")
+            || normalized.hasPrefix("ein ")
+        guard hasArticlePrefix else {
             return false
         }
-        guard locationConnectors.contains(where: normalized.contains) else { return false }
-        return occupationalWords.contains { word in
-            normalized.range(of: #"\b\#(word)\b"#, options: .regularExpression) != nil
+
+        for word in occupationalWords {
+            guard normalized.range(of: #"\b\#(word)\b"#, options: .regularExpression) != nil else {
+                continue
+            }
+            if normalized.range(of: #"^(die|der|das|eine|ein)\s+\#(word)\b"#, options: .regularExpression) != nil {
+                return true
+            }
+            if locationConnectors.contains(where: normalized.contains) {
+                return true
+            }
+            let usesGenericGenitiveHook = genericGenitiveHooks.contains { hook in
+                normalized.range(of: #"\b\#(hook)\b"#, options: .regularExpression) != nil
+            }
+            if usesGenericGenitiveHook
+                && normalized.range(of: #"\b(der|des|einer|eines)\s+\#(word)\b"#,
+                                    options: .regularExpression) != nil {
+                return true
+            }
         }
+        return false
     }
 
     static func containsMetaRequest(_ text: String) -> Bool {
