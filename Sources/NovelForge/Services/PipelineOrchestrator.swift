@@ -1276,8 +1276,8 @@ final class PipelineOrchestrator: ObservableObject {
         var answered = 0
         let results = await runParallelGeneration(requests: requests, config: config) { _, _ in
             answered += 1
-            currentAgent = "\(AgentName.scenePlanner) – \(answered)/\(pending.count) Kapitel beantwortet"
-            updateProgress(phase: .scenePlanning, subProgress: Double(answered) / Double(pending.count))
+            self.currentAgent = "\(AgentName.scenePlanner) – \(answered)/\(pending.count) Kapitel beantwortet"
+            self.updateProgress(phase: .scenePlanning, subProgress: Double(answered) / Double(pending.count))
         }
 
         var done = 0
@@ -1812,8 +1812,8 @@ final class PipelineOrchestrator: ObservableObject {
         var answered = 0
         let results = await runParallelGeneration(requests: requests, config: config) { _, _ in
             answered += 1
-            currentAgent = "\(AgentName.reviser) – \(answered)/\(pending.count) Kapitel beantwortet"
-            updateProgress(phase: .chapterRevision, subProgress: Double(answered) / Double(pending.count))
+            self.currentAgent = "\(AgentName.reviser) – \(answered)/\(pending.count) Kapitel beantwortet"
+            self.updateProgress(phase: .chapterRevision, subProgress: Double(answered) / Double(pending.count))
         }
 
         var firstError: Error?
@@ -1930,8 +1930,8 @@ final class PipelineOrchestrator: ObservableObject {
         var answered = 0
         let results = await runParallelGeneration(requests: requests, config: config) { _, _ in
             answered += 1
-            currentAgent = "\(AgentName.proofreader) – \(answered)/\(pending.count) Kapitel beantwortet"
-            updateProgress(phase: .proofreading, subProgress: Double(answered) / Double(pending.count))
+            self.currentAgent = "\(AgentName.proofreader) – \(answered)/\(pending.count) Kapitel beantwortet"
+            self.updateProgress(phase: .proofreading, subProgress: Double(answered) / Double(pending.count))
         }
 
         var firstError: Error?
