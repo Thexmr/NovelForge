@@ -184,8 +184,11 @@ enum PromptFactory {
         if g.contains("thriller") || g.contains("krimi") {
             return "GENRE-HANDWERK: Hohes Tempo. Spannung durch Wissensvorsprung oder -rückstand des Lesers. Jede Szene endet mit einem Haken. Kurze Sätze in Actionmomenten."
         }
+        if g.contains("erotik") || g.contains("erotic") || g.contains("dark romance") || g.contains("spicy") {
+            return "GENRE-HANDWERK: Sinnliche Spannung und Begehren stehen im Zentrum. Intime und erotische Szenen sind ausdrücklich erwünscht und dürfen explizit und körperlich ausgeschrieben werden – auf dem Niveau zeitgenössischer Bestseller-Erotik (Fifty-Shades-Stil): einvernehmlich zwischen erwachsenen Figuren, geschmackvoll und konkret, nie vulgär, klinisch oder mechanisch. Baue das Verlangen langsam auf (Slow Burn), spannungsgeladene Nähe vor der Erfüllung. Chemie, Konsens und Emotion der Figuren tragen jede intime Szene. Keine illegalen oder nicht-einvernehmlichen Inhalte, keine Minderjährigen."
+        }
         if g.contains("liebes") || g.contains("romance") {
-            return "GENRE-HANDWERK: Emotionale Innenwelt im Zentrum. Anziehung UND Hindernis müssen in jeder Begegnung spürbar sein. Dialoge leben von dem, was NICHT gesagt wird."
+            return "GENRE-HANDWERK: Emotionale Innenwelt im Zentrum. Anziehung UND Hindernis müssen in jeder Begegnung spürbar sein. Dialoge leben von dem, was NICHT gesagt wird. Körperliche Nähe und Begehren dürfen sinnlich und, wo die Geschichte es trägt, auch explizit gezeigt werden."
         }
         if g.contains("fantasy") || g.contains("science") {
             return "GENRE-HANDWERK: Die Welt durch konkrete Details im Handlungsfluss zeigen – niemals durch Erklärabsätze oder Infodumps. Regeln der Welt konsequent einhalten."
@@ -262,19 +265,21 @@ enum PromptFactory {
         BISHERIGE HANDLUNG:
         \(storySoFar.isEmpty ? "Dies ist der Anfang des Buches." : storySoFar.truncated(to: 8000))
         \(transition)
-        HANDWERK (Bestseller-Standard, strikt einhalten):
-        - Beginne mitten in der Bewegung – kein Aufwärmen, keine Wetter- oder Aufwach-Eröffnung.
-        - Szenenstruktur: Ziel → Konflikt → Wendung. Die Wendung verändert die Lage spürbar.
-        - Tiefe Perspektive: Bleibe kompromisslos im Kopf der Perspektivfigur. Keine Information, die sie nicht haben kann.
-        - Zeigen statt behaupten: Emotionen über Körperreaktion, Handlung und Dialog. Niemals benennen („sie war wütend“ ist verboten).
-        - Dialog mit Subtext: Figuren sagen selten direkt, was sie wollen. Jede Replik hat eine Absicht.
-        - Konkrete, spezifische Details statt generischer Beschreibungen (nicht „ein Auto“, sondern „der rostige Kombi“).
-        - Variiere Satzlänge und Rhythmus: kurze Sätze für Tempo, längere für Atmosphäre.
-        - VERBOTENE FLOSKELN: „ein Schauer lief ihr über den Rücken“, „sie atmete tief durch“, „die Zeit schien stillzustehen“, „nichts würde mehr sein wie zuvor“, „ein Lächeln umspielte seine Lippen“, „ihr Herz machte einen Satz“, „ein Kloß bildete sich in ihrem Hals“, „die Luft war zum Schneiden“, inflationäres „plötzlich“, „irgendwie“, „ein Teil von ihr“.
-        - NICHT NACH KI KLINGEN: Verwende KEINE Gedankenstriche (—, –) als Stilmittel; nutze stattdessen Komma, Punkt oder Klammern. Keine Dreierfiguren-Schablonen („X, Y und Z“ gehäuft), kein erklärendes Zusammenfassen von Gefühlen, keine aufgesetzt poetischen Schlusssätze. Schreibe so, wie ein menschlicher Autor es täte – konkret, uneitel, unvorhersehbar.
-        - KEINE WIEDERHOLUNGEN: Greife keine Bilder, Metaphern, Formulierungen oder Szenenaufbauten aus der bisherigen Handlung wieder auf. Erkläre bereits etablierte Fakten nie ein zweites Mal. Jede Szene zeigt etwas Neues – neue Information, neuer Aspekt eines Schauplatzes, neue Beziehungsdynamik.
-        - SOG-TECHNIKEN (Page-Turner): Halte stets mindestens eine offene Frage aktiv; beantworte alte Fragen erst, wenn neue aufgeworfen sind. Mikro-Spannung auch in ruhigen Momenten (Reibung zwischen Figuren, unausgesprochene Bedrohung, Zeitdruck). Nutze dramatische Ironie, wo der Leser mehr weiß als die Figur.
-        - Der letzte Satz der Szene muss einen Grund zum Weiterlesen geben.
+        HANDWERK (die GESCHICHTE steht im Vordergrund – Technik dient ihr, nie umgekehrt):
+        - KLARHEIT VOR SCHÖNHEIT: Der Leser muss der Szene mühelos folgen und sich auf sie einlassen können. Schreibe verständlich; verrätsle oder überlade nichts, was die Handlung trägt.
+        - BILDER STRENG RATIONIEREN: HÖCHSTENS ein bis zwei wirklich starke Bilder/Metaphern in der GANZEN Szene. Alles andere klar und nüchtern erzählen. Nicht jeder innere Zustand bekommt ein Bild – sonst stumpft die Wirkung ab und am Ende wirkt nichts mehr intensiv.
+        - HANDELN STATT GRÜBELN: Die Figur tut konkrete Dinge (fragt, sucht, ruft an, konfrontiert, entscheidet, handelt) statt überwiegend innerlich zu reagieren. Innere Erschütterung kurz halten.
+        - KÖRPERSIGNALE SPARSAM UND VARIIERT: Zittern, Herzklopfen, zugeschnürte Kehle, „den Mund öffnen und wieder schließen" nur selten – nicht in jeder Szene dieselben Reaktionen.
+        - DIALOG BEILÄUFIG UND ECHT: Verletzendes klingt beiläufig und präzise, nicht wie ein ausgesprochenes Romanthema. Eine Figur sagt das Thema des Buches NIE direkt aus. Lieber härter und glaubwürdiger als perfekt formuliert.
+        - THEMA NIEMALS ERKLÄREN: Die emotionale Bedeutung wird gezeigt, nie zusammengefasst oder ausbuchstabiert („nicht X, sondern Y" als Deutung ist verboten). Vertraue darauf, dass der Leser sie selbst erschließt.
+        - Beginne mitten in der Handlung; halte den Einstieg kurz und komm schnell zum Kern der Szene. Keine Wetter- oder Aufwach-Eröffnung.
+        - Szenenstruktur: Ziel → Konflikt → Wendung. Tiefe Perspektive der Perspektivfigur (keine Information, die sie nicht haben kann). Zeigen statt behaupten – Emotion NIE benennen („sie war wütend" ist verboten).
+        - Konkrete, spezifische Details statt generischer. Variiere Satzlänge und Rhythmus wie in einem Bestseller: Lesefluss vor Kunstfertigkeit, nicht jede Zeile „literarisch" aufladen.
+        - VERBOTENE FLOSKELN: „ein Schauer lief ihr über den Rücken“, „sie atmete tief durch“, „die Zeit schien stillzustehen“, „nichts würde mehr sein wie zuvor“, „ein Lächeln umspielte seine Lippen“, „ihr Herz machte einen Satz“, „ein Kloß bildete sich in ihrem Hals“, „die Luft war zum Schneiden“, inflationäres „plötzlich“, „irgendwie“, „als hätte“, „ein Teil von ihr“.
+        - NICHT NACH KI KLINGEN: KEINE Gedankenstriche (—, –) als Stilmittel; nutze Komma oder Punkt. Keine Dreierfiguren-Schablonen („X, Y und Z" gehäuft), kein „Nicht X. Nicht Y. Sondern Z."-Muster, keine aufgesetzt poetischen Schlusssätze. Schreibe wie ein menschlicher Autor: konkret, uneitel, unvorhersehbar.
+        - KEINE WIEDERHOLUNGEN: Greife keine Bilder, Metaphern, Formulierungen oder Motive aus der bisherigen Handlung wieder auf; erkläre etablierte Fakten nie ein zweites Mal. Ein starkes Symbol nur SELTEN erwähnen, nicht in jeder Szene.
+        - SOG (dezent): Halte mindestens eine offene Frage aktiv und nutze Mikro-Spannung, aber nie auf Kosten der Verständlichkeit. Pro Szene höchstens EINE neue Figur oder Enthüllung, nicht mehrere gleichzeitig.
+        - Der letzte Satz gibt einen Grund zum Weiterlesen, ohne aufgesetzt oder programmatisch zu wirken.
         \(genreCraft(genre))
         \(positionNote)
         Gib AUSSCHLIESSLICH den fertigen Prosatext der Szene aus. Übernimm NIEMALS

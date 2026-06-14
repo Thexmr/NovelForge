@@ -19,10 +19,11 @@ struct UnlimitedSettings {
 
     static let randomToken = "Zufällig"
     static let genrePool = ["Thriller", "Roman", "Fantasy", "Science Fiction", "Krimi",
-                            "Liebesroman", "Historischer Roman", "Horror", "Jugendbuch", "Abenteuer"]
+                            "Liebesroman", "Erotik", "Dark Romance", "Historischer Roman",
+                            "Horror", "Jugendbuch", "Abenteuer"]
     static let stylePool = ["düster", "literarisch", "dialogstark", "humorvoll", "episch",
-                            "emotional", "schnell erzählt", "minimalistisch", "atmosphärisch",
-                            "actionreich", "psychologisch"]
+                            "emotional", "sinnlich", "schnell erzählt", "minimalistisch",
+                            "atmosphärisch", "actionreich", "psychologisch"]
 
     init(authorName: String, language: String, genre: String, style: String,
          pageCount: Int, maxBooks: Int,
