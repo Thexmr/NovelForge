@@ -1531,8 +1531,17 @@ final class PipelineOrchestrator: ObservableObject {
                                 maxTokens: maxTokens, temperature: 0.85, config: config
                             )
                             sceneTokens += response.tokensUsed ?? 0
-                            if response.text.wordCount > sceneText.wordCount { sceneText = response.text }
-                            if AutonomousContentQuality.acceptsDraftScene(sceneText, targetWords: scene.targetWordCount) {
+                            // Saubere Antworten bevorzugen; eine durchgesickerte Anweisung
+                            // führt zu einem neuen Versuch (statt nur zu strippen).
+                            let candidateClean = !AutonomousContentQuality.containsPromptArtifacts(response.text)
+                            let currentClean = !sceneText.isEmpty && !AutonomousContentQuality.containsPromptArtifacts(sceneText)
+                            if sceneText.isEmpty
+                                || (candidateClean && !currentClean)
+                                || (candidateClean == currentClean && response.text.wordCount > sceneText.wordCount) {
+                                sceneText = response.text
+                            }
+                            if AutonomousContentQuality.acceptsDraftScene(sceneText, targetWords: scene.targetWordCount),
+                               !AutonomousContentQuality.containsPromptArtifacts(sceneText) {
                                 lastProviderError = nil
                                 break
                             }

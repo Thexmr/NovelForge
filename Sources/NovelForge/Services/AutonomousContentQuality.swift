@@ -85,58 +85,104 @@ enum AutonomousContentQuality {
         return normalized.range(of: #"\bals ki\b"#, options: .regularExpression) != nil
     }
 
-    /// Entfernt durchgesickerte Prompt-Anweisungen und -Labels aus generierter
-    /// Prosa. LLMs kopieren gelegentlich Instruktionen wie
-    /// „Knüpfe nahtlos daran an – ohne das Geschehene zu wiederholen …" oder
-    /// Labels wie „Ort:" / „Zielumfang:" wörtlich in den Text – das darf NIE im
-    /// fertigen Buch landen. Arbeitet zeilenweise (Leaks erscheinen praktisch
-    /// immer als eigene Zeile/Absatz) und ist konservativ: nur unverwechselbare
-    /// Instruktions-Fragmente und Prompt-Labels werden entfernt, niemals normale
-    /// Erzählsätze.
-    static func strippingPromptArtifacts(_ text: String) -> String {
-        let phraseMarkers = [
-            "knüpfe nahtlos daran an",
-            "ohne das geschehene zu wiederholen",
-            "ohne das geschehene zu wiederholen oder zusammenzufassen",
-            "wörtliches ende der vorherigen szene",
-            "bisherige handlung",
-            "letzte szenen im detail",
-            "bisherige kapitel",
-            "genre-handwerk",
-            "verbotene floskeln",
-            "sog-techniken",
-            "keine überschriften",
-            "meta-kommentar",
-            "langform-pflicht",
-            "schreibe ausschließlich auf",
-            "schreibe die szene",
-            "der erste satz ist der wichtigste",
-            "erste szene des buches",
-            "letzte szene des buches",
-            "beginne mitten in der bewegung",
-            "zeigen statt behaupten",
-            "dialog mit subtext",
-            "bestseller-standard",
-            "knüpfe daran an"
-        ]
-        let labelPrefixes = [
-            "stil:", "stilregeln:", "kapitelziel:", "sprache:", "tonalität:",
-            "perspektive:", "erzählperspektive:", "zeitform:", "ort:", "zeit:",
-            "ziel:", "hindernis:", "wendung am ende:", "wendung:", "figuren:",
-            "szene:", "thema:", "zielumfang", "zielwörter", "zielwortzahl",
-            "zielumfang:"
-        ]
-        let kept = text.components(separatedBy: .newlines).filter { line in
+    /// Unverwechselbare Instruktions-Fragmente aus den Prompts. Tauchen sie im
+    /// generierten Text auf, hat das Modell eine Anweisung in die Prosa kopiert.
+    static let promptInstructionMarkers = [
+        "knüpfe nahtlos daran an",
+        "knüpfe daran an",
+        "setze die szene unmittelbar fort",
+        "ohne das geschehene zu wiederholen",
+        "wörtliches ende der vorherigen szene",
+        "bisherige handlung",
+        "letzte szenen im detail",
+        "bisherige kapitel",
+        "genre-handwerk",
+        "verbotene floskeln",
+        "sog-techniken",
+        "keine überschriften",
+        "keine meta-kommentare",
+        "meta-kommentar",
+        "langform-pflicht",
+        "schreibe ausschließlich auf",
+        "schreibe die szene",
+        "schreibe szene",
+        "der erste satz ist der wichtigste",
+        "erste szene des buches",
+        "letzte szene des buches",
+        "beginne mitten in der bewegung",
+        "zeigen statt behaupten",
+        "dialog mit subtext",
+        "bestseller-standard",
+        "gib ausschließlich den fertigen prosatext",
+        "übernimm niemals anweisungen",
+        "hinweise aus diesem auftrag",
+        "fertigen prosatext der szene",
+        "zielumfang"
+    ]
+
+    /// Prompt-Labels, die als eigene Zeile auftauchen, wenn das Modell die
+    /// Szenen-Vorgabe abschreibt.
+    static let promptLabelPrefixes = [
+        "stil:", "stilregeln:", "kapitelziel:", "sprache:", "tonalität:",
+        "perspektive:", "erzählperspektive:", "zeitform:", "ort:", "zeit:",
+        "ziel:", "hindernis:", "wendung am ende:", "wendung:", "figuren:",
+        "szene:", "thema:", "zielumfang:", "zielwörter:", "zielwortzahl:",
+        "genre:", "tonalität:", "kapitel:", "- ort:", "- zeit:", "- ziel:",
+        "- hindernis:", "- wendung"
+    ]
+
+    /// Hat das Modell eine Prompt-Anweisung/-Label in die Prosa durchsickern lassen?
+    /// Wird beim Schreiben genutzt, um eine betroffene Szene NEU zu generieren.
+    static func containsPromptArtifacts(_ text: String) -> Bool {
+        let lowered = text.lowercased()
+        if promptInstructionMarkers.contains(where: { lowered.contains($0) }) { return true }
+        for line in text.components(separatedBy: .newlines) {
             let l = line.trimmingCharacters(in: .whitespaces).lowercased()
-            if l.isEmpty { return true }
-            if phraseMarkers.contains(where: { l.contains($0) }) { return false }
-            if labelPrefixes.contains(where: { l.hasPrefix($0) }) { return false }
-            return true
+            if promptLabelPrefixes.contains(where: { l.hasPrefix($0) }) { return true }
         }
-        var result = kept.joined(separator: "\n")
+        return false
+    }
+
+    /// Entfernt durchgesickerte Prompt-Anweisungen/-Labels aus generierter Prosa –
+    /// SATZGENAU, damit auch ein mitten im Absatz eingebetteter Anweisungssatz
+    /// verschwindet, ohne die umgebende Erzählung zu beschädigen. Reine Label-Zeilen
+    /// (z.B. „Ort: Bäckerei") werden komplett entfernt. Das darf NIE im Buch landen.
+    static func strippingPromptArtifacts(_ text: String) -> String {
+        var keptLines: [String] = []
+        for line in text.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let lower = trimmed.lowercased()
+            if trimmed.isEmpty { keptLines.append(line); continue }
+            // Ganze Label-/Vorgabe-Zeile entfernen.
+            if promptLabelPrefixes.contains(where: { lower.hasPrefix($0) }) { continue }
+            // Innerhalb der Zeile nur die Anweisungs-SÄTZE entfernen.
+            let cleaned = removingInstructionSentences(from: line)
+            if !cleaned.trimmingCharacters(in: .whitespaces).isEmpty {
+                keptLines.append(cleaned)
+            }
+        }
+        var result = keptLines.joined(separator: "\n")
         while result.contains("\n\n\n") {
             result = result.replacingOccurrences(of: "\n\n\n", with: "\n\n")
         }
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func removingInstructionSentences(from line: String) -> String {
+        let lower = line.lowercased()
+        guard promptInstructionMarkers.contains(where: { lower.contains($0) }) else {
+            return line // kein Anweisungs-Fragment → Zeile unverändert lassen
+        }
+        var kept: [String] = []
+        line.enumerateSubstrings(in: line.startIndex..<line.endIndex, options: [.bySentences, .localized]) { sub, _, _, _ in
+            guard let sub else { return }
+            let s = sub.lowercased()
+            if !promptInstructionMarkers.contains(where: { s.contains($0) }) {
+                kept.append(sub)
+            }
+        }
+        let rebuilt = kept.joined()
+        // Falls die Satzsegmentierung nichts trennen konnte, die ganze Zeile verwerfen.
+        return rebuilt.trimmingCharacters(in: .whitespaces).isEmpty ? "" : rebuilt
     }
 }
