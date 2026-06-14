@@ -420,4 +420,20 @@ final class LogicTests: XCTestCase {
         XCTAssertFalse(json.contains("apiKey"))
         XCTAssertNil(try JSONDecoder().decode(CoverImageSettings.self, from: data).apiKey)
     }
+
+    /// Gewählter Ansatz „Artwork + scharfer Text-Overlay": das Bildmodell darf KEINEN
+    /// Text ins Bild rendern (KI-Text wird verzerrt). Titel/Autor kommen als Overlay.
+    func testCoverPromptRequestsTextFreeArtworkForOverlay() {
+        let project = Project(title: "Zähl nicht bis zehn", authorName: "Dave Demaré",
+                              language: "Deutsch", genre: "Thriller",
+                              styleProfile: "düster", targetPageCount: 320,
+                              outputFormats: ["EPUB"])
+        let prompt = CoverDesignService.buildPrompt(for: project)
+        XCTAssertTrue(prompt.contains("illustration only, no text"))
+        XCTAssertTrue(prompt.contains("razor-sharp typographic overlay"))
+        XCTAssertTrue(prompt.contains("negative space"))
+        // KDP-Kontext bleibt erhalten.
+        XCTAssertTrue(prompt.contains("Amazon KDP"))
+        XCTAssertTrue(prompt.contains("2:3"))
+    }
 }

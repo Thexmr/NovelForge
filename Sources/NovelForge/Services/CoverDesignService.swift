@@ -122,7 +122,7 @@ enum CoverDesignService {
         let audience = clean(profile?.targetAudience)
 
         return """
-        Create a premium Amazon KDP front book cover as a polished commercial bestseller cover.
+        Create premium front-cover ARTWORK (illustration only, no text) for a polished commercial Amazon KDP bestseller book cover.
 
         BOOK IDENTITY
         Title: \(project.title)
@@ -146,10 +146,10 @@ enum CoverDesignService {
         Format: portrait 2:3 front cover, suitable for Amazon KDP thumbnail and full-size preview.
         Visual mood: \(visualMood)
         Design level: high-end publishing house, cinematic but not generic stock art, strong focal point, readable hierarchy, professional typography, clean negative space.
-        Visible text: use exactly the book title "\(project.title)" and author name "\(project.authorName)".
-        Text rule: no misspellings, no extra taglines unless they are clearly implied by the story, no placeholder text.
+        Typography: render NO text, NO lettering, NO title, NO author name, NO words or numbers anywhere in the image. Title and author are added afterwards as a separate, razor-sharp typographic overlay, so the artwork itself must contain absolutely no letters.
+        Composition for overlay: leave clean, low-detail negative space in the upper third (where the title will sit) and the lower quarter (for the author name); keep the central focal subject between them, with calm low-contrast areas behind the future text so overlaid type stays perfectly legible.
         Disclosure rule: keine KI-Hinweise, no "AI generated" labels, no process notes, no production badges.
-        Avoid: weak job-title cliches, random profession imagery unless central to the story, cheap AI-glow, overbusy collage, malformed faces/hands, watermarks, logos, mockup frames, badges, and any AI disclosure text.
+        Avoid: any text/typography/letters, weak job-title cliches, random profession imagery unless central to the story, cheap AI-glow, overbusy collage, malformed faces/hands, watermarks, logos, mockup frames, badges, and any AI disclosure text.
         Important: The cover must feel specifically designed for this book, not like a generic genre template; prioritize the central conflict, symbolic object, emotional wound, and market promise.
         """
     }
