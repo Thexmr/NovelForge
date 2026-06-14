@@ -906,8 +906,11 @@ final class PipelineOrchestrator: ObservableObject {
 
     /// Führt mehrere unabhängige LLM-Anfragen parallel aus (begrenzte Nebenläufigkeit).
     /// Token-/Kostenschätzung erfolgt nur für die Anzeige; sie begrenzt die Produktion nicht.
-    private func runParallelGeneration(requests: [GenerationRequest],
-                                       config: ProviderConfiguration) async -> [Int: Result<GenerationResponse, Error>] {
+    private func runParallelGeneration(
+        requests: [GenerationRequest],
+        config: ProviderConfiguration,
+        onResult: ((Int, Result<GenerationResponse, Error>) -> Void)? = nil
+    ) async -> [Int: Result<GenerationResponse, Error>] {
         guard !requests.isEmpty else { return [:] }
 
         // Lokales Ollama arbeitet seriell am schnellsten; Cloud-APIs vertragen Parallelität.
@@ -938,6 +941,7 @@ final class PipelineOrchestrator: ObservableObject {
                 if case .success(let response) = result, let tokens = response.tokensUsed {
                     recordTokenUsage(tokens, model: requests[index].model)
                 }
+                onResult?(index, result)
 
                 if Task.isCancelled {
                     group.cancelAll()
@@ -1269,7 +1273,12 @@ final class PipelineOrchestrator: ObservableObject {
         }
         currentAgent = "\(AgentName.scenePlanner) – \(pending.count) Kapitel parallel"
 
-        let results = await runParallelGeneration(requests: requests, config: config)
+        var answered = 0
+        let results = await runParallelGeneration(requests: requests, config: config) { _, _ in
+            answered += 1
+            currentAgent = "\(AgentName.scenePlanner) – \(answered)/\(pending.count) Kapitel beantwortet"
+            updateProgress(phase: .scenePlanning, subProgress: Double(answered) / Double(pending.count))
+        }
 
         var done = 0
         for (index, chapter) in pending.enumerated() {
@@ -1800,7 +1809,12 @@ final class PipelineOrchestrator: ObservableObject {
         }
         currentAgent = "\(AgentName.reviser) – \(pending.count) Kapitel parallel"
 
-        let results = await runParallelGeneration(requests: requests, config: config)
+        var answered = 0
+        let results = await runParallelGeneration(requests: requests, config: config) { _, _ in
+            answered += 1
+            currentAgent = "\(AgentName.reviser) – \(answered)/\(pending.count) Kapitel beantwortet"
+            updateProgress(phase: .chapterRevision, subProgress: Double(answered) / Double(pending.count))
+        }
 
         var firstError: Error?
         var done = 0
@@ -1913,7 +1927,12 @@ final class PipelineOrchestrator: ObservableObject {
         }
         currentAgent = "\(AgentName.proofreader) – \(pending.count) Kapitel parallel"
 
-        let results = await runParallelGeneration(requests: requests, config: config)
+        var answered = 0
+        let results = await runParallelGeneration(requests: requests, config: config) { _, _ in
+            answered += 1
+            currentAgent = "\(AgentName.proofreader) – \(answered)/\(pending.count) Kapitel beantwortet"
+            updateProgress(phase: .proofreading, subProgress: Double(answered) / Double(pending.count))
+        }
 
         var firstError: Error?
         var done = 0

@@ -474,13 +474,20 @@ struct ProductionView: View {
                               icon: "books.vertical",
                               color: StudioTheme.violet)
                 commandMetric(title: "Aktive Worker",
-                              value: "\(orchestrator.activeUnlimitedBooks)",
+                              value: "\(visibleActiveWorkers)",
                               icon: "cpu",
                               color: StudioTheme.amber)
             }
         }
         .padding(20)
         .studioFeaturedPanel(cornerRadius: 10)
+    }
+
+    private var visibleActiveWorkers: Int {
+        if orchestrator.isUnlimitedMode {
+            return orchestrator.activeUnlimitedBooks
+        }
+        return orchestrator.isRunning ? 1 : 0
     }
 
     private func commandMetric(title: String, value: String, icon: String, color: Color) -> some View {
