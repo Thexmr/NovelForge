@@ -36,6 +36,14 @@ enum PromptFactory {
         \(memoryBlock)
         \(genreViralAngle(genre))
 
+        GENRE ERNST NEHMEN (verbindlich): Liefere echte Genre-Ware, kein verkapptes Alltagsdrama.
+        Die Geschichte darf NICHT um einen Beruf oder Arbeitsplatz als Hauptthema kreisen
+        („eine Bäckerin/Imkerin/Kassiererin entdeckt ein Geheimnis" ist verboten – ein Beruf ist
+        höchstens Kulisse, nie der Kern). Erfülle die Kernerwartung des Genres voll:
+        bei Liebesroman/Erotik treiben Beziehung, Anziehung und Begehren die Handlung (mit
+        spürbarer Hitze, wo das Genre es verlangt); bei Thriller/Krimi die Gefahr und das Rätsel;
+        bei Fantasy/SciFi die fantastische Welt. Das Genre-Versprechen steht im Zentrum, nicht am Rand.
+
         KONZEPT-PFLICHT (was ein Buch viral macht): Jede Idee braucht
         – einen High-Concept-Hook, der sich in EINEM Satz erzählen lässt und sofort neugierig macht ("Was wäre, wenn …"),
         – eine sofort verständliche Zielgruppe und ein starkes emotionales Versprechen,
@@ -154,6 +162,11 @@ enum PromptFactory {
         exakt zum Titel „\(title)" und zum Genre „\(genreLine)" passt und den Titel erzählerisch \
         einlöst – er soll nach der Lektüre sinnfällig und treffend wirken. Ändere oder ersetze den \
         Titel NICHT und weiche nicht ins Genre-Fremde ab.
+        \(genreCraft(genre))
+        Nimm das Genre ernst: Die Kernerwartung des Genres steht im Zentrum der Handlung. Die \
+        Geschichte kreist NICHT um einen Beruf/Arbeitsplatz als Hauptthema; ein Beruf ist höchstens \
+        Kulisse. Bei Liebesroman/Erotik treiben Beziehung und Begehren den Plot (mit der Hitze, die \
+        das Genre verlangt), nicht ein nebenbei erzähltes Alltagsleben.
 
         Antworte ausschließlich in diesem Format (Labels exakt so verwenden):
         PRÄMISSE: [1-2 Sätze]
@@ -266,6 +279,30 @@ enum PromptFactory {
     }
 
     /// Genre-spezifische Handwerksregeln auf Bestseller-Niveau.
+    /// Synthese aus zwei Experten-Modulen (Stimme/Subtext + Lexik/Rhythmus).
+    /// Bricht gezielt die statistischen und lexikalischen Muster, an denen
+    /// KI-Detektoren maschinell erzeugte Prosa erkennen (Burstiness/Perplexität),
+    /// OHNE die literarische Qualität oder Lesbarkeit zu senken.
+    static var humanCraftRules: String {
+        """
+        MENSCHLICH SCHREIBEN – DAMIT ES NICHT NACH KI KLINGT (diese Regeln stehen über dem reinen Glattschreiben; erzähl die Szene trotzdem vollständig zu Ende und kommentiere sie nie):
+        - SATZLÄNGE BRUTAL STREUEN: Niemals drei Sätze in Folge mit ähnlicher Länge. Nach einem langen Schachtelsatz (25+ Wörter) folgt ein Satz mit drei bis fünf Wörtern oder ein verbloses Fragment („Kein Licht. Nirgends."). Pro Szene mindestens zwei sehr kurze Sätze unter vier Wörtern.
+        - ABSATZLÄNGE VARIIEREN: Keine zwei gleich langen Absätze hintereinander. Setze mindestens einen Ein-Satz-Absatz als Akzent.
+        - ABSATZ-ENDEN (das wichtigste Verbot): Kein Absatz endet mit einem zusammenfassenden, deutenden oder moralisierenden Satz („Und so begriff sie …", „Es war ein Moment, der alles veränderte", „Nichts würde mehr sein wie zuvor"). Brich auf einer konkreten Handlung, einem Gegenstand oder einem halben Gedanken ab. Auch der Schlusssatz der Szene bleibt nüchtern, nicht feierlich, nicht aphoristisch – hör auf, bevor die Bedeutung sauber ist.
+        - SATZANFÄNGE BRECHEN: Nicht jeder Satz beginnt mit dem Subjekt (Sie/Er/Name). Keine gehäuften Partizip- oder Adverb-Auftakte („Langsam …", „Mit zitternden Händen …") – höchstens einmal pro Absatz. Stell Sätze ruhig hart und unverbunden nebeneinander (Parataxe).
+        - KONNEKTOREN-DIÄT: Höchstens EIN Satz-Anfangs-Konnektor pro Absatz; streiche „jedoch", „dennoch", „indes", „gleichwohl", „nichtsdestotrotz", „letztlich", „letztendlich", „mit anderen Worten", „in der Tat".
+        - KEINE TRIKOLA / KEINE ANTITHESE-SCHABLONE: Keine Dreierreihung als Reflex („müde, hungrig und allein") – kürze auf zwei Glieder oder überlade asymmetrisch auf vier. Kein „Nicht X, sondern Y", kein „Nicht X. Nicht Y. Sondern Z." – schreib eine schlichte Aussage.
+        - ADJEKTIV-DIÄT: Höchstens ein wertendes Adjektiv pro Satz. Keine synonymen Adjektivpaare („kalt und unbarmherzig", „leise und vorsichtig"). Lieber ein präzises Substantiv oder ein starkes Verb.
+        - ZEIGEN, NICHT BENENNEN: Benenne kein Gefühl und liefere keine Begründung dazu („sie war nervös, weil …"). Zeig die Handlung: was die Hände tun, wie kurz die Antwort ausfällt, was die Figur zählt. Eine Geste bleibt stehen – etikettiere sie nicht („…, ein Zeichen ihrer Unsicherheit" ist verboten).
+        - KEINE VAGE INNENSCHAU, KEINE STANDARD-GEFÜHLSVERBEN: Weg mit „ein Gefühl von …", „etwas in ihr/ihm", „eine Mischung aus … und …", „in diesem Moment/Augenblick", „einen Herzschlag lang"; ebenso „machte sich breit", „breitete sich aus", „durchströmte", „überkam", „überrollte". Zeig stattdessen, was die Figur konkret tut.
+        - KEINE HEDGES: Streiche „gewissermaßen", „gleichsam", „durchaus", „ein Stück weit", „kaum merklich", „unweigerlich", „zweifellos", „gewiss". Eine menschliche Stimme behauptet oder schweigt, sie versichert nicht.
+        - STIMME & EIGENHEIT: Gib der Erzählstimme eine feste Marotte (ein schräges Lieblingswort, einen wiederkehrenden Vergleich aus der Erfahrungswelt genau dieser Figur). Vergleiche nur mit Bildern aus dem Leben DIESER Figur. Greif gelegentlich zu einem unerwarteten, milieuspezifischen Wort, einem echten Orts- oder Markennamen, einer exakten Uhrzeit. Meide die glatteste, wahrscheinlichste Vokabel.
+        - WIEDERHOLUNG DARF SEIN: „sagte" darf mehrfach hintereinander stehen – kein Zwangs-Synonym-Karussell bei Redebegleitern („erwiderte/entgegnete/bemerkte" in Folge ist verboten).
+        - SELEKTIVE SINNLICHKEIT & WETTER: Pro Moment EIN Sinneseindruck, gern ein unerwarteter – kein Geruch-Klang-Sicht-Inventar. Wetter und Umgebung spiegeln NICHT die Gefühlslage; es darf regnen, während jemand glücklich ist.
+        - SELBSTCHECK vor der Ausgabe (still, nicht in den Text schreiben): Endet ein Absatz auf einer Deutung? Drei gleich lange Sätze in Folge? Ein Gefühl benannt statt gezeigt? Eine Trikola oder ein „nicht X, sondern Y"? – umbauen. Gib nur die korrigierte Prosa aus.
+        """
+    }
+
     static func genreCraft(_ genre: String) -> String {
         let g = genre.lowercased()
         if g.contains("thriller") || g.contains("krimi") {
@@ -362,8 +399,7 @@ enum PromptFactory {
         - Beginne mitten in der Handlung; halte den Einstieg kurz und komm schnell zum Kern der Szene. Keine Wetter- oder Aufwach-Eröffnung.
         - Szenenstruktur: Ziel → Konflikt → Wendung. Tiefe Perspektive der Perspektivfigur (keine Information, die sie nicht haben kann). Zeigen statt behaupten – Emotion NIE benennen („sie war wütend" ist verboten).
         - Konkrete, spezifische Details statt generischer. Variiere Satzlänge und Rhythmus wie in einem Bestseller: Lesefluss vor Kunstfertigkeit, nicht jede Zeile „literarisch" aufladen.
-        - VERBOTENE FLOSKELN: „ein Schauer lief ihr über den Rücken“, „sie atmete tief durch“, „die Zeit schien stillzustehen“, „nichts würde mehr sein wie zuvor“, „ein Lächeln umspielte seine Lippen“, „ihr Herz machte einen Satz“, „ein Kloß bildete sich in ihrem Hals“, „die Luft war zum Schneiden“, inflationäres „plötzlich“, „irgendwie“, „als hätte“, „ein Teil von ihr“.
-        - NICHT NACH KI KLINGEN: KEINE Gedankenstriche (—, –) als Stilmittel; nutze Komma oder Punkt. Keine Dreierfiguren-Schablonen („X, Y und Z" gehäuft), kein „Nicht X. Nicht Y. Sondern Z."-Muster, keine aufgesetzt poetischen Schlusssätze. Schreibe wie ein menschlicher Autor: konkret, uneitel, unvorhersehbar.
+        \(humanCraftRules)
         - KEINE WIEDERHOLUNGEN: Greife keine Bilder, Metaphern, Formulierungen oder Motive aus der bisherigen Handlung wieder auf; erkläre etablierte Fakten nie ein zweites Mal. Ein starkes Symbol nur SELTEN erwähnen, nicht in jeder Szene.
         - SOG (dezent): Halte mindestens eine offene Frage aktiv und nutze Mikro-Spannung, aber nie auf Kosten der Verständlichkeit. Pro Szene höchstens EINE neue Figur oder Enthüllung, nicht mehrere gleichzeitig.
         - Der letzte Satz gibt einen Grund zum Weiterlesen, ohne aufgesetzt oder programmatisch zu wirken.
@@ -406,8 +442,12 @@ enum PromptFactory {
         Dialogfluss. Streiche Filterwörter (sehen, hören, spüren, bemerken), wo die \
         Wahrnehmung direkt gezeigt werden kann. Behalte Handlung, Reihenfolge der \
         Ereignisse, Perspektive und Umfang bei (±10%). Szenentrenner (***) müssen \
-        exakt erhalten bleiben. Gib NUR den vollständigen überarbeiteten Kapiteltext \
-        aus, ohne Überschrift und ohne Kommentare.
+        exakt erhalten bleiben.
+
+        Wende beim Überarbeiten zusätzlich diese Regeln an (entferne KI-typische Muster aktiv):
+        \(humanCraftRules)
+
+        Gib NUR den vollständigen überarbeiteten Kapiteltext aus, ohne Überschrift und ohne Kommentare.
 
         TEXT:
         \(text)

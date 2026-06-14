@@ -314,6 +314,55 @@ final class LogicTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Psychothriller"))
     }
 
+    // MARK: - Genre ernst nehmen (kein Berufs-/Alltagsplot)
+
+    func testBookIdeasForbidsJobPlotsAndDemandsGenreFidelity() {
+        let prompt = PromptFactory.bookIdeas(genre: "Erotik", language: "Deutsch")
+        XCTAssertTrue(prompt.contains("GENRE ERNST NEHMEN"))
+        XCTAssertTrue(prompt.lowercased().contains("nicht um einen beruf"))
+        XCTAssertTrue(prompt.contains("Begehren"))
+    }
+
+    func testConceptPromptInjectsGenreCoreSoGenreIsTakenSeriously() {
+        let prompt = PromptFactory.concept(
+            title: "Berühr mich, wenn du dich traust", genre: "Erotik", subgenre: nil,
+            language: "Deutsch", style: "sinnlich", tonality: "intim",
+            audience: "Erwachsene", perspective: "Ich-Erzählerin", tense: "Präsens",
+            pageCount: 280, ideaSeed: "Zwei Rivalen teilen sich verdeckt ein Doppelleben."
+        )
+        XCTAssertTrue(prompt.contains("GENRE-HANDWERK"))
+        XCTAssertTrue(prompt.contains("kreist NICHT um einen Beruf"))
+    }
+
+    // MARK: - Anti-KI-Stil (Detektor-Resistenz)
+
+    func testHumanCraftRulesCoverBurstinessParagraphEndingsAndTricolon() {
+        let rules = PromptFactory.humanCraftRules
+        XCTAssertTrue(rules.contains("SATZLÄNGE"))
+        XCTAssertTrue(rules.contains("ABSATZ-ENDEN"))
+        XCTAssertTrue(rules.contains("TRIKOLA"))
+        let revise = PromptFactory.reviseChapter(language: "Deutsch", style: "düster",
+            tonality: "kühl", chapterNumber: 3, chapterTitle: "Bruch", text: "Beispieltext.")
+        XCTAssertTrue(revise.contains("MENSCHLICH SCHREIBEN"))
+    }
+
+    func testSoundsLikeAIFlagsFloskelDenseProseButNotCleanProse() {
+        let aiProse = ([
+            "Ihr Herz schlug bis zum Hals.",
+            "Ein Schauer lief ihr über den Rücken.",
+            "In diesem Moment verstand sie alles.",
+            "Eine Mischung aus Angst und Hoffnung durchströmte sie.",
+            "Etwas in ihr zerbrach."
+        ].joined(separator: " ") + " ")
+            + String(repeating: "Sie ging weiter durch die leere Halle und dachte nach. ", count: 20)
+        XCTAssertGreaterThanOrEqual(AutonomousContentQuality.aiTellCount(aiProse), 4)
+        XCTAssertTrue(AutonomousContentQuality.soundsLikeAI(aiProse))
+
+        let cleanProse = String(repeating: "Marek zählte die Stufen. Achtzehn. Oben klemmte die Tür, also trat er dagegen. Der Flur war kalt. ", count: 8)
+        XCTAssertEqual(AutonomousContentQuality.aiTellCount(cleanProse), 0)
+        XCTAssertFalse(AutonomousContentQuality.soundsLikeAI(cleanProse))
+    }
+
     // MARK: - Cover-Studio
 
     func testCoverPromptIsBuiltFromBookIdentityAndKDPContext() {

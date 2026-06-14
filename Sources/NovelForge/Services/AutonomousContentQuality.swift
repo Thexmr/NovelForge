@@ -265,4 +265,73 @@ enum AutonomousContentQuality {
         // Falls die Satzsegmentierung nichts trennen konnte, die ganze Zeile verwerfen.
         return rebuilt.trimmingCharacters(in: .whitespaces).isEmpty ? "" : rebuilt
     }
+
+    // MARK: - KI-Erkennung (Anti-Detektor)
+
+    /// Kuratierte Denylist hochsignifikanter deutscher KI-Floskeln (überwiegend
+    /// Mehrwort-Phrasen, damit echte Prosa nicht fälschlich markiert wird).
+    /// Quelle: synthetisiertes Experten-Korpus. Dient dem weichen Neufassungs-Gate
+    /// beim Schreiben – NICHT zum mechanischen Löschen (das beschädigte Prosa).
+    static let aiTellPhrases: [String] = [
+        "ein schauer lief", "lief ihr über den rücken", "lief ihm über den rücken",
+        "die zeit schien stillzustehen", "die zeit stand still", "die welt schien stillzustehen",
+        "nichts würde mehr sein wie zuvor", "nichts war mehr wie zuvor", "nichts würde je wieder so sein",
+        "ein lächeln umspielte", "ein lächeln huschte über", "ein schatten huschte über ihr gesicht",
+        "ein wissendes lächeln", "ihr herz machte einen satz", "ihr herz schlug bis zum hals",
+        "sein herz schlug bis zum hals", "das herz schlug ihr bis zum hals", "ihr herz schlug schneller",
+        "ihr herz hämmerte", "ihr herz pochte wild", "ihr herz setzte einen schlag aus",
+        "ein kloß bildete sich", "ein kloß in ihrem hals", "ein kloß steckte ihr im hals",
+        "ein knoten in ihrem magen", "die luft war zum schneiden", "ein teil von ihr", "ein teil von ihm",
+        "ein gefühl von", "ein gefühl der", "ein gefühl überkam sie", "eine mischung aus", "ein gemisch aus",
+        "ein hauch von", "ein anflug von", "ein schwall von", "eine welle der", "eine welle von", "eine welle aus",
+        "etwas in ihr", "etwas in ihm", "etwas in ihrem inneren", "etwas regte sich in ihr",
+        "etwas regte sich in ihm", "etwas in ihr zerbrach", "in diesem moment", "in diesem augenblick",
+        "für einen moment", "für einen augenblick", "einen moment lang", "einen augenblick lang",
+        "einen herzschlag lang", "einen wimpernschlag lang", "sie atmete tief durch", "er atmete tief durch",
+        "sie holte tief luft", "ihr atem stockte", "ihr stockte der atem", "der atem stockte ihr",
+        "ihre augen weiteten sich", "ihre kehle schnürte sich zu", "ihre kehle wurde eng",
+        "ihr magen zog sich zusammen", "sein magen krampfte", "sie schluckte schwer",
+        "sie ballte die hände zu fäusten", "kaum merklich", "kaum wahrnehmbar", "kaum spürbar",
+        "ein kalter schauer", "ein eiskalter schauer lief", "gänsehaut breitete sich aus",
+        "machte sich breit", "breitete sich in ihr aus", "breitete sich in ihm aus", "durchfuhr sie",
+        "durchfuhr ihn", "durchströmte sie", "durchströmte ihn", "überkam sie", "überkam ihn",
+        "überrollte sie", "überrollte ihn", "stieg in ihr auf", "stieg in ihm auf", "wusch über sie hinweg",
+        "wut stieg in ihr auf", "wut stieg in ihm auf", "wut kochte in ihm hoch", "panik stieg in ihr auf",
+        "angst kroch in ihr hoch", "kroch in ihr hoch", "trauer überkam sie", "verzweiflung überrollte ihn",
+        "es war, als ob", "es war, als würde", "es fühlte sich an, als", "als würde die zeit",
+        "als wäre die welt", "in diesem moment verstand sie", "in diesem moment verstand er",
+        "in diesem augenblick begriff sie", "in diesem augenblick verstand sie", "und so begriff sie",
+        "und so begriff er", "und so wurde ihr klar", "sie wusste in diesem moment", "ihr wurde klar",
+        "es wurde ihr bewusst", "stille breitete sich aus", "stille senkte sich über",
+        "schweigen breitete sich aus", "eine bedrückende stille", "ein moment, der alles veränderte",
+        "ein moment, den sie nie vergessen würde", "mehr als worte je könnten", "tief in ihrem inneren",
+        "tief in ihrem innersten", "tief in seinem inneren", "in ihrem innersten", "sondern vielmehr",
+        "auf gewisse weise", "auf seltsame weise", "auf unerklärliche weise", "wie aus dem nichts",
+        "ein zeichen ihrer unsicherheit", "ein zeichen seiner nervosität", "verriet ihre nervosität",
+        "unweigerlich", "zweifellos", "gleichsam", "nichtsdestotrotz"
+    ]
+
+    /// Zählt die Treffer aus `aiTellPhrases` im Text (Gesamtvorkommen).
+    static func aiTellCount(_ text: String) -> Int {
+        let lower = text.lowercased()
+        guard !lower.isEmpty else { return 0 }
+        var count = 0
+        for phrase in aiTellPhrases {
+            var range = lower.startIndex..<lower.endIndex
+            while let hit = lower.range(of: phrase, range: range) {
+                count += 1
+                range = hit.upperBound..<lower.endIndex
+            }
+        }
+        return count
+    }
+
+    /// Weiches Gate: Klingt die Szene maschinell (zu viele KI-Floskeln für ihre Länge)?
+    /// Löst beim Schreiben höchstens EINE Neufassung aus; verwirft nie Inhalt.
+    static func soundsLikeAI(_ text: String) -> Bool {
+        let words = text.wordCount
+        guard words >= 150 else { return false }
+        let threshold = max(3, words / 300)
+        return aiTellCount(text) >= threshold
+    }
 }

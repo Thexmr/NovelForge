@@ -1610,7 +1610,7 @@ final class PipelineOrchestrator: ObservableObject {
                     // Bis zu 2 Schreibversuche. Provider-FATAL-Fehler pausieren das Buch
                     // (fortsetzbar); reine Inhaltsschwäche lässt es NIE scheitern.
                     for attempt in 1...2 {
-                        let hint = attempt == 1 ? "" : "\n\nDer vorige Versuch war zu kurz oder unbrauchbar. Schreibe jetzt die vollständige Szene als reinen Fließtext, mindestens \(minWords) Wörter, ohne Meta-Kommentare."
+                        let hint = attempt == 1 ? "" : "\n\nDer vorige Versuch war zu kurz, unbrauchbar oder klang zu sehr nach KI. Schreibe jetzt die vollständige Szene als reinen Fließtext, mindestens \(minWords) Wörter, ohne Meta-Kommentare. Schreibe betont menschlich: variiere Satzlängen hart (auch sehr kurze Sätze und Fragmente), keine KI-Floskeln, kein deutender Zusammenfassungssatz am Absatzende."
                         do {
                             let response = try await generate(
                                 prompt: basePrompt + hint,
@@ -1618,17 +1618,21 @@ final class PipelineOrchestrator: ObservableObject {
                                 maxTokens: maxTokens, temperature: 0.85, config: config
                             )
                             sceneTokens += response.tokensUsed ?? 0
-                            // Saubere Antworten bevorzugen; eine durchgesickerte Anweisung
-                            // führt zu einem neuen Versuch (statt nur zu strippen).
-                            let candidateClean = !AutonomousContentQuality.containsPromptArtifacts(response.text)
-                            let currentClean = !sceneText.isEmpty && !AutonomousContentQuality.containsPromptArtifacts(sceneText)
+                            // „Gut" = keine durchgesickerte Anweisung UND nicht maschinell klingend.
+                            // Eine schwächere Fassung führt zu einem neuen Versuch (statt sie zu behalten).
+                            let candidateGood = !AutonomousContentQuality.containsPromptArtifacts(response.text)
+                                && !AutonomousContentQuality.soundsLikeAI(response.text)
+                            let currentGood = !sceneText.isEmpty
+                                && !AutonomousContentQuality.containsPromptArtifacts(sceneText)
+                                && !AutonomousContentQuality.soundsLikeAI(sceneText)
                             if sceneText.isEmpty
-                                || (candidateClean && !currentClean)
-                                || (candidateClean == currentClean && response.text.wordCount > sceneText.wordCount) {
+                                || (candidateGood && !currentGood)
+                                || (candidateGood == currentGood && response.text.wordCount > sceneText.wordCount) {
                                 sceneText = response.text
                             }
                             if AutonomousContentQuality.acceptsDraftScene(sceneText, targetWords: scene.targetWordCount),
-                               !AutonomousContentQuality.containsPromptArtifacts(sceneText) {
+                               !AutonomousContentQuality.containsPromptArtifacts(sceneText),
+                               !AutonomousContentQuality.soundsLikeAI(sceneText) {
                                 lastProviderError = nil
                                 break
                             }
