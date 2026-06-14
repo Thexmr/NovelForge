@@ -60,37 +60,8 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $appState.selectedSidebarItem) {
-                Section("Studio") {
-                    sidebarRow(.dashboard)
-                    sidebarRow(.projects)
-                    sidebarRow(.production)
-                    sidebarRow(.agents)
-                }
-                Section("Inhalt") {
-                    sidebarRow(.manuscript)
-                    sidebarRow(.storyBible)
-                }
-                Section("Ausgabe") {
-                    sidebarRow(.export)
-                }
-                Section {
-                    sidebarRow(.settings)
-                }
-            }
-            .listStyle(.sidebar)
-            .navigationTitle("NovelForge")
-            .frame(minWidth: 210)
-            .safeAreaInset(edge: .bottom) {
-                Button {
-                    showingNewBookSheet = true
-                } label: {
-                    Label("Neues Buch", systemImage: "plus.circle.fill")
-                }
-                .buttonStyle(StudioPrimaryButtonStyle())
-                .keyboardShortcut("n", modifiers: .command)
-                .padding(12)
-            }
+            StudioSidebar(showingNewBookSheet: $showingNewBookSheet)
+                .navigationSplitViewColumnWidth(min: 238, ideal: 268, max: 310)
         } detail: {
             Group {
                 switch appState.selectedSidebarItem {
@@ -125,11 +96,190 @@ struct ContentView: View {
             PipelineOrchestrator.shared.configure(with: modelContext)
         }
     }
+}
 
-    private func sidebarRow(_ item: SidebarItem) -> some View {
-        NavigationLink(value: item) {
-            Label(item.rawValue, systemImage: item.icon)
+struct StudioSidebar: View {
+    @ObservedObject private var appState = AppState.shared
+    @ObservedObject private var orchestrator = PipelineOrchestrator.shared
+    @Binding var showingNewBookSheet: Bool
+
+    private let sections: [(String, [SidebarItem])] = [
+        ("Studio", [.dashboard, .projects, .production, .agents]),
+        ("Inhalt", [.manuscript, .storyBible]),
+        ("Ausgabe", [.export]),
+        ("System", [.settings])
+    ]
+
+    var body: some View {
+        ZStack {
+            StudioBackground()
+            VStack(alignment: .leading, spacing: 18) {
+                brandHeader
+
+                VStack(alignment: .leading, spacing: 16) {
+                    ForEach(sections, id: \.0) { section in
+                        VStack(alignment: .leading, spacing: 7) {
+                            StudioSectionLabel(text: section.0)
+                                .padding(.horizontal, 4)
+                            ForEach(section.1) { item in
+                                SidebarButton(item: item,
+                                              isSelected: appState.selectedSidebarItem == item,
+                                              badge: badge(for: item)) {
+                                    withAnimation(.snappy(duration: 0.18)) {
+                                        appState.selectedSidebarItem = item
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(minLength: 16)
+                productionCapsule
+
+                Button {
+                    showingNewBookSheet = true
+                } label: {
+                    Label("Neues Buch", systemImage: "plus.circle.fill")
+                }
+                .buttonStyle(StudioPrimaryButtonStyle())
+                .keyboardShortcut("n", modifiers: .command)
+            }
+            .padding(16)
         }
+        .frame(minWidth: 238, maxWidth: 310, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var brandHeader: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(StudioTheme.brandGradient)
+                    Image(systemName: "books.vertical.fill")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(.black.opacity(0.84))
+                }
+                .frame(width: 38, height: 38)
+                .shadow(color: StudioTheme.cyan.opacity(0.28), radius: 16, y: 8)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("NovelForge")
+                        .font(.system(size: 19, weight: .bold, design: .rounded))
+                    Text("KDP Auto Studio")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(StudioTheme.textMuted)
+                }
+            }
+
+            HStack(spacing: 8) {
+                StudioStatusPill(text: "Cloud", systemImage: "cloud.fill", color: StudioTheme.cyan)
+                StudioStatusPill(text: orchestrator.isUnlimitedMode ? "Loop aktiv" : "Bereit",
+                                 systemImage: orchestrator.isUnlimitedMode ? "infinity" : "bolt.fill",
+                                 color: orchestrator.isUnlimitedMode ? StudioTheme.lime : StudioTheme.violet)
+            }
+        }
+        .padding(12)
+        .studioFeaturedPanel(cornerRadius: 8)
+    }
+
+    private var productionCapsule: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                StudioSectionLabel(text: "Live Produktion")
+                Spacer()
+                Circle()
+                    .fill(orchestrator.isRunning ? StudioTheme.lime : StudioTheme.textFaint)
+                    .frame(width: 7, height: 7)
+                    .shadow(color: orchestrator.isRunning ? StudioTheme.lime.opacity(0.6) : .clear,
+                            radius: 7)
+            }
+
+            Text(orchestrator.currentProject?.title ?? (orchestrator.isRunning ? "Pipeline aktiv" : "Wartet auf Start"))
+                .font(.callout.weight(.semibold))
+                .lineLimit(2)
+
+            HStack(spacing: 7) {
+                Image(systemName: orchestrator.isRunning ? "arrow.triangle.2.circlepath" : "pause.circle")
+                    .foregroundStyle(orchestrator.isRunning ? StudioTheme.cyan : StudioTheme.textFaint)
+                Text(orchestrator.isRunning ? orchestrator.currentAgent : "Keine aktive Produktion")
+                    .font(.caption)
+                    .foregroundStyle(StudioTheme.textMuted)
+                    .lineLimit(1)
+            }
+
+            StudioProgressBar(value: orchestrator.isRunning ? orchestrator.progress : 0, height: 6)
+        }
+        .padding(12)
+        .studioPanel(cornerRadius: 8, accent: orchestrator.isRunning ? StudioTheme.lime : StudioTheme.violet)
+    }
+
+    private func badge(for item: SidebarItem) -> String? {
+        switch item {
+        case .production:
+            if orchestrator.isUnlimitedMode {
+                return "\(orchestrator.activeUnlimitedBooks)/\(orchestrator.parallelUnlimitedBooks)"
+            }
+            return orchestrator.isRunning ? "\(Int(orchestrator.progress * 100))%" : nil
+        case .agents:
+            return orchestrator.isRunning ? "Live" : nil
+        default:
+            return nil
+        }
+    }
+}
+
+struct SidebarButton: View {
+    let item: SidebarItem
+    let isSelected: Bool
+    let badge: String?
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: item.icon)
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 22)
+                    .foregroundStyle(isSelected ? StudioTheme.cyan : StudioTheme.textMuted)
+                Text(item.rawValue)
+                    .font(.callout.weight(isSelected ? .semibold : .medium))
+                    .foregroundStyle(isSelected ? Color.primary : StudioTheme.textMuted)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                if let badge {
+                    Text(badge)
+                        .font(.caption2.weight(.bold))
+                        .monospacedDigit()
+                        .foregroundStyle(isSelected ? Color.black.opacity(0.84) : StudioTheme.cyan)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background {
+                            if isSelected {
+                                Capsule().fill(StudioTheme.brandGradient)
+                            } else {
+                                Capsule().fill(StudioTheme.cyan.opacity(0.12))
+                            }
+                        }
+                }
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 38)
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(StudioTheme.cyan.opacity(0.12)))
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(StudioTheme.cyan.opacity(0.36), lineWidth: 1))
+                        .shadow(color: StudioTheme.cyan.opacity(0.16), radius: 12, y: 6)
+                }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(item.rawValue)
     }
 }
 
@@ -150,7 +300,9 @@ struct ProductionView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 22) {
+                productionHeader
+
                 if orchestrator.isUnlimitedMode {
                     unlimitedBanner
                 }
@@ -159,22 +311,10 @@ struct ProductionView: View {
                     PipelineProgressView()
                 }
 
-                if !orchestrator.isRunning {
-                    HStack {
-                        Button {
-                            showingUnlimitedSheet = true
-                        } label: {
-                            Label("Auto-Produktion starten", systemImage: "infinity")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        Spacer()
-                    }
-                }
-
                 if !orchestrator.isRunning, let error = orchestrator.lastError {
                     HStack(alignment: .top, spacing: 10) {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.red)
+                            .foregroundStyle(StudioTheme.danger)
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Letzte Produktion abgebrochen")
                                 .font(.headline)
@@ -188,13 +328,16 @@ struct ProductionView: View {
                         Spacer()
                     }
                     .padding(14)
-                    .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                    .studioPanel(cornerRadius: 8, accent: StudioTheme.danger)
                 }
 
                 if !resumableProjects.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text(orchestrator.isRunning ? "Wartende Projekte" : "Fortsetzbare Projekte")
-                            .font(.headline)
+                        HStack {
+                            StudioSectionLabel(text: orchestrator.isRunning ? "Wartende Projekte" : "Fortsetzbare Projekte")
+                            Spacer()
+                            StudioStatusPill(text: "\(resumableProjects.count)", systemImage: "tray.full", color: StudioTheme.amber)
+                        }
 
                         ForEach(resumableProjects) { project in
                             ResumableProjectRow(project: project,
@@ -204,22 +347,44 @@ struct ProductionView: View {
                 }
 
                 if !orchestrator.isRunning && resumableProjects.isEmpty {
-                    ContentUnavailableView {
-                        Label("Keine aktiven Produktionen", systemImage: "gearshape.2")
-                    } description: {
-                        Text("Starten Sie eine neue Buchproduktion – die Pipeline arbeitet danach vollautomatisch.")
-                    } actions: {
-                        Button("Neues Buch") {
-                            showingNewBookSheet = true
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "sparkles")
+                                .font(.title2)
+                                .foregroundStyle(StudioTheme.heroGradient)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Keine aktive Produktion")
+                                    .font(.headline)
+                                Text("Starte den Auto-Modus oder lege ein einzelnes Buchprojekt an.")
+                                    .font(.caption)
+                                    .foregroundStyle(StudioTheme.textMuted)
+                            }
+                            Spacer()
                         }
-                        .buttonStyle(.borderedProminent)
+                        HStack {
+                            Button {
+                                showingUnlimitedSheet = true
+                            } label: {
+                                Label("Auto-Modus", systemImage: "infinity")
+                            }
+                            .buttonStyle(StudioPrimaryButtonStyle())
+                            .frame(maxWidth: 190)
+
+                            Button {
+                                showingNewBookSheet = true
+                            } label: {
+                                Label("Einzelnes Buch", systemImage: "plus")
+                            }
+                            .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.violet))
+                        }
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 80)
+                    .padding(18)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .studioPanel(cornerRadius: 8, accent: StudioTheme.violet)
                 }
             }
             .padding(24)
-            .frame(maxWidth: 760, alignment: .leading)
+            .frame(maxWidth: 980, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
         .background(StudioBackground())
@@ -230,6 +395,85 @@ struct ProductionView: View {
         .sheet(isPresented: $showingUnlimitedSheet) {
             UnlimitedProductionSheet()
         }
+    }
+
+    private var productionHeader: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        StudioStatusPill(text: "Autonom", systemImage: "infinity", color: StudioTheme.lime)
+                        StudioStatusPill(text: "\(orchestrator.parallelUnlimitedBooks)x parallel",
+                                         systemImage: "square.grid.3x3",
+                                         color: StudioTheme.cyan)
+                    }
+                    Text("Produktions-Cockpit")
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                    Text("Steuert Einzelprojekte, Dauerproduktion, Fortschritt, Restzeit und parallele Buch-Worker an einem Ort.")
+                        .font(.subheadline)
+                        .foregroundStyle(StudioTheme.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 12)
+                VStack(alignment: .trailing, spacing: 10) {
+                    if !orchestrator.isRunning {
+                        Button {
+                            showingUnlimitedSheet = true
+                        } label: {
+                            Label("Auto-Produktion starten", systemImage: "play.fill")
+                        }
+                        .buttonStyle(StudioPrimaryButtonStyle())
+                        .frame(width: 230)
+                    }
+                    Button {
+                        showingNewBookSheet = true
+                    } label: {
+                        Label("Neues Buch", systemImage: "plus")
+                    }
+                    .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.violet))
+                }
+            }
+
+            HStack(spacing: 10) {
+                commandMetric(title: "Status",
+                              value: orchestrator.isRunning ? "Aktiv" : "Bereit",
+                              icon: orchestrator.isRunning ? "bolt.fill" : "checkmark.seal",
+                              color: orchestrator.isRunning ? StudioTheme.lime : StudioTheme.cyan)
+                commandMetric(title: "Fertige Bücher",
+                              value: "\(orchestrator.unlimitedBooksCompleted)",
+                              icon: "books.vertical",
+                              color: StudioTheme.violet)
+                commandMetric(title: "Aktive Worker",
+                              value: "\(orchestrator.activeUnlimitedBooks)",
+                              icon: "cpu",
+                              color: StudioTheme.amber)
+            }
+        }
+        .padding(20)
+        .studioFeaturedPanel(cornerRadius: 10)
+    }
+
+    private func commandMetric(title: String, value: String, icon: String, color: Color) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(color)
+                .frame(width: 24, height: 24)
+                .background(color.opacity(0.13), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(StudioTheme.textFaint)
+                Text(value)
+                    .font(.callout.weight(.semibold))
+                    .monospacedDigit()
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(StudioTheme.surfaceDeep.opacity(0.42), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(StudioTheme.hairline, lineWidth: 1))
     }
 
     private var unlimitedBanner: some View {
@@ -244,23 +488,23 @@ struct ProductionView: View {
                         .font(.headline)
                     Text("\(orchestrator.unlimitedBooksCompleted) Bücher fertig · \(orchestrator.activeUnlimitedBooks)/\(orchestrator.parallelUnlimitedBooks) parallel aktiv")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(StudioTheme.textMuted)
                     if let title = orchestrator.currentProject?.title, orchestrator.parallelUnlimitedBooks == 1 {
                         Text("Aktuell: \(title)")
                             .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(StudioTheme.textMuted)
                     }
                     if !orchestrator.currentBookElapsed.isEmpty {
                         Text("Aktueller Durchlauf: \(orchestrator.currentBookElapsed)"
                              + (orchestrator.currentBookEstimatedTotal.isEmpty ? "" : " · gesamt ca. \(orchestrator.currentBookEstimatedTotal)"))
                             .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(StudioTheme.textMuted)
                     }
                     if !orchestrator.lastBookDuration.isEmpty {
                         Text("Letzter Durchlauf: \(orchestrator.lastBookDuration)"
                              + (orchestrator.averageBookDuration.isEmpty ? "" : " · Ø/Buch: \(orchestrator.averageBookDuration)"))
                             .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(StudioTheme.textMuted)
                     }
                 }
                 Spacer()
@@ -269,7 +513,7 @@ struct ProductionView: View {
                 } label: {
                     Label("Stoppen", systemImage: "stop.fill")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.danger))
             }
 
             if orchestrator.parallelUnlimitedBooks > 1 && !orchestrator.workerStatuses.isEmpty {
@@ -282,7 +526,7 @@ struct ProductionView: View {
             }
         }
         .padding(16)
-        .studioFeaturedPanel()
+        .studioFeaturedPanel(cornerRadius: 10)
         .confirmationDialog("Dauerproduktion stoppen?", isPresented: $confirmStopUnlimited) {
             Button("Stoppen", role: .destructive) {
                 orchestrator.stopUnlimitedProduction()
@@ -544,18 +788,18 @@ struct ResumableProjectRow: View {
                     StatusBadge(status: project.status)
                     Text("\(FormattingHelpers.formatWordCount(project.totalWordCount)) Wörter")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(StudioTheme.textMuted)
                 }
             }
             Spacer()
             Button(project.status == .created ? "Starten" : "Fortsetzen") {
                 orchestrator.resumePipeline(project: project)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(StudioSecondaryButtonStyle(accent: disabled ? StudioTheme.textFaint : StudioTheme.lime))
             .disabled(disabled)
         }
         .padding(14)
-        .studioPanel(cornerRadius: 12, accent: disabled ? .gray : StudioTheme.lime)
+        .studioPanel(cornerRadius: 8, accent: disabled ? StudioTheme.textFaint : StudioTheme.lime)
     }
 }
 
@@ -577,24 +821,18 @@ struct WorkerStatusChip: View {
                 Text("\(Int(worker.progress * 100)) %")
                     .font(.caption2)
                     .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(StudioTheme.textMuted)
             }
             StudioProgressBar(value: worker.progress, height: 5)
             Text(worker.phase.rawValue + (worker.totalScenes > 0 ? " · \(worker.completedScenes)/\(worker.totalScenes) Szenen" : ""))
                 .font(.caption2)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(StudioTheme.textFaint)
                 .lineLimit(1)
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.35), lineWidth: 1)
-                }
-        )
+        .background(StudioTheme.surfaceDeep.opacity(0.38), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(StudioTheme.hairline, lineWidth: 1))
     }
 }
 
@@ -614,7 +852,7 @@ struct PipelineProgressView: View {
             HStack(spacing: 12) {
                 Image(systemName: "gearshape.2.fill")
                     .font(.title)
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(StudioTheme.cyan)
                     .symbolEffect(.pulse)
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -623,7 +861,7 @@ struct PipelineProgressView: View {
                         .fontWeight(.semibold)
                     Text(orchestrator.currentAgent.isEmpty ? orchestrator.currentPhase.rawValue : orchestrator.currentAgent)
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(StudioTheme.textMuted)
                 }
                 Spacer()
                 if orchestrator.isUnlimitedMode && orchestrator.parallelUnlimitedBooks > 1 {
@@ -640,12 +878,9 @@ struct PipelineProgressView: View {
             }
 
             if orchestrator.isUnlimitedMode && orchestrator.parallelUnlimitedBooks > 1 {
-                ProgressView(value: Double(orchestrator.activeUnlimitedBooks),
-                             total: Double(orchestrator.parallelUnlimitedBooks))
-                    .progressViewStyle(.linear)
+                StudioProgressBar(value: Double(orchestrator.activeUnlimitedBooks) / max(1, Double(orchestrator.parallelUnlimitedBooks)))
             } else {
-                ProgressView(value: orchestrator.progress)
-                    .progressViewStyle(.linear)
+                StudioProgressBar(value: orchestrator.progress)
             }
 
             // Detailzeile
@@ -675,11 +910,11 @@ struct PipelineProgressView: View {
                 Spacer()
                 if orchestrator.totalTokensUsed > 0 {
                     Text("\(FormattingHelpers.formatWordCount(orchestrator.totalTokensUsed)) Tokens · ca. \(FormattingHelpers.formatCost(orchestrator.estimatedCostUSD))")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(StudioTheme.textMuted)
                 }
             }
             .font(.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(StudioTheme.textMuted)
 
             Divider()
 
@@ -689,14 +924,14 @@ struct PipelineProgressView: View {
                     HStack(spacing: 10) {
                         if index < currentPhaseIndex {
                             Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
+                                .foregroundStyle(StudioTheme.lime)
                         } else if index == currentPhaseIndex {
                             Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
-                                .foregroundStyle(.tint)
+                                .foregroundStyle(StudioTheme.cyan)
                                 .symbolEffect(.pulse)
                         } else {
                             Image(systemName: "circle")
-                                .foregroundStyle(.quaternary)
+                                .foregroundStyle(StudioTheme.textFaint)
                         }
                         Image(systemName: phase.iconName)
                             .frame(width: 18)
@@ -713,13 +948,14 @@ struct PipelineProgressView: View {
             if let error = orchestrator.lastError {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
+                        .foregroundStyle(StudioTheme.danger)
                     Text(error)
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(StudioTheme.danger)
                 }
                 .padding(10)
-                .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                .background(StudioTheme.danger.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(StudioTheme.danger.opacity(0.25), lineWidth: 1))
             }
 
             HStack {
@@ -728,14 +964,14 @@ struct PipelineProgressView: View {
                 } label: {
                     Label("Pausieren", systemImage: "pause.fill")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.amber))
 
                 Button(role: .destructive) {
                     confirmCancel = true
                 } label: {
                     Label("Abbrechen", systemImage: "stop.fill")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.danger))
 
                 Spacer()
             }

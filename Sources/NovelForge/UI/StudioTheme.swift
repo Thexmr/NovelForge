@@ -1,27 +1,38 @@
 import SwiftUI
 
-/// „Liquid Glass" / Glassmorphism-Design: warmer, neutraler Hintergrund und
-/// milchig-transparente Frosted-Controls mit weichem Licht-Bloom darunter,
-/// zarter Oberkante und feinem Rand. Großzügig, ruhig, übersichtlich.
+/// Design philosophy: NovelForge should feel like an autonomous writing command
+/// center with controlled density, calm pressure, and premium production focus.
+/// Signature: liquid-glass surfaces float over graphite with cyan/lime/violet
+/// energy reserved for status, progress, and primary action. Constraint:
+/// DESIGN_VARIANCE 7, MOTION_INTENSITY 4, VISUAL_DENSITY 8; no decorative glow
+/// where plain structure would read faster.
 enum StudioTheme {
-    // Warme, neutrale Grundflächen (Taupe/Beige)
-    static let pageTop = Color(red: 0.91, green: 0.885, blue: 0.84)
-    static let pageBottom = Color(red: 0.80, green: 0.765, blue: 0.71)
+    static let pageTop = Color(red: 0.025, green: 0.031, blue: 0.045)
+    static let pageMiddle = Color(red: 0.050, green: 0.058, blue: 0.078)
+    static let pageBottom = Color(red: 0.018, green: 0.021, blue: 0.030)
 
-    // Dezente Akzente (Verläufe & Badges)
-    static let cyan = Color(red: 0.20, green: 0.58, blue: 0.86)
-    static let violet = Color(red: 0.46, green: 0.40, blue: 0.82)
-    static let magenta = Color(red: 0.80, green: 0.40, blue: 0.66)
-    static let lime = Color(red: 0.32, green: 0.62, blue: 0.46)
-    static let amber = Color(red: 0.86, green: 0.62, blue: 0.28)
+    static let surface = Color(red: 0.060, green: 0.070, blue: 0.092)
+    static let surfaceElevated = Color(red: 0.095, green: 0.110, blue: 0.145)
+    static let surfaceDeep = Color(red: 0.030, green: 0.036, blue: 0.050)
+    static let hairline = Color.white.opacity(0.12)
+    static let hairlineBright = Color.white.opacity(0.24)
+    static let textMuted = Color.white.opacity(0.66)
+    static let textFaint = Color.white.opacity(0.44)
+
+    static let cyan = Color(red: 0.23, green: 0.86, blue: 0.98)
+    static let violet = Color(red: 0.57, green: 0.46, blue: 0.96)
+    static let magenta = Color(red: 0.94, green: 0.35, blue: 0.67)
+    static let lime = Color(red: 0.55, green: 0.95, blue: 0.48)
+    static let amber = Color(red: 1.00, green: 0.72, blue: 0.30)
+    static let danger = Color(red: 1.00, green: 0.35, blue: 0.42)
 
     static var brandGradient: LinearGradient {
-        LinearGradient(colors: [cyan, violet],
+        LinearGradient(colors: [cyan, lime],
                        startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
     static var heroGradient: LinearGradient {
-        LinearGradient(colors: [cyan, violet, magenta],
+        LinearGradient(colors: [cyan, lime, violet],
                        startPoint: .leading, endPoint: .trailing)
     }
 
@@ -30,38 +41,48 @@ enum StudioTheme {
                        startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
-    /// Zarte Oberkanten-Lichtkante + feiner Glasrand für eine Frosted-Form.
+    static var quietGradient: LinearGradient {
+        LinearGradient(colors: [surfaceElevated.opacity(0.86), surface.opacity(0.52)],
+                       startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
     @ViewBuilder
-    static func glassEdge(_ cornerRadius: CGFloat) -> some View {
+    static func glassEdge(_ cornerRadius: CGFloat, accent: Color = StudioTheme.cyan) -> some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .strokeBorder(
-                LinearGradient(colors: [.white.opacity(0.55), .white.opacity(0.12)],
-                               startPoint: .top, endPoint: .bottom),
+                LinearGradient(colors: [
+                    Color.white.opacity(0.30),
+                    accent.opacity(0.26),
+                    Color.white.opacity(0.07)
+                ], startPoint: .topLeading, endPoint: .bottomTrailing),
                 lineWidth: 1
             )
     }
 }
 
-/// Warmer, weicher Hintergrund mit dezenten Lichthöfen – die Bühne für das Glas.
 struct StudioBackground: View {
     var body: some View {
         ZStack {
-            LinearGradient(colors: [StudioTheme.pageTop, StudioTheme.pageBottom],
+            LinearGradient(colors: [StudioTheme.pageTop, StudioTheme.pageMiddle, StudioTheme.pageBottom],
                            startPoint: .top, endPoint: .bottom)
-            RadialGradient(colors: [Color.white.opacity(0.30), .clear],
-                           center: .top, startRadius: 10, endRadius: 540)
-            RadialGradient(colors: [StudioTheme.amber.opacity(0.10), .clear],
-                           center: .bottomTrailing, startRadius: 20, endRadius: 560)
+            RadialGradient(colors: [StudioTheme.cyan.opacity(0.20), .clear],
+                           center: UnitPoint(x: 0.10, y: 0.02), startRadius: 20, endRadius: 680)
+            RadialGradient(colors: [StudioTheme.violet.opacity(0.18), .clear],
+                           center: UnitPoint(x: 0.88, y: 0.20), startRadius: 40, endRadius: 760)
+            RadialGradient(colors: [StudioTheme.lime.opacity(0.10), .clear],
+                           center: UnitPoint(x: 0.70, y: 1.05), startRadius: 40, endRadius: 620)
+            Rectangle()
+                .fill(.black.opacity(0.22))
         }
         .ignoresSafeArea()
     }
 }
 
-/// Frosted-Glas-Fläche mit Licht-Bloom darunter (wie die Buttons der Referenz).
 private struct GlassSurface: ViewModifier {
     var cornerRadius: CGFloat
-    var bloom: CGFloat // Stärke des Licht-Booms darunter
+    var bloom: CGFloat
     var tint: Color?
+    var accent: Color
 
     func body(content: Content) -> some View {
         content
@@ -70,46 +91,53 @@ private struct GlassSurface: ViewModifier {
                     .fill(.ultraThinMaterial)
                     .overlay(
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill((tint ?? .white).opacity(tint == nil ? 0.12 : 0.18))
+                            .fill((tint ?? StudioTheme.surfaceElevated).opacity(tint == nil ? 0.44 : 0.18))
                     )
                     .overlay(alignment: .top) {
-                        LinearGradient(colors: [.white.opacity(0.55), .clear],
+                        LinearGradient(colors: [.white.opacity(0.22), .clear],
                                        startPoint: .top, endPoint: .bottom)
                             .frame(height: cornerRadius * 1.4)
                             .blur(radius: 3)
                             .mask(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                     }
+                    .overlay(alignment: .leading) {
+                        LinearGradient(colors: [accent.opacity(0.22), .clear],
+                                       startPoint: .leading, endPoint: .trailing)
+                            .frame(width: 70)
+                            .blur(radius: 14)
+                            .mask(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                    }
             )
-            .overlay { StudioTheme.glassEdge(cornerRadius) }
-            // Tiefe …
-            .shadow(color: Color.black.opacity(0.12), radius: 16, x: 0, y: 12)
-            // … und der helle Bloom unter dem Glas.
-            .shadow(color: Color.white.opacity(0.55 * bloom), radius: 16 * bloom, x: 0, y: 10)
+            .overlay { StudioTheme.glassEdge(cornerRadius, accent: accent) }
+            .shadow(color: Color.black.opacity(0.38), radius: 22, x: 0, y: 18)
+            .shadow(color: accent.opacity(0.16 * Double(bloom)), radius: 18 * bloom, x: 0, y: 10)
     }
 }
 
 private extension View {
-    func glassSurface(cornerRadius: CGFloat, bloom: CGFloat = 1, tint: Color? = nil) -> some View {
-        modifier(GlassSurface(cornerRadius: cornerRadius, bloom: bloom, tint: tint))
+    func glassSurface(cornerRadius: CGFloat,
+                      bloom: CGFloat = 1,
+                      tint: Color? = nil,
+                      accent: Color = StudioTheme.cyan) -> some View {
+        modifier(GlassSurface(cornerRadius: cornerRadius, bloom: bloom, tint: tint, accent: accent))
     }
 }
 
 struct StudioPanel: ViewModifier {
-    var cornerRadius: CGFloat = 20
+    var cornerRadius: CGFloat = 8
     var accent: Color = StudioTheme.cyan
 
     func body(content: Content) -> some View {
-        content.glassSurface(cornerRadius: cornerRadius, bloom: 0.8)
+        content.glassSurface(cornerRadius: cornerRadius, bloom: 0.7, accent: accent)
     }
 }
 
-/// Hervorgehobene „Held"-Karte: stärkerer Bloom + zarter Marken-Schimmer.
 struct StudioFeaturedPanel: ViewModifier {
-    var cornerRadius: CGFloat = 22
+    var cornerRadius: CGFloat = 10
 
     func body(content: Content) -> some View {
         content
-            .glassSurface(cornerRadius: cornerRadius, bloom: 1.3, tint: StudioTheme.violet)
+            .glassSurface(cornerRadius: cornerRadius, bloom: 1.35, tint: StudioTheme.surfaceElevated, accent: StudioTheme.cyan)
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(StudioTheme.brandGradient.opacity(0.55), lineWidth: 1.5)
@@ -118,69 +146,100 @@ struct StudioFeaturedPanel: ViewModifier {
 }
 
 extension View {
-    func studioPanel(cornerRadius: CGFloat = 20, accent: Color = StudioTheme.cyan) -> some View {
+    func studioPanel(cornerRadius: CGFloat = 8, accent: Color = StudioTheme.cyan) -> some View {
         modifier(StudioPanel(cornerRadius: cornerRadius, accent: accent))
     }
 
-    func studioFeaturedPanel(cornerRadius: CGFloat = 22) -> some View {
+    func studioFeaturedPanel(cornerRadius: CGFloat = 10) -> some View {
         modifier(StudioFeaturedPanel(cornerRadius: cornerRadius))
     }
 }
 
-/// Primärer CTA als helles Frosted-Glas mit kräftigem Bloom und fetter Schrift.
 struct StudioPrimaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
     var gradient: LinearGradient = StudioTheme.brandGradient
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.headline.weight(.semibold))
-            .foregroundStyle(.primary)
-            .padding(.vertical, 13)
-            .padding(.horizontal, 22)
-            .frame(maxWidth: .infinity)
-            .glassSurface(cornerRadius: 16, bloom: configuration.isPressed ? 0.6 : 1.4, tint: .white)
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(isEnabled ? Color.black.opacity(0.88) : StudioTheme.textFaint)
+            .padding(.vertical, 11)
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity, minHeight: 42)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isEnabled ? gradient : StudioTheme.quietGradient)
+                    .overlay(alignment: .top) {
+                        Color.white.opacity(isEnabled ? 0.34 : 0.10)
+                            .frame(height: 1)
+                    }
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Color.white.opacity(isEnabled ? 0.24 : 0.08), lineWidth: 1)
+            }
+            .shadow(color: StudioTheme.cyan.opacity(isEnabled ? 0.26 : 0), radius: configuration.isPressed ? 5 : 14, x: 0, y: 8)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
-/// Schlanker Fortschrittsbalken im Glas-Look.
+struct StudioSecondaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    var accent: Color = StudioTheme.cyan
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(isEnabled ? Color.primary : StudioTheme.textFaint)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .frame(minHeight: 40)
+            .glassSurface(cornerRadius: 8,
+                          bloom: configuration.isPressed ? 0.35 : 0.8,
+                          tint: StudioTheme.surfaceElevated,
+                          accent: isEnabled ? accent : .gray)
+            .opacity(isEnabled ? 1 : 0.55)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
 struct StudioProgressBar: View {
     var value: Double
     var gradient: LinearGradient = StudioTheme.brandGradient
-    var height: CGFloat = 10
+    var height: CGFloat = 8
 
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(.ultraThinMaterial)
-                Capsule().fill(Color.black.opacity(0.06))
+                Capsule().fill(StudioTheme.surfaceDeep.opacity(0.86))
+                Capsule().fill(.ultraThinMaterial).opacity(0.35)
                 Capsule()
                     .fill(gradient)
                     .frame(width: max(0, min(1, value)) * geo.size.width)
-                    .shadow(color: StudioTheme.violet.opacity(0.4), radius: 4, y: 1)
+                    .shadow(color: StudioTheme.cyan.opacity(0.46), radius: 7, y: 1)
             }
-            .overlay { Capsule().strokeBorder(Color.white.opacity(0.35), lineWidth: 1) }
+            .overlay { Capsule().strokeBorder(StudioTheme.hairline, lineWidth: 1) }
         }
         .frame(height: height)
     }
 }
 
-/// Große Kennzahl – auf dem warmen Glas-Hintergrund kräftig, aber elegant.
 struct StudioStatNumber: View {
     let value: String
     var gradient: LinearGradient = StudioTheme.heroGradient
 
     var body: some View {
         Text(value)
-            .font(.system(size: 32, weight: .bold, design: .rounded))
+            .font(.system(size: 30, weight: .bold, design: .rounded))
             .foregroundStyle(gradient)
             .lineLimit(1)
             .minimumScaleFactor(0.5)
+            .monospacedDigit()
     }
 }
 
-/// Frosted-Glas Pill-Umschalter (wie Dropdown/Tabs in der Referenz).
 struct StudioSegmentedPills: View {
     let options: [String]
     @Binding var selection: String
@@ -195,18 +254,52 @@ struct StudioSegmentedPills: View {
                     .padding(.horizontal, 16)
                     .background {
                         if active {
-                            Capsule().fill(.ultraThinMaterial)
-                                .overlay(Capsule().fill(Color.white.opacity(0.25)))
-                                .overlay(Capsule().strokeBorder(Color.white.opacity(0.5), lineWidth: 1))
-                                .shadow(color: .white.opacity(0.5), radius: 8, y: 4)
+                            Capsule()
+                                .fill(StudioTheme.brandGradient)
+                                .overlay(Capsule().strokeBorder(Color.white.opacity(0.28), lineWidth: 1))
+                                .shadow(color: StudioTheme.cyan.opacity(0.22), radius: 10, y: 4)
                         }
                     }
-                    .foregroundStyle(active ? Color.primary : Color.secondary)
+                    .foregroundStyle(active ? Color.black.opacity(0.86) : StudioTheme.textMuted)
                     .contentShape(Capsule())
                     .onTapGesture { selection = option }
             }
         }
         .padding(5)
-        .background(Capsule().fill(Color.black.opacity(0.05)))
+        .background(Capsule().fill(StudioTheme.surfaceDeep.opacity(0.68)))
+        .overlay(Capsule().strokeBorder(StudioTheme.hairline, lineWidth: 1))
+    }
+}
+
+struct StudioStatusPill: View {
+    let text: String
+    var systemImage: String? = nil
+    var color: Color = StudioTheme.cyan
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.caption2.weight(.bold))
+            }
+            Text(text)
+                .lineLimit(1)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(color)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(color.opacity(0.12), in: Capsule())
+        .overlay(Capsule().strokeBorder(color.opacity(0.28), lineWidth: 1))
+    }
+}
+
+struct StudioSectionLabel: View {
+    let text: String
+    var body: some View {
+        Text(text.uppercased())
+            .font(.system(size: 10, weight: .bold, design: .rounded))
+            .foregroundStyle(StudioTheme.textFaint)
+            .tracking(0)
     }
 }
