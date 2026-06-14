@@ -232,7 +232,7 @@ struct ChapterReaderSection: View {
     let chapter: Chapter
 
     private var paragraphs: [String] {
-        (chapter.bestText ?? "")
+        (chapter.rawBestText ?? "")
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
@@ -308,7 +308,7 @@ struct ChapterDetailView: View {
             }
         }
         .onAppear {
-            editedText = chapter.bestText ?? ""
+            editedText = chapter.rawBestText ?? ""
         }
     }
 
@@ -319,7 +319,7 @@ struct ChapterDetailView: View {
                     .font(.system(.largeTitle, design: .serif))
                     .fontWeight(.semibold)
 
-                if let text = chapter.bestText {
+                if let text = chapter.rawBestText {
                     Text(text)
                         .font(.system(.body, design: .serif))
                         .lineSpacing(7)
@@ -342,7 +342,7 @@ struct ChapterDetailView: View {
                 .lineSpacing(6)
                 .padding(8)
                 .onChange(of: editedText) {
-                    hasUnsavedChanges = editedText != (chapter.bestText ?? "")
+                    hasUnsavedChanges = editedText != (chapter.rawBestText ?? "")
                 }
 
             Divider()

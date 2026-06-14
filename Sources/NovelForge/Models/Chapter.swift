@@ -37,24 +37,30 @@ final class Chapter {
         self.updatedAt = Date()
     }
     
-    /// Bester verfügbarer Text: final > überarbeitet > Rohfassung > zusammengesetzte Szenen.
-    /// Entfernt zusätzlich durchgesickerte Prompt-Anweisungen/Labels – dadurch sind
-    /// auch bereits geschriebene Bücher beim (erneuten) Export sauber.
-    var bestText: String? {
-        let raw: String?
+    /// Bester verfügbarer Rohtext: final > überarbeitet > Rohfassung > zusammengesetzte Szenen.
+    /// Schnell genug für UI-Renderpfade; die teure Bereinigung passiert in `bestText`.
+    var rawBestText: String? {
         if let text = finalText, !text.isEmpty {
-            raw = text
-        } else if let text = revisedText, !text.isEmpty {
-            raw = text
-        } else if let text = draftText, !text.isEmpty {
-            raw = text
-        } else {
-            let joined = (scenes ?? [])
-                .sorted { $0.sceneNumber < $1.sceneNumber }
-                .compactMap { $0.text }
-                .joined(separator: "\n\n")
-            raw = joined.isEmpty ? nil : joined
+            return text
         }
+        if let text = revisedText, !text.isEmpty {
+            return text
+        }
+        if let text = draftText, !text.isEmpty {
+            return text
+        }
+        let joined = (scenes ?? [])
+            .sorted { $0.sceneNumber < $1.sceneNumber }
+            .compactMap { $0.text }
+            .joined(separator: "\n\n")
+        return joined.isEmpty ? nil : joined
+    }
+
+    /// Bereinigter Export-/Lektor-Text.
+    /// Entfernt durchgesickerte Prompt-Anweisungen/Labels – dadurch sind auch
+    /// bereits geschriebene Bücher beim erneuten Export sauber.
+    var bestText: String? {
+        let raw = rawBestText
         guard let raw, !raw.isEmpty else { return nil }
         let cleaned = AutonomousContentQuality.humanizeProse(
             AutonomousContentQuality.strippingPromptArtifacts(raw))
@@ -73,12 +79,7 @@ final class Chapter {
     }
 
     private var rawBestTextWordCount: Int {
-        if let text = finalText, !text.isEmpty { return text.wordCount }
-        if let text = revisedText, !text.isEmpty { return text.wordCount }
-        if let text = draftText, !text.isEmpty { return text.wordCount }
-        return (scenes ?? [])
-            .compactMap { $0.text?.wordCount }
-            .reduce(0, +)
+        rawBestText?.wordCount ?? 0
     }
 }
 

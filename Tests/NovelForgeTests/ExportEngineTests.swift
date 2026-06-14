@@ -118,8 +118,8 @@ final class ExportEngineTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Keine Hinweise auf KI"))
     }
 
-    /// bestText-Priorität: final > überarbeitet > Rohfassung > Szenen.
-    func testBestTextPriority() throws {
+    /// rawBestText-Priorität: final > überarbeitet > Rohfassung > Szenen.
+    func testRawBestTextPriority() throws {
         let (container, project) = try makeProjectWithChapter()
         defer { _ = container }
         let chapter = try XCTUnwrap(project.chapters?.first)
@@ -127,13 +127,13 @@ final class ExportEngineTests: XCTestCase {
         chapter.finalText = "FINAL"
         chapter.revisedText = "REVIDIERT"
         chapter.draftText = "ROHFASSUNG"
-        XCTAssertEqual(chapter.bestText, "FINAL")
+        XCTAssertEqual(chapter.rawBestText, "FINAL")
 
         chapter.finalText = nil
-        XCTAssertEqual(chapter.bestText, "REVIDIERT")
+        XCTAssertEqual(chapter.rawBestText, "REVIDIERT")
 
         chapter.revisedText = nil
-        XCTAssertEqual(chapter.bestText, "ROHFASSUNG")
+        XCTAssertEqual(chapter.rawBestText, "ROHFASSUNG")
 
         chapter.draftText = nil
         chapter.scenes = []
@@ -143,6 +143,17 @@ final class ExportEngineTests: XCTestCase {
         scene.chapter = chapter
         chapter.scenes?.append(scene)
         container.mainContext.insert(scene)
-        XCTAssertEqual(chapter.bestText, "SZENENTEXT")
+        XCTAssertEqual(chapter.rawBestText, "SZENENTEXT")
+    }
+
+    func testBestTextCleansPromptArtifactsForExportOnly() throws {
+        let (container, project) = try makeProjectWithChapter()
+        defer { _ = container }
+        let chapter = try XCTUnwrap(project.chapters?.first)
+        chapter.finalText = "Sie blieb stehen.\nZielumfang: ca. 600 Wörter\nKnüpfe nahtlos daran an.\nSie atmete aus."
+
+        XCTAssertTrue(chapter.rawBestText?.contains("Zielumfang") == true)
+        XCTAssertFalse(chapter.bestText?.contains("Zielumfang") == true)
+        XCTAssertFalse(chapter.bestText?.lowercased().contains("knüpfe nahtlos") == true)
     }
 }

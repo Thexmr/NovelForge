@@ -36,6 +36,9 @@ enum PromptFactory {
         Bestseller-Pflicht: Jede Idee braucht eine sofort verständliche Zielgruppe, ein starkes Versprechen,
         eine emotionale Kernwunde der Hauptfigur, Eskalation mit hohem Einsatz und einen Hook, der als
         Amazon-KDP-Leseprobe schon auf Seite 1 funktioniert.
+        Titel-Pflicht: Keine austauschbaren Berufs-/Job-Titel wie "Die Imkerin von X",
+        "Der Kassierer aus Y", "Die Bäckerin in Z". Titel müssen über Geheimnis, Konflikt,
+        Beziehung, Ort, Symbol oder Versprechen tragen, nicht nur über einen Beruf.
 
         Gib für JEDE Idee GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
         IDEE|Titel|Genre|Prämisse in 2 Sätzen mit klarem Konflikt

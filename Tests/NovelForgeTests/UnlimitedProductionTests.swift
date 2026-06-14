@@ -154,6 +154,24 @@ final class UnlimitedProductionTests: XCTestCase {
         XCTAssertFalse(AutonomousContentQuality.hasUsableChapterPlan(placeholderChapters))
     }
 
+    func testAutonomousQualityRejectsOccupationalTitleCliches() {
+        XCTAssertFalse(AutonomousContentQuality.hasUsableIdea(
+            ParsedIdea(title: "Die Imkerin von Ulrichstein",
+                       genre: "Roman",
+                       premise: "Eine Frau entdeckt in ihrer Heimat ein Familiengeheimnis und muss entscheiden, ob sie die Wahrheit öffentlich macht.")
+        ))
+        XCTAssertFalse(AutonomousContentQuality.hasUsableIdea(
+            ParsedIdea(title: "Die Kassiererin von Reykjavik",
+                       genre: "Krimi",
+                       premise: "Eine Frau findet einen Hinweis auf ein Verbrechen und gerät zwischen alte Schuld und eine gefährliche Entscheidung.")
+        ))
+        XCTAssertTrue(AutonomousContentQuality.hasUsableIdea(
+            ParsedIdea(title: "Wenn der Regen schweigt",
+                       genre: "Roman",
+                       premise: "Eine Frau kehrt in eine Stadt zurück, in der ein alter Unfall nie aufgeklärt wurde, und muss zwischen Loyalität und Wahrheit wählen.")
+        ))
+    }
+
     func testAutonomousQualityRejectsMetaDraftsAsWrittenScenes() {
         let missingSceneReply = "Der Text der Szene fehlt in deiner Nachricht. Bitte füge ihn nach SZENE ein."
         let tinyReply = "Sie ging hinaus. Ende."

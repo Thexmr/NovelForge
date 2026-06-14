@@ -6,7 +6,9 @@ enum AutonomousContentQuality {
         let title = idea.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let premise = idea.premise.trimmingCharacters(in: .whitespacesAndNewlines)
         guard title.count >= 4, premise.wordCount >= 10 else { return false }
-        return !isGenericPlaceholder(title) && !containsMetaRequest(premise)
+        return !isGenericPlaceholder(title)
+            && !isOccupationalTitleCliche(title)
+            && !containsMetaRequest(premise)
     }
 
     static func hasUsableChapterPlan(_ chapters: [PlannedChapter]) -> Bool {
@@ -54,6 +56,40 @@ enum AutonomousContentQuality {
             "untitled"
         ]
         return patterns.contains { normalized == $0 || normalized.hasPrefix($0) }
+    }
+
+    /// Verhindert Auto-Buchtitel nach dem schwachen Muster
+    /// "Die/Der [Beruf] von/aus/in [Ort]" (z.B. "Die Imkerin von Ulrichstein").
+    /// Berufe dürfen in der Geschichte vorkommen, aber nicht als austauschbarer
+    /// Titel-Hook die komplette Idee tragen.
+    static func isOccupationalTitleCliche(_ title: String) -> Bool {
+        let normalized = title
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !normalized.isEmpty else { return false }
+
+        let occupationalWords = [
+            "imkerin", "imker", "kassiererin", "kassierer", "bäckerin", "bäcker",
+            "lehrerin", "lehrer", "ärztin", "arzt", "pflegerin", "pfleger",
+            "polizistin", "polizist", "anwältin", "anwalt", "journalistin", "journalist",
+            "floristin", "florist", "bibliothekarin", "bibliothekar",
+            "buchhändlerin", "buchhändler", "friseurin", "friseur", "sekretärin",
+            "sekretär", "köchin", "koch", "architektin", "architekt",
+            "ingenieurin", "ingenieur", "forscherin", "forscher", "maklerin",
+            "makler", "verkäuferin", "verkäufer", "fahrerin", "fahrer",
+            "taxifahrerin", "taxifahrer", "gärtnerin", "gärtner", "wirtin", "wirt"
+        ]
+        let locationConnectors = [" von ", " aus ", " in ", " am ", " an der ", " im "]
+
+        guard normalized.hasPrefix("die ") || normalized.hasPrefix("der ")
+                || normalized.hasPrefix("das ") || normalized.hasPrefix("eine ")
+                || normalized.hasPrefix("ein ") else {
+            return false
+        }
+        guard locationConnectors.contains(where: normalized.contains) else { return false }
+        return occupationalWords.contains { word in
+            normalized.range(of: #"\b\#(word)\b"#, options: .regularExpression) != nil
+        }
     }
 
     static func containsMetaRequest(_ text: String) -> Bool {
