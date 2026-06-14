@@ -581,7 +581,6 @@ final class PipelineOrchestrator: ObservableObject {
         currentProject = nil
 
         var idea: ParsedIdea?
-        var lastIdeaResponse = ""
         for attempt in 1...3 {
             let retryHint = attempt == 1 ? "" : "\n\nDer vorige Versuch war leer, generisch oder dupliziert. Erzeuge jetzt 5 konkrete, neue Buchideen im geforderten Format."
             let response = try await generate(
@@ -590,7 +589,6 @@ final class PipelineOrchestrator: ObservableObject {
                 system: "Du bist ein Verlagslektor mit sicherem Gespür für verkäufliche, originelle Buchideen. Du vermeidest Wiederholungen gegenüber dem Story-Gedächtnis strikt.",
                 maxTokens: 1000, temperature: 0.95, config: config
             )
-            lastIdeaResponse = response.text
             let ideas = StructureParser.parseIdeas(response.text)
             idea = ideas.first {
                 AutonomousContentQuality.hasUsableIdea($0)
@@ -598,8 +596,11 @@ final class PipelineOrchestrator: ObservableObject {
             } ?? ideas.first { AutonomousContentQuality.hasUsableIdea($0) }
             if idea != nil { break }
         }
-        guard AutonomousContentQuality.hasUsableIdea(idea) else {
-            throw AIError.systemError("Autonom-Modus konnte keine tragfähige Buchidee erzeugen. Provider/Modell lieferte keine verwertbare Idee. Letzte Antwort: \(lastIdeaResponse.truncated(to: 240))")
+        // Durchgehende Dauerproduktion: wenn das Modell nach 3 Versuchen keine
+        // verwertbare Idee liefert, NICHT abbrechen, sondern eine tragfähige
+        // Ersatz-Idee verwenden. So läuft der Auto-Modus ununterbrochen weiter.
+        if !AutonomousContentQuality.hasUsableIdea(idea) {
+            idea = fallbackIdea(genre: genre, index: bookIndex ?? unlimitedBooksCompleted)
         }
 
         let baseTitle = idea?.title ?? "\(genre)-Roman"
@@ -1380,6 +1381,27 @@ final class PipelineOrchestrator: ObservableObject {
                 conflict: "Ein konkretes Hindernis stellt sich dem Ziel dieses Kapitels entgegen."
             )
         }
+    }
+
+    /// Tragfähige Ersatz-Buchidee, falls das Modell nach 3 Versuchen keine liefert –
+    /// damit die Dauerproduktion NIE abbricht. Variiert über den Index, um
+    /// Wiederholungen zu vermeiden.
+    private func fallbackIdea(genre: String, index: Int) -> ParsedIdea {
+        let titles = [
+            "Das letzte Versprechen", "Wenn der Regen schweigt", "Die Farbe der Erinnerung",
+            "Hinter dem siebten Fenster", "Was vom Sommer blieb", "Der Brief ohne Absender",
+            "Niemandsland", "Die Stunde der Asche", "Solange das Licht bleibt", "Zwei Leben weit"
+        ]
+        let premises = [
+            "Eine Frau kehrt nach Jahren in ihre Heimatstadt zurück und stößt auf ein Geheimnis, das ihre Familie lange verschwiegen hat, und muss entscheiden, ob die Wahrheit alles zerstört, was sie noch hat.",
+            "Als ein unerwartetes Erbe sein altes Leben auf den Kopf stellt, muss ein Mann zwischen dem sicheren Weg und einer riskanten zweiten Chance auf Liebe wählen, bevor die Frist abläuft.",
+            "Zwei Fremde teilen sich durch einen Zufall eine Wohnung und merken zu spät, dass ihre Vergangenheiten auf eine Weise verbunden sind, die beide nicht loslässt.",
+            "Eine Spurensuche nach einem verschwundenen Angehörigen führt eine junge Frau in ein Netz aus alten Lügen, in dem jeder Verbündete auch ein Verdächtiger sein könnte."
+        ]
+        let base = titles[abs(index) % titles.count]
+        let title = index >= titles.count ? "\(base) \(index)" : base
+        let premise = premises[abs(index) % premises.count]
+        return ParsedIdea(title: title, genre: genre, premise: premise)
     }
 
     /// Sammelt alle Schauplätze aus den Szenenplänen und legt sie (einmalig)
