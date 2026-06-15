@@ -179,6 +179,33 @@ enum AutonomousContentQuality {
         "zielumfang"
     ]
 
+    /// Teilmenge der Marker, die GELÖSCHT werden dürfen: nur eindeutige
+    /// Anweisungs-Fragmente, die in echter Belletristik praktisch nie vorkommen.
+    /// Mehrdeutige Marker (z.B. „schreibe die szene", „bisherige handlung",
+    /// „der erste satz ist der wichtigste") lösen weiterhin eine Neufassung aus
+    /// (via `promptInstructionMarkers`), werden aber NICHT satzweise gelöscht –
+    /// sonst verschwänden legitime Dialog-/Erzählsätze und der Lesefluss bräche.
+    static let deletableInstructionMarkers = [
+        "knüpfe nahtlos daran an",
+        "knüpfe daran an",
+        "setze die szene unmittelbar fort",
+        "ohne das geschehene zu wiederholen",
+        "wörtliches ende der vorherigen szene",
+        "letzte szenen im detail",
+        "genre-handwerk",
+        "verbotene floskeln",
+        "sog-techniken",
+        "keine überschriften",
+        "keine meta-kommentare",
+        "langform-pflicht",
+        "gib ausschließlich den fertigen prosatext",
+        "übernimm niemals anweisungen",
+        "hinweise aus diesem auftrag",
+        "fertigen prosatext der szene",
+        "bestseller-standard",
+        "zielumfang"
+    ]
+
     /// Prompt-Labels, die als eigene Zeile auftauchen, wenn das Modell die
     /// Szenen-Vorgabe abschreibt.
     static let promptLabelPrefixes = [
@@ -250,14 +277,15 @@ enum AutonomousContentQuality {
 
     private static func removingInstructionSentences(from line: String) -> String {
         let lower = line.lowercased()
-        guard promptInstructionMarkers.contains(where: { lower.contains($0) }) else {
-            return line // kein Anweisungs-Fragment → Zeile unverändert lassen
+        // NUR eindeutige Marker löschen – mehrdeutige würden legitime Prosa fressen.
+        guard deletableInstructionMarkers.contains(where: { lower.contains($0) }) else {
+            return line // kein eindeutiges Anweisungs-Fragment → Zeile unverändert lassen
         }
         var kept: [String] = []
         line.enumerateSubstrings(in: line.startIndex..<line.endIndex, options: [.bySentences, .localized]) { sub, _, _, _ in
             guard let sub else { return }
             let s = sub.lowercased()
-            if !promptInstructionMarkers.contains(where: { s.contains($0) }) {
+            if !deletableInstructionMarkers.contains(where: { s.contains($0) }) {
                 kept.append(sub)
             }
         }
@@ -332,6 +360,13 @@ enum AutonomousContentQuality {
         "ein lächeln, das seine augen nicht erreichte", "die welt um sie herum verschwand",
         "alles andere verblasste", "beinahe zärtlich", "fast schon zärtlich",
         "für den bruchteil einer sekunde", "den bruchteil einer sekunde lang",
+        // Aus dem Repetition-Scan echter Bücher: verbatim überstrapazierte Standard-Beats,
+        // die den Lesefluss zerstören (z.B. „öffnete den Mund, schloss ihn" 36x, „drehte
+        // sich nicht um" 86x, „…", sagte sie. Keine Frage." 27x in einem einzigen Buch).
+        "öffnete den mund, schloss ihn", "den mund, schloss ihn wieder", "drehte sich nicht um",
+        "sagte sie. keine frage", "sagte er. keine frage",
+        "etwas, das sie nicht sehen konnte", "etwas, das sie nicht deuten konnte",
+        "etwas, das sie nicht lesen konnte",
         "unweigerlich", "zweifellos", "gleichsam", "nichtsdestotrotz"
     ]
 

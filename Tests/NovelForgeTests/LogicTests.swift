@@ -355,6 +355,28 @@ final class LogicTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(AutonomousContentQuality.aiTellCount(text), 1)
     }
 
+    /// Repetition-Scan echter Bücher: verbatim überstrapazierte Standard-Beats
+    /// (Lesefluss-Killer) müssen vom weichen Gate erkannt werden.
+    func testDenylistCatchesOverusedRepeatedBeats() {
+        XCTAssertGreaterThanOrEqual(
+            AutonomousContentQuality.aiTellCount("Er öffnete den Mund, schloss ihn. Sie drehte sich nicht um."), 2)
+        XCTAssertGreaterThanOrEqual(
+            AutonomousContentQuality.aiTellCount("Du warst Kaskade, sagte sie. Keine Frage."), 1)
+    }
+
+    /// Sanitizer darf legitime Prosa/Dialog NICHT löschen (Lesefluss), aber harte
+    /// durchgesickerte Anweisungen weiterhin entfernen.
+    func testSanitizerKeepsAmbiguousDialogueButStripsHardInstruction() {
+        let dialogue = "Schreibe die Szene neu, sagte der Regisseur und ging."
+        XCTAssertEqual(AutonomousContentQuality.strippingPromptArtifacts(dialogue), dialogue)
+
+        let leaked = "Sie trat ans Fenster. Gib ausschließlich den fertigen Prosatext der Szene aus. Draußen regnete es."
+        let cleaned = AutonomousContentQuality.strippingPromptArtifacts(leaked)
+        XCTAssertFalse(cleaned.lowercased().contains("gib ausschließlich"))
+        XCTAssertTrue(cleaned.contains("Sie trat ans Fenster."))
+        XCTAssertTrue(cleaned.contains("Draußen regnete es."))
+    }
+
     /// Konzeptphase: Liebes-/Erotikbücher bekommen den Genre-Vertrag (zentrale
     /// Beziehungsfrage, Streich-Test, Happy End), andere Genres NICHT.
     func testConceptInjectsRomanceGenreContractOnlyForRomance() {
