@@ -497,6 +497,7 @@ final class LogicTests: XCTestCase {
         XCTAssertTrue(p.contains("HARTE VERBOTE"))
         XCTAssertTrue(p.contains("BAUARTEN"))
         XCTAssertTrue(p.contains("im Zweifel das Mutigere"))
+        XCTAssertTrue(p.contains("NUR MUSTER")) // Beispieltitel dürfen nicht kopiert werden
     }
 
     func testBookIdeasWeavesAuthorSeedWhenProvided() {

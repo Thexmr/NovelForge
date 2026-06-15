@@ -75,6 +75,10 @@ enum PromptFactory {
           ("Das Summen, das er mir verschwieg"); G) direkte Frage/Drohung ("Wer hat das Licht gelöscht?").
         – HÄRTETEST: Könnte der Titel auf zehn anderen Büchern dieses Genres stehen? Dann verwirf ihn.
           Wähle den bildstärksten, am wenigsten erwartbaren – im Zweifel das Mutigere. Jeder der 5 Titel klingt anders.
+        – NUR MUSTER, NICHT KOPIEREN: Alle Beispieltitel oben (auch die im VIRALEN THEMA) zeigen
+          AUSSCHLIESSLICH die Machart. Übernimm KEINEN dieser Titel und KEINES ihrer markanten Wörter
+          (also kein „Honig", „Klinge", „Narben", „Winter", „Summen", „Salz", „Stromnetz" usw.). Jeder
+          Titel entsteht FRISCH und ausschließlich aus DEINER eigenen Prämisse.
 
         Gib für JEDE Idee GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
         IDEE|Titel|Genre|Prämisse in 2 Sätzen – Satz 1 ist der High-Concept-Hook, Satz 2 nennt Konflikt und Einsatz
