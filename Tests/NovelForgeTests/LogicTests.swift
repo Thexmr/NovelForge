@@ -1,8 +1,21 @@
 import XCTest
+import SwiftData
 @testable import NovelForge
 
 /// Tests für Pipeline-Invarianten und Sicherheitsgarantien.
 final class LogicTests: XCTestCase {
+
+    /// In-Memory-SwiftData-Container für Tests, die echte @Model-Beziehungen
+    /// brauchen (z.B. project.bookProfile). Ohne Container trappt das Setzen
+    /// einer Relationship.
+    @MainActor
+    private func makeInMemoryContainer() throws -> ModelContainer {
+        try ModelContainer(
+            for: Schema([Project.self, BookProfile.self, StoryBible.self, CharacterProfile.self,
+                         LocationProfile.self, Chapter.self, StoryScene.self,
+                         PipelineJob.self, QualityReport.self]),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)])
+    }
 
     // MARK: - Sicherheit
 
@@ -533,11 +546,14 @@ final class LogicTests: XCTestCase {
 
     // MARK: - Cover-Studio
 
-    func testCoverPromptIsBuiltFromBookIdentityAndKDPContext() {
+    @MainActor
+    func testCoverPromptIsBuiltFromBookIdentityAndKDPContext() throws {
+        let ctx = try makeInMemoryContainer().mainContext
         let project = Project(title: "Zähl nicht bis zehn", authorName: "Dave Demaré",
                               language: "Deutsch", genre: "Thriller",
                               styleProfile: "psychologisch, düster",
                               targetPageCount: 320, outputFormats: ["EPUB"])
+        ctx.insert(project)
         project.authorBio = "Dave Demaré schreibt psychologische Thriller mit hohem emotionalem Druck."
 
         let profile = BookProfile(premise: "Eine Verhandlerin muss einen Countdown stoppen, der ihre eigene Schuld offenlegt.",
@@ -545,6 +561,7 @@ final class LogicTests: XCTestCase {
                                   tonality: "düster, nervös",
                                   narrativePerspective: "Personaler Erzähler",
                                   tense: "Präteritum")
+        ctx.insert(profile)
         profile.logline = "Eine Geiselnehmerin zwingt eine Verhandlerin, vor laufender Kamera mitzuzählen."
         profile.synopsis = "Der Countdown beginnt harmlos und wird zur öffentlichen Beichte."
         profile.kdpDescription = "Ein psychologischer Thriller über Schuld, Kontrolle und einen Countdown ohne Ausweg."
@@ -591,11 +608,14 @@ final class LogicTests: XCTestCase {
 
     /// Gewählter Ansatz „Artwork + scharfer Text-Overlay": das Bildmodell darf KEINEN
     /// Text ins Bild rendern (KI-Text wird verzerrt). Titel/Autor kommen als Overlay.
-    func testCoverPromptRequestsTextFreeArtworkForOverlay() {
+    @MainActor
+    func testCoverPromptRequestsTextFreeArtworkForOverlay() throws {
+        let ctx = try makeInMemoryContainer().mainContext
         let project = Project(title: "Zähl nicht bis zehn", authorName: "Dave Demaré",
                               language: "Deutsch", genre: "Thriller",
                               styleProfile: "düster", targetPageCount: 320,
                               outputFormats: ["EPUB"])
+        ctx.insert(project)
         let prompt = CoverDesignService.buildPrompt(for: project)
         XCTAssertTrue(prompt.contains("illustration only, no text"))
         XCTAssertTrue(prompt.contains("razor-sharp typographic overlay"))
