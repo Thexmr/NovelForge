@@ -270,11 +270,15 @@ enum AutonomousContentQuality {
                                        with: "$1", options: .regularExpression)
             // Übrig gebliebene Einzel-Sterne in einer Prosazeile entfernen (nie legitim).
             l = l.replacingOccurrences(of: "*", with: "")
-            // Emojis/Bildzeichen haben in einem Roman nichts verloren (explizite,
-            // ICU-sichere Bereiche statt unsicherer \p{Emoji}-Properties).
-            l = l.replacingOccurrences(
-                of: #"[\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}\x{2300}-\x{23FF}\x{FE0F}\x{200D}]"#,
-                with: "", options: .regularExpression)
+            // Emojis/Bildzeichen haben in einem Roman nichts verloren. Skalar-basiert
+            // und deterministisch (keine ICU-Eigenheiten bei Emoji-Blöcken).
+            l.removeAll { (ch: Character) in
+                ch.unicodeScalars.contains { s in
+                    let v = s.value
+                    return (0x1F000...0x1FFFF).contains(v) || (0x2600...0x27BF).contains(v)
+                        || (0x2300...0x23FF).contains(v) || (0xFE00...0xFE0F).contains(v) || v == 0x200D
+                }
+            }
             return l
         }
         // Doppelte Leerzeichen, die durch das Entfernen entstehen können, glätten.

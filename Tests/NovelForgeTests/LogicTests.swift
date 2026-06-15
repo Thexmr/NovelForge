@@ -373,8 +373,10 @@ final class LogicTests: XCTestCase {
         Am Morgen war alles _anders_. Ein Wort. ❤
         """
         let out = AutonomousContentQuality.strippingInlineFormatting(input)
-        XCTAssertFalse(out.contains("*lange*"))
-        XCTAssertFalse(out.contains("**"))
+        // Die Prosazeile darf KEIN Sternchen mehr enthalten (der „***"-Trenner ist
+        // eine eigene Zeile und bleibt erhalten – er enthält naturgemäß „**").
+        XCTAssertFalse((out.components(separatedBy: "\n").first ?? "").contains("*"))
+        XCTAssertFalse(out.contains("**lange**"))
         XCTAssertFalse(out.contains("_anders_"))
         XCTAssertFalse(out.contains("❤"))
         XCTAssertTrue(out.contains("lange"))
