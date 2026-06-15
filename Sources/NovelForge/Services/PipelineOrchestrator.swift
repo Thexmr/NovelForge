@@ -1775,6 +1775,9 @@ final class PipelineOrchestrator: ObservableObject {
                     chapterDigests.append("Kapitel \(chapter.chapterNumber) (\(chapter.title)): \(digest)")
                 }
             }
+            // Echten, inhaltsbezogenen Kapiteltitel sicherstellen (verhindert „Aufbruch N").
+            await ensureRealChapterTitle(chapter, project: project,
+                                         summary: chapter.summary ?? "", config: config)
             try? modelContext?.save()
         }
         estimatedTimeRemaining = ""
@@ -1802,6 +1805,41 @@ final class PipelineOrchestrator: ObservableObject {
         } catch {
             failJob(job, error: error)
             return String(joined.prefix(350))
+        }
+    }
+
+    /// Benennt ein Kapitel anhand seines Inhalts neu, wenn der Titel generisch oder
+    /// leer ist (z.B. „Aufbruch 7"). Liefert echte, konkrete Kapiteltitel statt
+    /// Platzhalter. Fehler sind nicht fatal – dann bleibt der bisherige Titel.
+    private func ensureRealChapterTitle(_ chapter: Chapter, project: Project,
+                                        summary: String, config: ProviderConfiguration) async {
+        let current = chapter.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let phasePattern = #"^(aufbruch|eskalation|krise|auflösung|kapitel|teil)\s+\d+$"#
+        let isGeneric = current.isEmpty
+            || AutonomousContentQuality.isGenericPlaceholder(current)
+            || current.range(of: phasePattern, options: [.regularExpression, .caseInsensitive]) != nil
+        guard isGeneric, !summary.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        do {
+            let response = try await generate(
+                prompt: PromptFactory.chapterTitle(bookTitle: project.title, genre: project.genre,
+                                                   chapterNumber: chapter.chapterNumber, summary: summary),
+                system: "Du bist ein Lektor und findest treffende, neugierig machende Kapiteltitel.",
+                maxTokens: 24, temperature: 0.8, config: config
+            )
+            let cleaned = (response.text.components(separatedBy: .newlines).first ?? "")
+                .replacingOccurrences(of: "\"", with: "")
+                .replacingOccurrences(of: "„", with: "")
+                .replacingOccurrences(of: "\u{201C}", with: "")
+                .replacingOccurrences(of: "*", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard chapter.modelContext != nil else { return } // nach await evtl. gelöscht
+            if !cleaned.isEmpty, cleaned.count <= 60,
+               !AutonomousContentQuality.isGenericPlaceholder(cleaned),
+               cleaned.range(of: phasePattern, options: [.regularExpression, .caseInsensitive]) == nil {
+                chapter.title = cleaned
+            }
+        } catch {
+            // Titel-Generierung ist nicht fatal; generischer Titel bleibt erhalten.
         }
     }
 

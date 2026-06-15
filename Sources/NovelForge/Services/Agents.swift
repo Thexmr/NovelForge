@@ -332,6 +332,23 @@ enum PromptFactory {
         """
     }
 
+    /// „Fesseln-Garantie" aus einem Lektoren-Panel (Vergleich fesselndes vs.
+    /// langweiliges echtes Kapitel): verhindert, dass eine Szene in schöne, aber
+    /// ereignislose Stimmung versackt. Ergänzt `pageTurnerRules`.
+    static var gripRules: String {
+        """
+        FESSELN GARANTIEREN (jede Szene zieht; das steht ÜBER schöner Sprache – eine sprachlich perfekte Szene ohne Vorwärtsbewegung ist ein Fehler):
+        - SZENEN-GATE (vorab benennen, sonst nicht schreiben): WILL = was die Perspektivfigur konkret und benennbar will (kein Lebensgefühl wie „Nähe spüren", sondern ein Ziel wie „herausfinden, was X verbirgt"); WIDERSTAND = wer oder was es aktiv verweigert (eine lügende Person, eine Frist, eine Bedrohung); VERLUST = was sie konkret verliert, wenn sie scheitert. Fehlt eins, ist es ein Stimmungsbild, kein Vorgang.
+        - LAGE-DELTA (Pflicht): Die Lage am Szenenende MUSS gegenüber dem Anfang verschoben oder verschärft sein – in WISSEN, MACHT/STATUS, RISIKO oder BINDUNG. Streich-Test: Ändert die Szene nichts am Buch, ist sie ein Zustand statt eines Vorgangs – umbauen. (Falsch: „will raus" → „will raus, jetzt gespürt". Richtig: „Verdacht" → „Beweis plus zerstörtes Vertrauen".)
+        - ENTDECKUNG STATT EMPFINDUNG: Jede Szene braucht mindestens eine Enthüllung, die die Figur AKTIV aufdeckt und die ihr Wissen ändert. Eine reine Empfindung (den Atem anhalten, eine Berührung spüren) ist NIE der Szenenkern. Prüffrage: Was wissen Figur und Leser am Ende, das sie vorher nicht wussten?
+        - DETAIL = INDIZ: Jedes prominente Sinnesdetail deutet auf Verborgenes oder Kommendes (worauf weist es hin, für wen ist es gefährlich oder verräterisch?), nie bloße Atmosphäre. Jede bedeutsame Geste trägt eine Konsequenz oder verdeckte Absicht.
+        - STIMMUNGS-BUDGET: Höchstens etwa 15–20 % reine Atmosphäre/Innenschau pro Szene; nie mehrere reine Stimmungsabsätze ohne Statusverschiebung hintereinander.
+        - MOTIV ESKALIERT: Ein Leitmotiv (Regen, Schweigen, ein Objekt) höchstens zweimal explizit benennen; beim zweiten Mal muss es die Lage verschärfen (neue Drohung oder Information), nicht nur bestätigen.
+        - SCHLUSS-WENDE: Die letzte Zeile öffnet eine drängendere Frage oder kippt eine Annahme – aus einer Tatsache, nicht aus einem Gefühl (formulierbar als „Was passiert jetzt?"). Verboten als Schluss: ein beruhigter, in sich ruhender Gefühlszustand.
+        - EINSATZ STEIGT: Der konkrete Einsatz steigt über das Buch tendenziell; nicht dreimal in Folge derselbe niedrige Einsatz.
+        """
+    }
+
     /// Konzeptphasen-Vertrag, der verhindert, dass aus einem Liebesroman/Erotik-Roman
     /// ein Thriller mit Job-Plot (und einem Stalker als „Love Interest") wird.
     /// Greift VOR der ersten Szene; leer für andere Genres.
@@ -453,6 +470,7 @@ enum PromptFactory {
         - SOG (dezent): Halte mindestens eine offene Frage aktiv und nutze Mikro-Spannung, aber nie auf Kosten der Verständlichkeit. Pro Szene höchstens EINE neue Figur oder Enthüllung, nicht mehrere gleichzeitig.
         - Der letzte Satz gibt einen Grund zum Weiterlesen, ohne aufgesetzt oder programmatisch zu wirken.
         \(pageTurnerRules)
+        \(gripRules)
         \(genreCraft(genre))
         \(positionNote)
         Gib AUSSCHLIESSLICH den fertigen Prosatext der Szene aus. Übernimm NIEMALS
@@ -482,6 +500,23 @@ enum PromptFactory {
         Fakten oder Wendungen wurden etabliert? Gib NUR die Verdichtung aus.
 
         \(sceneSummaries.truncated(to: 4000))
+        """
+    }
+
+    /// Erzeugt einen echten, inhaltsbezogenen Kapiteltitel aus der Kapitel-
+    /// Zusammenfassung – als Ersatz für generische Platzhalter („Aufbruch N").
+    static func chapterTitle(bookTitle: String, genre: String, chapterNumber: Int, summary: String) -> String {
+        """
+        Finde EINEN kurzen, kreativen Kapiteltitel für Kapitel \(chapterNumber) des Romans \
+        „\(bookTitle)" (Genre: \(genre)). Worum es in diesem Kapitel geht:
+        \(summary.truncated(to: 700))
+
+        Regeln: Der Titel ist ein konkretes Bild, ein Versprechen oder eine Frage aus DIESEM \
+        Kapitel (2 bis 5 Wörter), macht neugierig und verrät die Auflösung NICHT. STRENG VERBOTEN: \
+        „Kapitel N", „Teil N", Phasennamen (Aufbruch/Eskalation/Krise/Auflösung), Durchnummerierung, \
+        blasse Abstrakta. Keine Anführungszeichen, kein Gedankenstrich, keine Erklärung.
+
+        Gib AUSSCHLIESSLICH den Titel aus, sonst nichts.
         """
     }
 

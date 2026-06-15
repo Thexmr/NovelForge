@@ -484,6 +484,24 @@ final class LogicTests: XCTestCase {
         XCTAssertTrue(p.contains("im Zweifel das Mutigere"))
     }
 
+    func testGripRulesEnforceMomentumStakesAndAntiMoodpiece() {
+        let r = PromptFactory.gripRules
+        XCTAssertTrue(r.contains("SZENEN-GATE"))
+        XCTAssertTrue(r.contains("LAGE-DELTA"))
+        XCTAssertTrue(r.contains("ENTDECKUNG STATT EMPFINDUNG"))
+        XCTAssertTrue(r.contains("EINSATZ STEIGT"))
+    }
+
+    /// Echte Kapitelnamen aus dem Inhalt: der Titel-Prompt nutzt die Zusammenfassung
+    /// und verbietet generische Platzhalter.
+    func testChapterTitlePromptUsesContentAndBansGenericNames() {
+        let p = PromptFactory.chapterTitle(bookTitle: "Wenn der Strom fällt", genre: "Liebesroman",
+            chapterNumber: 7, summary: "Lina entdeckt einen manipulierten Schalter und ahnt Sabotage.")
+        XCTAssertTrue(p.contains("Lina entdeckt einen manipulierten Schalter"))
+        XCTAssertTrue(p.contains("STRENG VERBOTEN"))
+        XCTAssertTrue(p.contains("Aufbruch"))
+    }
+
     // MARK: - Anti-KI-Stil (Detektor-Resistenz)
 
     func testHumanCraftRulesCoverBurstinessParagraphEndingsAndTricolon() {
