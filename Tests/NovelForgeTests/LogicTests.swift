@@ -509,4 +509,12 @@ final class LogicTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Amazon KDP"))
         XCTAssertTrue(prompt.contains("2:3"))
     }
+
+    /// Der Text-Overlay skaliert lange Titel kleiner, damit sie nicht überlaufen.
+    /// (Reine Layout-Logik, ohne Grafik-Kontext – CI-sicher.)
+    func testCoverTitleFontSizeShrinksForLongerTitles() {
+        let short = CoverComposer.titleFontSize(for: "Nyx")
+        let long = CoverComposer.titleFontSize(for: "Ein ziemlich langer Romantitel der umbrechen muss")
+        XCTAssertGreaterThan(short, long)
+    }
 }

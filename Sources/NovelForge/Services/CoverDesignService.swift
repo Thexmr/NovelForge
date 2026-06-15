@@ -100,6 +100,7 @@ final class CoverImageSettingsStore: ObservableObject {
 
 enum CoverDesignService {
     static let coverImageFileName = "Cover.png"
+    static let coverArtworkFileName = "Cover-Artwork.png"
     static let coverPromptFileName = "Cover-Prompt.txt"
 
     static func visibleCoverText(for project: Project) -> String {
@@ -160,6 +161,11 @@ enum CoverDesignService {
 
     static func imageURL(for project: Project) throws -> URL {
         try ExportEngine.exportDirectory(for: project).appendingPathComponent(coverImageFileName)
+    }
+
+    /// Rohes, textfreies KI-Artwork (vor dem Titel/Autor-Overlay).
+    static func artworkURL(for project: Project) throws -> URL {
+        try ExportEngine.exportDirectory(for: project).appendingPathComponent(coverArtworkFileName)
     }
 
     @discardableResult

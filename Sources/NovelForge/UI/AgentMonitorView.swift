@@ -501,9 +501,11 @@ struct CoverStudioPanel: View {
         }
 
         let settings = coverStore.runtimeSettings()
-        let destination: URL
+        let artworkDestination: URL
         do {
-            destination = try CoverDesignService.imageURL(for: project)
+            // Das Bildmodell liefert textfreies Artwork; Titel/Autor kommen danach
+            // als scharfer Overlay in CoverComposer.
+            artworkDestination = try CoverDesignService.artworkURL(for: project)
         } catch {
             errorMessage = error.localizedDescription
             return
@@ -512,14 +514,15 @@ struct CoverStudioPanel: View {
         isGenerating = true
         Task {
             do {
-                let url = try await CoverImageGateway.shared.generateImage(
+                let artworkURL = try await CoverImageGateway.shared.generateImage(
                     prompt: activePrompt,
-                    destination: destination,
+                    destination: artworkDestination,
                     settings: settings
                 )
+                let coverFile = try CoverComposer.composeCover(artworkURL: artworkURL, project: project)
                 await MainActor.run {
-                    coverURL = url
-                    statusMessage = "Cover als \(CoverDesignService.coverImageFileName) gespeichert."
+                    coverURL = coverFile
+                    statusMessage = "Cover als \(CoverDesignService.coverImageFileName) gespeichert (Artwork + scharfer Titel-Overlay)."
                     isGenerating = false
                 }
             } catch {
