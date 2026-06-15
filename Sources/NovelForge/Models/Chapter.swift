@@ -67,6 +67,20 @@ final class Chapter {
         return cleaned.isEmpty ? nil : cleaned
     }
 
+    /// Anzeige-/Export-Titel. Echte Kapiteltitel bleiben erhalten; generische
+    /// Platzhalter älterer Bücher (z.B. „Aufbruch 7", „Eskalation 12") werden zu
+    /// neutralem „Kapitel N", damit im Inhaltsverzeichnis nicht wiederholt
+    /// „Aufbruch/Eskalation/Krise/Auflösung" erscheint.
+    var displayTitle: String {
+        let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.isEmpty { return "Kapitel \(chapterNumber)" }
+        if t.range(of: #"^(aufbruch|eskalation|krise|auflösung|kapitel|teil)\s+\d+$"#,
+                   options: [.regularExpression, .caseInsensitive]) != nil {
+            return "Kapitel \(chapterNumber)"
+        }
+        return t
+    }
+
     var computedWordCount: Int {
         return bestText?.wordCount ?? 0
     }

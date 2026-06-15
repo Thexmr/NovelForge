@@ -76,7 +76,7 @@ struct ManuscriptView: View {
                             ForEach(sortedChapters) { chapter in
                                 HStack {
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text("\(chapter.chapterNumber). \(chapter.title)")
+                                        Text("\(chapter.chapterNumber). \(chapter.displayTitle)")
                                             .lineLimit(1)
                                         Text(chapterStatusText(chapter))
                                             .font(.caption2)
@@ -240,7 +240,7 @@ struct ChapterReaderSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(chapter.title)
+            Text(chapter.displayTitle)
                 .font(.system(.title, design: .serif))
                 .fontWeight(.semibold)
                 .frame(maxWidth: .infinity, alignment: .center)
@@ -315,7 +315,7 @@ struct ChapterDetailView: View {
     private var readView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Text(chapter.title)
+                Text(chapter.displayTitle)
                     .font(.system(.largeTitle, design: .serif))
                     .fontWeight(.semibold)
 

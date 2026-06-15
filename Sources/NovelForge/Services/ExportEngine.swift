@@ -84,7 +84,7 @@ struct ExportEngine {
         let copyrightPage = generateCopyrightPageHTML(project: project)
         try copyrightPage.write(to: oebpsDir.appendingPathComponent("copyright.xhtml"), atomically: true, encoding: .utf8)
         manifest += "    <item id=\"copyright\" href=\"copyright.xhtml\" media-type=\"application/xhtml+xml\" />\n"
-        spine += "    <itemref idref=\"copyright\" />\n"
+        // Impressum/Copyright kommt ans ENDE des Buches (Spine-Eintrag unten), nicht an den Anfang.
 
         let allChapters = (project.chapters ?? []).sorted { $0.chapterNumber < $1.chapterNumber }
         let chapters = sampleChapterCount.map { Array(allChapters.prefix($0)) } ?? allChapters
@@ -101,7 +101,7 @@ struct ExportEngine {
             try chapterContent.write(to: oebpsDir.appendingPathComponent(chapterFile), atomically: true, encoding: .utf8)
             manifest += "    <item id=\"\(chapterId)\" href=\"\(chapterFile)\" media-type=\"application/xhtml+xml\" />\n"
             spine += "    <itemref idref=\"\(chapterId)\" />\n"
-            chapterFiles.append((chapterId, chapterFile, chapter.title))
+            chapterFiles.append((chapterId, chapterFile, chapter.displayTitle))
         }
 
         if isSample {
@@ -110,6 +110,9 @@ struct ExportEngine {
             manifest += "    <item id=\"sampleend\" href=\"sample_end.xhtml\" media-type=\"application/xhtml+xml\" />\n"
             spine += "    <itemref idref=\"sampleend\" />\n"
         }
+
+        // Impressum/Copyright als LETZTE Seite (eBook-Konvention; nicht am Anfang).
+        spine += "    <itemref idref=\"copyright\" />\n"
 
         // NCX (EPUB-2-Kompatibilität) – muss im Manifest deklariert sein.
         manifest += "    <item id=\"ncx\" href=\"toc.ncx\" media-type=\"application/x-dtbncx+xml\" />\n"
@@ -160,17 +163,19 @@ struct ExportEngine {
         var state = PrintState()
 
         appendCenteredPage(makeTitleAttributed(project: project), to: pdfDocument, layout: layout, state: &state)
-        appendCenteredPage(makeCopyrightAttributed(project: project), to: pdfDocument, layout: layout, state: &state)
         appendFlowedText(makeTOCAttributed(project: project), to: pdfDocument, layout: layout, state: &state, numbered: false)
 
         state.numbering = true
         if let chapters = project.chapters?.sorted(by: { $0.chapterNumber < $1.chapterNumber }) {
             for chapter in chapters {
                 guard let text = chapter.bestText else { continue }
-                let attributed = makeChapterAttributed(title: chapter.title, text: text)
+                let attributed = makeChapterAttributed(title: chapter.displayTitle, text: text)
                 appendFlowedText(attributed, to: pdfDocument, layout: layout, state: &state, numbered: true)
             }
         }
+
+        // Impressum/Copyright als letzte Seite (nicht am Anfang).
+        appendCenteredPage(makeCopyrightAttributed(project: project), to: pdfDocument, layout: layout, state: &state)
 
         guard pdfDocument.write(to: url) else {
             throw AIError.systemError("PDF konnte nicht geschrieben werden")
@@ -239,7 +244,7 @@ struct ExportEngine {
     h1 { text-align: center; font-weight: normal; font-size: 1.4em; margin: 3em 0 2em 0; page-break-before: always; }
     p { margin: 0; text-indent: 1.2em; text-align: justify; }
     p.first { text-indent: 0; }
-    p.scenebreak { text-indent: 0; text-align: center; margin: 1em 0; }
+    p.scenebreak { text-indent: 0; text-align: center; margin: 2.2em 0; }
     .titlepage, .copyrightpage { text-align: center; margin-top: 30%; }
     .titlepage h1 { page-break-before: avoid; margin: 0 0 1em 0; font-size: 1.8em; }
     nav ol { list-style: none; padding: 0; }
@@ -307,7 +312,7 @@ struct ExportEngine {
     private static func generateNavHTML(chapters: [Chapter]) -> String {
         var items = ""
         for chapter in chapters {
-            items += "            <li><a href=\"chapter\(chapter.chapterNumber).xhtml\">\(escapeXML(chapter.title))</a></li>\n"
+            items += "            <li><a href=\"chapter\(chapter.chapterNumber).xhtml\">\(escapeXML(chapter.displayTitle))</a></li>\n"
         }
         return xhtmlHeader(title: "Inhaltsverzeichnis") + """
 
@@ -322,8 +327,8 @@ struct ExportEngine {
     }
 
     private static func generateChapterHTML(chapter: Chapter) -> String {
-        var content = xhtmlHeader(title: chapter.title)
-        content += "\n    <h1>\(escapeXML(chapter.title))</h1>"
+        var content = xhtmlHeader(title: chapter.displayTitle)
+        content += "\n    <h1>\(escapeXML(chapter.displayTitle))</h1>"
 
         var afterBreak = true // erster Absatz ohne Einzug (Verlagskonvention)
         if let text = chapter.bestText {
@@ -332,7 +337,10 @@ struct ExportEngine {
                 if trimmed.isEmpty { continue }
 
                 if isSceneBreakLine(trimmed) {
-                    content += "\n    <p class=\"scenebreak\">* * *</p>"
+                    // Szenenwechsel als ruhiger, leerer Abstand statt sichtbarer „* * *"
+                    // (die Sternchen wirken im eBook wie ein Fehler). Das geschützte
+                    // Leerzeichen hält den Absatz offen, sodass eine klare Lücke bleibt.
+                    content += "\n    <p class=\"scenebreak\">\u{00A0}</p>"
                     afterBreak = true
                     continue
                 }
@@ -444,25 +452,19 @@ struct ExportEngine {
 
         body += paragraph(text: project.title, style: "Title")
         body += paragraph(text: project.authorName, style: "Subtitle")
-
-        for line in bookCopyrightPageText(project: project).components(separatedBy: .newlines) {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if !trimmed.isEmpty {
-                body += paragraph(text: trimmed, style: nil)
-            }
-        }
         body += "<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>"
 
         if let chapters = project.chapters?.sorted(by: { $0.chapterNumber < $1.chapterNumber }) {
             for chapter in chapters {
-                body += paragraph(text: chapter.title, style: "Heading1")
+                body += paragraph(text: chapter.displayTitle, style: "Heading1")
                 var afterBreak = true
                 if let text = chapter.bestText {
                     for para in text.components(separatedBy: .newlines) {
                         let trimmed = para.trimmingCharacters(in: .whitespaces)
                         if trimmed.isEmpty { continue }
                         if isSceneBreakLine(trimmed) {
-                            body += paragraph(text: "* * *", style: "SceneBreak")
+                            // Szenenwechsel als ruhiger Abstand statt sichtbarer „* * *".
+                            body += paragraph(text: "\u{00A0}", style: "SceneBreak")
                             afterBreak = true
                             continue
                         }
@@ -470,6 +472,15 @@ struct ExportEngine {
                         afterBreak = false
                     }
                 }
+            }
+        }
+
+        // Impressum/Copyright als letzte Seite (nicht am Anfang).
+        body += "<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>"
+        for line in bookCopyrightPageText(project: project).components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty {
+                body += paragraph(text: trimmed, style: nil)
             }
         }
 
@@ -624,7 +635,8 @@ struct ExportEngine {
             if paragraph.isEmpty { continue }
 
             if isSceneBreakLine(paragraph) {
-                result.append(NSAttributedString(string: "* * *\n", attributes: [
+                // Szenenwechsel als ruhiger Abstand statt sichtbarer „* * *".
+                result.append(NSAttributedString(string: "\u{00A0}\n", attributes: [
                     .font: bookFont(size: 11),
                     .paragraphStyle: breakStyle,
                     .foregroundColor: NSColor.black

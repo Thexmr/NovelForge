@@ -430,6 +430,19 @@ final class LogicTests: XCTestCase {
         XCTAssertTrue(p.contains("doppelbödig"))
     }
 
+    /// Bestehende Bücher mit generischen „Aufbruch/Eskalation N"-Titeln zeigen im
+    /// Export/Inhaltsverzeichnis ein neutrales „Kapitel N"; echte Titel bleiben.
+    func testChapterDisplayTitleReplacesGenericPlaceholdersOnly() {
+        let generic = Chapter(chapterNumber: 7, title: "Aufbruch 7", goal: "Ziel", targetWordCount: 2000)
+        XCTAssertEqual(generic.displayTitle, "Kapitel 7")
+        let esk = Chapter(chapterNumber: 12, title: "Eskalation 12", goal: "Ziel", targetWordCount: 2000)
+        XCTAssertEqual(esk.displayTitle, "Kapitel 12")
+        let empty = Chapter(chapterNumber: 5, title: "", goal: "Ziel", targetWordCount: 2000)
+        XCTAssertEqual(empty.displayTitle, "Kapitel 5")
+        let real = Chapter(chapterNumber: 3, title: "Honig auf der Klinge", goal: "Ziel", targetWordCount: 2000)
+        XCTAssertEqual(real.displayTitle, "Honig auf der Klinge")
+    }
+
     // MARK: - Bestseller-Sog (Page-Turner) + kühnere Titel
 
     func testPageTurnerRulesCoverTheKeyTechniques() {
