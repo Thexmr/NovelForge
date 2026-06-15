@@ -243,6 +243,7 @@ enum PromptFactory {
         - JEDES Kapitel endet mit einem Haken: offene Frage, Bedrohung, Enthüllung oder folgenschwere Entscheidung.
         - Variiere das Tempo: Auf intensive Kapitel folgt ein ruhigeres mit Charaktertiefe – nie zwei gleiche hintereinander.
         - Jedes Kapitel hat genau ein klares Ziel und treibt den Hauptplot messbar voran. Keine Füllkapitel.
+        - KAPITELTITEL kreativ und eigenständig: jeder Titel ist ein konkretes Bild, eine Frage, ein aufgeladenes Objekt oder ein kurzer, neugierig machender Satz, der zur Szene passt. STRENG VERBOTEN: „Kapitel N", „Teil N", „Aufbruch/Eskalation/Krise/Auflösung" oder andere Phasen-/Platzhalternamen, Durchnummerierung und generische Abstrakta. Kurz (1-5 Wörter), unverwechselbar, jedes anders.
 
         Gib für JEDES Kapitel GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
         KAPITEL|Nummer|Titel|Ziel des Kapitels|Zentraler Konflikt

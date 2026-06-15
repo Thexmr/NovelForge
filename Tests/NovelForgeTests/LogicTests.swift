@@ -375,6 +375,38 @@ final class LogicTests: XCTestCase {
         XCTAssertFalse(thriller.contains("GENRE-VERTRAG"))
     }
 
+    // MARK: - Kreative Kapiteltitel (kein „Aufbruch N" mehr)
+
+    /// Belegt den Fix: Ein einzelnes schwaches Kapitel darf NICHT den ganzen Plan
+    /// verwerfen (sonst bekamen alle 50 Kapitel generische „Aufbruch N"-Titel).
+    /// Echte Titel bleiben erhalten, nur die schwache Stelle wird repariert.
+    func testRepairedChapterPlanKeepsRealTitlesAndOnlyFixesWeakChapters() {
+        let planned = [
+            PlannedChapter(number: 1, title: "Der Schalter, der klemmte",
+                goal: "Lina trennt manuell das Netz und entdeckt einen frisch manipulierten Schalter.",
+                conflict: "Sabotage unter Zeitdruck"),
+            PlannedChapter(number: 2, title: "Kapitel 2", goal: "x", conflict: ""),
+            PlannedChapter(number: 3, title: "Das Aggregat im Keller",
+                goal: "Finn zögert und lässt die Zange fallen, statt das Letzte zu zerstören.",
+                conflict: "Er kann sie nicht vernichten")
+        ]
+        let repaired = PipelineOrchestrator.repairedChapterPlan(planned, count: 3)
+        XCTAssertEqual(repaired.count, 3)
+        XCTAssertEqual(repaired[0].title, "Der Schalter, der klemmte")
+        XCTAssertEqual(repaired[2].title, "Das Aggregat im Keller")
+        XCTAssertNotEqual(repaired[1].title, "Kapitel 2")
+        XCTAssertFalse(AutonomousContentQuality.isGenericPlaceholder(repaired[1].title))
+        XCTAssertGreaterThanOrEqual(repaired[1].goal.wordCount, 5)
+        XCTAssertGreaterThanOrEqual(repaired[1].conflict.wordCount, 3)
+    }
+
+    func testChapterPlanPromptDemandsCreativeChapterTitles() {
+        let p = PromptFactory.chapterPlan(title: "Wenn der Strom fällt", genre: "Liebesroman",
+            plot: "Akt 1 bis 3.", chapterCount: 30, wordsPerChapter: 2500)
+        XCTAssertTrue(p.contains("KAPITELTITEL kreativ"))
+        XCTAssertTrue(p.contains("STRENG VERBOTEN"))
+    }
+
     // MARK: - Anti-KI-Stil (Detektor-Resistenz)
 
     func testHumanCraftRulesCoverBurstinessParagraphEndingsAndTricolon() {

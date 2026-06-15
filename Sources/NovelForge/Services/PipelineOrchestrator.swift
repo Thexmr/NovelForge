@@ -1214,10 +1214,13 @@ final class PipelineOrchestrator: ObservableObject {
         }
         var usedFallback = false
         if !AutonomousContentQuality.hasUsableChapterPlan(planned) {
-            // Provider lieferte nichts → pausieren (fortsetzbar). Sonst tragfähiges Gerüst.
+            // Provider lieferte nichts → pausieren (fortsetzbar).
             if planned.isEmpty, let error = lastError { failJob(job, error: error); throw error }
-            planned = fallbackChapters(count: chapterCount, project: project)
-            usedFallback = true
+            // NICHT den ganzen Plan verwerfen (sonst gingen alle echten, kreativen
+            // Kapiteltitel verloren und das Buch bekäme generische „Aufbruch N"-Titel).
+            // Stattdessen nur die schwachen Einzelfelder reparieren.
+            usedFallback = planned.count < max(3, chapterCount / 2)
+            planned = Self.repairedChapterPlan(planned, count: chapterCount)
         }
 
         if project.chapters == nil { project.chapters = [] }
@@ -1429,6 +1432,36 @@ final class PipelineOrchestrator: ObservableObject {
 
     /// Tragfähiger Ersatz-Kapitelplan, falls der Strukturplaner keine verwertbaren
     /// Kapitel liefert. Erzeugt konkrete (nicht-generische) Ziele/Konflikte.
+    /// Repariert einen größtenteils brauchbaren Kapitelplan, statt ihn komplett zu
+    /// verwerfen. Echte, kreative Kapiteltitel des Modells bleiben erhalten; nur
+    /// generische Titel oder zu dünne Ziele/Konflikte werden ersetzt. So bekommen
+    /// Bücher echte Kapiteltitel statt durchgehend „Aufbruch N".
+    static func repairedChapterPlan(_ planned: [PlannedChapter], count: Int) -> [PlannedChapter] {
+        let n = max(3, count)
+        return (1...n).map { i in
+            let phase: String
+            switch Double(i) / Double(n) {
+            case ..<0.25: phase = "Aufbruch"
+            case ..<0.5: phase = "Eskalation"
+            case ..<0.75: phase = "Krise"
+            default: phase = "Auflösung"
+            }
+            let existing = planned.first { $0.number == i }
+                ?? (planned.indices.contains(i - 1) ? planned[i - 1] : nil)
+            let rawTitle = existing?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let rawGoal = existing?.goal.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let rawConflict = existing?.conflict.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let title = (!rawTitle.isEmpty && !AutonomousContentQuality.isGenericPlaceholder(rawTitle))
+                ? rawTitle : "\(phase) \(i)"
+            let goal = (rawGoal.wordCount >= 5 && !AutonomousContentQuality.isGenericPlaceholder(rawGoal))
+                ? rawGoal
+                : "Treibe den Hauptkonflikt in der \(phase)-Phase durch eine eigenständige Eskalation spürbar voran."
+            let conflict = rawConflict.wordCount >= 3
+                ? rawConflict : "Ein konkretes Hindernis stellt sich dem Ziel dieses Kapitels entgegen."
+            return PlannedChapter(number: i, title: title, goal: goal, conflict: conflict)
+        }
+    }
+
     private func fallbackChapters(count: Int, project: Project) -> [PlannedChapter] {
         let n = max(3, count)
         return (1...n).map { i in
