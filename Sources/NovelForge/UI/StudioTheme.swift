@@ -260,12 +260,15 @@ struct StudioProgressBar: View {
 
     var body: some View {
         GeometryReader { geo in
+            // value kann aus einer 0/0-Division NaN/Inf werden (z.B. 0 von 0 Kapiteln).
+            // Auf 0 normalisieren, sonst zeigt der Balken fälschlich „voll" statt leer.
+            let safeValue = value.isFinite ? value : 0
             ZStack(alignment: .leading) {
                 Capsule().fill(StudioTheme.surfaceDeep.opacity(0.86))
                 Capsule().fill(Color.white.opacity(0.06))
                 Capsule()
                     .fill(gradient)
-                    .frame(width: max(0, min(1, value)) * geo.size.width)
+                    .frame(width: max(0, min(1, safeValue)) * geo.size.width)
                     .shadow(color: StudioTheme.cyan.opacity(0.24), radius: 4, y: 1)
             }
             .overlay { Capsule().strokeBorder(StudioTheme.hairline, lineWidth: 1) }

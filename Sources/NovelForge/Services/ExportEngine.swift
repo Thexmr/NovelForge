@@ -361,7 +361,7 @@ struct ExportEngine {
         return """
         <?xml version="1.0" encoding="UTF-8"?>
         <package version="3.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid">
-            <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+            <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/">
                 <dc:title>\(escapeXML(project.title))</dc:title>
                 <dc:creator>\(escapeXML(project.authorName))</dc:creator>
                 <dc:language>\(project.languageCode)</dc:language>

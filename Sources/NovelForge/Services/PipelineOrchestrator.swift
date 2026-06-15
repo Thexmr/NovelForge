@@ -231,7 +231,7 @@ final class PipelineOrchestrator: ObservableObject {
                 let request = GenerationRequest(
                     prompt: PromptFactory.editorRevise(instruction: text, chapterTitle: chapter.title,
                                                        language: project.language,
-                                                       currentText: current.truncated(to: 14000)),
+                                                       currentText: current.truncated(to: 28000)),
                     systemPrompt: "Du bist ein erfahrener Lektor und Überarbeiter. Du setzt Autorenwünsche präzise um.",
                     model: model, provider: config.provider, maxTokens: 8000, temperature: 0.6
                 )
@@ -251,7 +251,12 @@ final class PipelineOrchestrator: ObservableObject {
                 chapter.actualWordCount = revised.wordCount
                 chapter.updatedAt = Date()
                 project.updatedAt = Date()
-                try? modelContext?.save()
+                // Speicherfehler ehrlich melden, statt fälschlich Erfolg zu signalisieren.
+                do {
+                    try modelContext?.save()
+                } catch {
+                    return "Die Überarbeitung ist fertig, aber das Speichern ist fehlgeschlagen, die Änderung wurde NICHT gesichert: \(error.localizedDescription). Bitte versuch es noch einmal."
+                }
                 return "Erledigt: Kapitel \(chapter.chapterNumber) „\(chapter.title)“ wurde nach deinem Wunsch überarbeitet (\(revised.wordCount) Wörter). Du siehst es im Manuskript."
             } else {
                 let request = GenerationRequest(
@@ -663,6 +668,13 @@ final class PipelineOrchestrator: ObservableObject {
         var title = baseTitle
         var suffix = 2
         while !claimTitle(title) {
+            // Schutz gegen Endlosschleife in der Dauerproduktion (z.B. wenn sehr
+            // viele Duplikate denselben Basistitel beanspruchen).
+            if suffix > 500 {
+                title = "\(baseTitle) \(UUID().uuidString.prefix(6))"
+                _ = claimTitle(title)
+                break
+            }
             title = "\(baseTitle) \(suffix)"
             suffix += 1
         }
@@ -1818,6 +1830,7 @@ final class PipelineOrchestrator: ObservableObject {
         guard let profile = project.bookProfile else {
             throw AIError.systemError("Buchprofil fehlt")
         }
+        try Task.checkCancellation()
         project.status = .chapterRevision
 
         let chapters = sortedChapters(project)
@@ -1944,6 +1957,7 @@ final class PipelineOrchestrator: ObservableObject {
     // MARK: - Phase 9: Korrektorat
 
     private func runProofreading(project: Project, config: ProviderConfiguration) async throws {
+        try Task.checkCancellation()
         project.status = .proofreading
 
         let chapters = sortedChapters(project)
