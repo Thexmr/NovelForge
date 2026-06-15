@@ -1449,7 +1449,7 @@ final class PipelineOrchestrator: ObservableObject {
     /// verwerfen. Echte, kreative Kapiteltitel des Modells bleiben erhalten; nur
     /// generische Titel oder zu dünne Ziele/Konflikte werden ersetzt. So bekommen
     /// Bücher echte Kapiteltitel statt durchgehend „Aufbruch N".
-    static func repairedChapterPlan(_ planned: [PlannedChapter], count: Int) -> [PlannedChapter] {
+    nonisolated static func repairedChapterPlan(_ planned: [PlannedChapter], count: Int) -> [PlannedChapter] {
         let n = max(3, count)
         return (1...n).map { i in
             let phase: String
