@@ -100,6 +100,31 @@ final class UnlimitedProductionTests: XCTestCase {
         XCTAssertEqual(settings.genreForBook(at: 3), "Thriller")
     }
 
+    func testUnlimitedSettingsCycleAndSanitizeIdeaSeeds() {
+        let s = UnlimitedSettings(
+            authorName: "Test", language: "Deutsch", selectedGenres: ["Thriller"],
+            style: "düster", pageCount: 200, maxBooks: 0, parallelBooks: 1,
+            formats: ["EPUB"], imprint: "", authorBio: "",
+            ideaSeeds: ["Idee eins", "   ", "Idee zwei"])
+        XCTAssertEqual(s.ideaSeeds, ["Idee eins", "Idee zwei"]) // Leerzeile gefiltert
+        XCTAssertEqual(s.ideaForBook(at: 0), "Idee eins")
+        XCTAssertEqual(s.ideaForBook(at: 1), "Idee zwei")
+        XCTAssertEqual(s.ideaForBook(at: 2), "Idee eins") // rotiert
+
+        let empty = UnlimitedSettings(
+            authorName: "Test", language: "Deutsch", selectedGenres: ["Thriller"],
+            style: "düster", pageCount: 200, maxBooks: 0, parallelBooks: 1,
+            formats: ["EPUB"], imprint: "", authorBio: "")
+        XCTAssertNil(empty.ideaForBook(at: 0))
+    }
+
+    func testGenrePoolIncludesNewGenres() {
+        for g in ["Romantasy", "Urban Fantasy", "Dystopie", "Cozy Mystery",
+                  "Psychothriller", "Western", "Steampunk", "Familiensaga"] {
+            XCTAssertTrue(UnlimitedSettings.genrePool.contains(g), "Genre fehlt im Pool: \(g)")
+        }
+    }
+
     func testStoryMemoryBuildsAvoidanceBriefFromPriorBooks() {
         let entries = [
             StoryMemoryEntry(title: "Die letzte Schleuse",

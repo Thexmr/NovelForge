@@ -24,16 +24,27 @@ enum AgentName {
 
 enum PromptFactory {
 
-    /// Drei kommerziell vielversprechende Buchideen für den Wizard.
-    static func bookIdeas(genre: String, language: String, avoidanceBrief: String = "") -> String {
+    /// Kommerziell vielversprechende Buchideen. `authorSeed` ist eine optionale
+    /// eigene Idee des Autors, die zu einer vollwertigen Buchidee ausgebaut wird.
+    static func bookIdeas(genre: String, language: String, avoidanceBrief: String = "",
+                          authorSeed: String = "") -> String {
         let memoryBlock = avoidanceBrief.isEmpty ? "" : "\n\(avoidanceBrief)\n"
+        let seed = authorSeed.trimmingCharacters(in: .whitespacesAndNewlines)
+        let seedBlock = seed.isEmpty ? "" : """
+
+        AUTOREN-IDEE (verbindlicher Ausgangspunkt): Der Autor gibt diese Idee vor – baue sie zu einer \
+        vollwertigen Buchidee aus, bleib ihrem Kern treu, entwickle sie weiter statt sie zu ersetzen:
+        „\(seed)"
+        Mindestens eine der Ideen MUSS direkt auf dieser Vorgabe aufbauen.
+
+        """
         return """
         Entwickle 5 eigenständige, kommerziell durchschlagende Buchideen \
         (Genre-Schwerpunkt: \(genre.isEmpty ? "frei wählbar" : genre), Sprache: \(language)). \
         Ziel sind Bücher, über die Leser online reden und die sie weiterempfehlen (BookTok/Amazon-Bestseller-Niveau) – \
         jede Idee braucht einen frischen, überraschenden Dreh und einen klaren zentralen Konflikt. \
         Keine Klischee-Plots, keine Nacherzählung bestehender Werke.
-        \(memoryBlock)
+        \(seedBlock)\(memoryBlock)
         \(genreViralAngle(genre))
 
         GENRE ERNST NEHMEN (verbindlich): Liefere echte Genre-Ware, kein verkapptes Alltagsdrama.
@@ -105,7 +116,7 @@ enum PromptFactory {
             "Vielleicht im nächsten Sommer" · "Tausend Gründe gegen dich" · "Nur dieses eine Mal nicht" · "Bis du mich ansiehst".
             """
         }
-        if g.contains("fantasy") || g.contains("science") || g.contains("sci-fi") || g.contains("dystop") {
+        if g.contains("fantasy") || g.contains("science") || g.contains("sci-fi") || g.contains("dystop") || g.contains("romantasy") || g.contains("steampunk") || g.contains("märchen") {
             return """
             VIRALES THEMA (Fantasy/SciFi): Ein in EINEM Satz fassbares, originelles Welt- oder Magie-Konzept,
             eine regelbrechende Heldin und eine Welt am Abgrund. Die stärkste Verkaufskombination ist Romantasy
@@ -356,6 +367,7 @@ enum PromptFactory {
         let g = genre.lowercased()
         let isRomance = g.contains("liebes") || g.contains("romance")
             || g.contains("erotik") || g.contains("erotic") || g.contains("spicy")
+            || g.contains("new adult")
         guard isRomance else { return "" }
         return """
 
@@ -380,7 +392,10 @@ enum PromptFactory {
         if g.contains("liebes") || g.contains("romance") {
             return "GENRE-HANDWERK: Die LIEBESGESCHICHTE ist die Haupthandlung, nicht Beiwerk. Die zentrale Frage ist eine Beziehungsfrage (Finden die beiden zueinander, bleiben sie es?), kein Kriminalfall, keine Sabotage, kein Beruf. Faustregel: Ließe sich der Liebes-Strang herausschneiden und der Plot bliebe intakt, ist es kein Liebesroman. Jede Szene mit dem Love Interest bewegt das Paar um EINEN benennbaren Schritt (erster Funke, Anziehung gegen Widerstand, erzwungene Nähe, Verletzlich-Werden, Vertrauen, Begehren, Missverständnis, Geständnis, Bruch, Wiederannäherung); der dunkle Moment ist ein Beziehungs-Bruch (Stolz, Angst vor Nähe, Missverständnis), KEINE Bombe und keine Anzeige. Der Love Interest ist rootbar: eine menschliche Wunde, aktive Fürsorge für die Heldin, Respekt vor ihrer Autonomie (er handelt MIT ihr, nie heimlich AN ihr), eine eigene anziehende Eigenschaft, und er wird selbst begehrt. VERBOTEN als Romantik: heimliches Beobachten, Schlaf-Überwachen, Ausspähen, jemanden „studieren wie ein Krankheitsbild“ – das ist ein Stalker-Muster und ein Genre-Fehler, kein Reiz. Chemie ist wechselseitig und körperlich verankert: pro Begegnung mindestens EIN Wärme-/Begehrens-Detail aus Sicht der Heldin (sein Geruch, wie er den Kopf neigt, ihr Blick, der zu lange hält). Slow Burn: Sehnsucht aus noch nicht eingelöster Nähe; Gefahr ersetzt NIE die emotionale Spannung. Fachjargon des Berufs nur Kulisse, max. 1-2 Sachbegriffe pro Szene. Dialoge leben vom Ungesagten; das Thema wird nie ausgesprochen. Pflicht-Ende: emotional erfülltes Happy End (HEA oder HFN)."
         }
-        if g.contains("fantasy") || g.contains("science") {
+        if g.contains("romantasy") {
+            return "GENRE-HANDWERK: Romantasy = große Romanze IN einer fantastischen Welt. Beide Achsen tragen gleichberechtigt: ein in EINEM Satz fassbares Magie-/Welt-Konzept UND eine Beziehung mit echter Chemie, die den emotionalen Sog liefert. Der Love Interest ist rootbar und begehrenswert (KEIN Stalker), Sehnsucht und Begehren treiben mit, die fantastische Bedrohung erhöht den persönlichen Einsatz. Welt durch konkrete Details im Handlungsfluss zeigen, nie durch Infodumps. Pflicht: ein emotional erfülltes Ende für das Paar."
+        }
+        if g.contains("fantasy") || g.contains("science") || g.contains("dystop") || g.contains("steampunk") || g.contains("märchen") {
             return "GENRE-HANDWERK: Die Welt durch konkrete Details im Handlungsfluss zeigen – niemals durch Erklärabsätze oder Infodumps. Regeln der Welt konsequent einhalten."
         }
         if g.contains("horror") {

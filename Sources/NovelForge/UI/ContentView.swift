@@ -594,6 +594,7 @@ struct UnlimitedProductionSheet: View {
     @State private var epubFormat = true
     @State private var pdfFormat = true
     @State private var docxFormat = false
+    @State private var ideaText = "" // eigene Ideen, eine pro Zeile
 
     @State private var selectedProvider = AIProvider.ollamaCloud
     @State private var selectedModel = AIProvider.ollamaCloud.suggestedModels.first ?? ""
@@ -602,6 +603,13 @@ struct UnlimitedProductionSheet: View {
     private var effectiveModel: String {
         let custom = customModel.trimmingCharacters(in: .whitespaces)
         return custom.isEmpty ? selectedModel : custom
+    }
+
+    /// Eigene Ideen aus dem Textfeld (eine pro Zeile, leere/Whitespace ignoriert).
+    private var ideaSeedsFromText: [String] {
+        ideaText.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
     }
 
     private var hasStoredKey: Bool {
@@ -689,6 +697,30 @@ struct UnlimitedProductionSheet: View {
                     }
                     Stepper("Seiten pro Buch: \(pageCount)", value: $pageCount,
                             in: AppConstants.minPageCount...AppConstants.maxPageCount, step: 10)
+                }
+
+                Section("Eigene Ideen (optional)") {
+                    Text("Eine Idee pro Zeile. Die Auto-Produktion baut deine Ideen zu vollwertigen Büchern aus (rotierend, im gewählten Genre). Leer = alles wird selbst erfunden.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ZStack(alignment: .topLeading) {
+                        TextEditor(text: $ideaText)
+                            .frame(minHeight: 90)
+                            .font(.body)
+                        if ideaText.isEmpty {
+                            Text("z. B. Eine Pianistin erbt ein Haus, in dem nachts jemand spielt.")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                                .padding(.top, 8)
+                                .padding(.leading, 5)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    if !ideaSeedsFromText.isEmpty {
+                        Text("\(ideaSeedsFromText.count) eigene Idee\(ideaSeedsFromText.count == 1 ? "" : "n") werden eingewoben.")
+                            .font(.caption2)
+                            .foregroundStyle(StudioTheme.cyan)
+                    }
                 }
 
                 Section("Formate & Ausgabeordner") {
@@ -798,7 +830,8 @@ struct UnlimitedProductionSheet: View {
             parallelBooks: parallelBooks,
             formats: selectedFormats,
             imprint: imprint,
-            authorBio: authorBio
+            authorBio: authorBio,
+            ideaSeeds: ideaSeedsFromText
         )
         defaultAuthor = settings.authorName
         defaultImprint = settings.imprint

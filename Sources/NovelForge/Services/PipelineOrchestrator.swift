@@ -16,11 +16,16 @@ struct UnlimitedSettings {
     var formats: [String]
     var imprint: String
     var authorBio: String
+    /// Optionale eigene Ideen des Autors (eine pro Eintrag), die in die Bücher
+    /// einfließen. Leer = die Auto-Produktion erfindet alles selbst.
+    var ideaSeeds: [String]
 
     static let randomToken = "Zufällig"
-    static let genrePool = ["Thriller", "Roman", "Fantasy", "Science Fiction", "Krimi",
-                            "Liebesroman", "Erotik", "Dark Romance", "Historischer Roman",
-                            "Horror", "Jugendbuch", "Abenteuer"]
+    static let genrePool = ["Thriller", "Psychothriller", "Krimi", "Cozy Mystery", "Mystery",
+                            "Roman", "Familiensaga", "Coming-of-Age", "Liebesroman", "Romantasy",
+                            "Erotik", "Dark Romance", "New Adult", "Fantasy", "Urban Fantasy",
+                            "Science Fiction", "Dystopie", "Steampunk", "Historischer Roman",
+                            "Horror", "Western", "Märchen", "Jugendbuch", "Abenteuer"]
     static let stylePool = ["düster", "literarisch", "dialogstark", "humorvoll", "episch",
                             "emotional", "sinnlich", "schnell erzählt", "minimalistisch",
                             "atmosphärisch", "actionreich", "psychologisch"]
@@ -39,7 +44,7 @@ struct UnlimitedSettings {
     init(authorName: String, language: String, selectedGenres: [String], style: String,
          pageCount: Int, maxBooks: Int,
          parallelBooks: Int = 1, formats: [String],
-         imprint: String, authorBio: String) {
+         imprint: String, authorBio: String, ideaSeeds: [String] = []) {
         self.authorName = authorName
         self.language = language
         self.selectedGenres = selectedGenres
@@ -52,6 +57,16 @@ struct UnlimitedSettings {
         self.formats = formats
         self.imprint = imprint.trimmingCharacters(in: .whitespacesAndNewlines)
         self.authorBio = authorBio.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.ideaSeeds = ideaSeeds
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Liefert die nächste Autoren-Idee (rotierend), die in dieses Buch einfließt –
+    /// oder nil, wenn keine eigenen Ideen hinterlegt sind.
+    func ideaForBook(at index: Int) -> String? {
+        guard !ideaSeeds.isEmpty else { return nil }
+        return ideaSeeds[max(0, index) % ideaSeeds.count]
     }
 
     var targetWordCount: Int {
@@ -629,6 +644,7 @@ final class PipelineOrchestrator: ObservableObject {
                                         config: ProviderConfiguration,
                                         bookIndex: Int? = nil) async throws -> Project {
         let genre = settings.genreForBook(at: bookIndex ?? unlimitedBooksCompleted)
+        let seedIdea = settings.ideaForBook(at: bookIndex ?? unlimitedBooksCompleted)
         let style = settings.style == UnlimitedSettings.randomToken
             ? (UnlimitedSettings.stylePool.randomElement() ?? "atmosphärisch")
             : settings.style
@@ -647,7 +663,8 @@ final class PipelineOrchestrator: ObservableObject {
             let retryHint = attempt == 1 ? "" : "\n\nDer vorige Versuch war leer, generisch oder dupliziert. Erzeuge jetzt 5 konkrete, neue Buchideen im geforderten Format."
             let response = try await generate(
                 prompt: PromptFactory.bookIdeas(genre: genre, language: settings.language,
-                                                avoidanceBrief: avoidanceBrief) + retryHint,
+                                                avoidanceBrief: avoidanceBrief,
+                                                authorSeed: seedIdea ?? "") + retryHint,
                 system: "Du bist ein Bestseller-Lektor und Titel-Experte mit sicherem Gespür für virale, originelle Buchideen und unverwechselbare Titel, die beim Scrollen sofort hängenbleiben. Du denkst in High-Concept-Hooks und genre-typischen Tropes, vermeidest Berufs-/Klischee-Titel und Wiederholungen gegenüber dem Story-Gedächtnis strikt.",
                 maxTokens: 1000, temperature: 0.95, config: config
             )
@@ -662,7 +679,14 @@ final class PipelineOrchestrator: ObservableObject {
         // verwertbare Idee liefert, NICHT abbrechen, sondern eine tragfähige
         // Ersatz-Idee verwenden. So läuft der Auto-Modus ununterbrochen weiter.
         if !AutonomousContentQuality.hasUsableIdea(idea) {
-            idea = fallbackIdea(genre: genre, index: bookIndex ?? unlimitedBooksCompleted)
+            // Eigene Autoren-Idee direkt als Prämisse nutzen, wenn das Modell nichts
+            // Brauchbares lieferte – damit die Vorgabe NIE verloren geht.
+            if let seed = seedIdea, !seed.isEmpty {
+                idea = ParsedIdea(title: "\(genre)-Roman", genre: genre, premise: seed)
+            }
+            if !AutonomousContentQuality.hasUsableIdea(idea) {
+                idea = fallbackIdea(genre: genre, index: bookIndex ?? unlimitedBooksCompleted)
+            }
         }
 
         let baseTitle = idea?.title ?? "\(genre)-Roman"

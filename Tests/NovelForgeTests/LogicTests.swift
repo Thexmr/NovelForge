@@ -499,6 +499,22 @@ final class LogicTests: XCTestCase {
         XCTAssertTrue(p.contains("im Zweifel das Mutigere"))
     }
 
+    func testBookIdeasWeavesAuthorSeedWhenProvided() {
+        let withSeed = PromptFactory.bookIdeas(genre: "Liebesroman", language: "Deutsch",
+            authorSeed: "Eine Pianistin erbt ein Haus, in dem nachts jemand spielt.")
+        XCTAssertTrue(withSeed.contains("AUTOREN-IDEE"))
+        XCTAssertTrue(withSeed.contains("Eine Pianistin erbt ein Haus"))
+        // Ohne Seed kein Seed-Block.
+        let noSeed = PromptFactory.bookIdeas(genre: "Liebesroman", language: "Deutsch")
+        XCTAssertFalse(noSeed.contains("AUTOREN-IDEE"))
+    }
+
+    func testGenreCraftHandlesRomantasy() {
+        let r = PromptFactory.genreCraft("Romantasy")
+        XCTAssertTrue(r.contains("Romantasy"))
+        XCTAssertTrue(r.lowercased().contains("fantastische"))
+    }
+
     func testGripRulesEnforceMomentumStakesAndAntiMoodpiece() {
         let r = PromptFactory.gripRules
         XCTAssertTrue(r.contains("SZENEN-GATE"))
