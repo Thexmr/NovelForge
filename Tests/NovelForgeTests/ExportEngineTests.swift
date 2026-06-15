@@ -62,6 +62,39 @@ final class ExportEngineTests: XCTestCase {
         XCTAssertEqual(String(data: nameData, encoding: .utf8), "mimetype")
     }
 
+    /// Verifiziert die drei besprochenen EPUB-Korrekturen am ECHTEN Export:
+    /// Impressum am Ende (nicht vorn), kein sichtbarer Sternchen-Trenner, und
+    /// generische Kapiteltitel erscheinen als Kapitel N (displayTitle).
+    func testEPUBImprintAtEndNoVisibleAsterismAndDisplayTitle() throws {
+        let (container, project) = try makeProjectWithChapter()
+        defer { _ = container; cleanup(project) }
+        project.chapters?.first?.title = "Aufbruch 1" // generischer Platzhalter
+
+        let epub = try ExportEngine.exportToEPUB(project: project)
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let unzip = Process()
+        unzip.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        unzip.arguments = ["-o", "-q", epub.path, "-d", dir.path]
+        try unzip.run()
+        unzip.waitUntilExit()
+
+        let opf = try String(contentsOf: dir.appendingPathComponent("OEBPS/content.opf"), encoding: .utf8)
+        guard let chapPos = opf.range(of: "idref=\"chapter1\""),
+              let copyPos = opf.range(of: "idref=\"copyright\"") else {
+            return XCTFail("Spine-Einträge nicht gefunden")
+        }
+        XCTAssertGreaterThan(copyPos.lowerBound, chapPos.lowerBound,
+                             "Impressum muss im Spine NACH den Kapiteln stehen")
+
+        let chapter = try String(contentsOf: dir.appendingPathComponent("OEBPS/chapter1.xhtml"), encoding: .utf8)
+        XCTAssertFalse(chapter.contains("* * *"), "sichtbarer Sternchen-Trenner muss weg sein")
+        XCTAssertFalse(chapter.contains(">***<"))
+        XCTAssertTrue(chapter.contains("Kapitel 1"), "generischer Titel wird zu Kapitel 1 (displayTitle)")
+        XCTAssertFalse(chapter.contains("Aufbruch 1"))
+    }
+
     func testKDPReportContainsCoreFacts() throws {
         let (container, project) = try makeProjectWithChapter()
         defer { _ = container }
