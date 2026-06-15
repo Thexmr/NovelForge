@@ -254,6 +254,34 @@ enum AutonomousContentQuality {
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Entfernt durchgesickerte Markdown-Auszeichnung aus der Prosa: **fett**,
+    /// *kursiv*, _kursiv_ sowie übrig gebliebene Einzel-Sternchen und Emojis.
+    /// Reine Szenentrenner-Zeilen („***" / „* * *") bleiben erhalten, weil der
+    /// Export sie als Szenenwechsel erkennt. So verschwinden die „komischen
+    /// Sterne" mitten im Satz aus Anzeige UND Export – auch bei alten Büchern.
+    static func strippingInlineFormatting(_ text: String) -> String {
+        let cleanedLines = text.components(separatedBy: "\n").map { line -> String in
+            let compact = line.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: " ", with: "")
+            if compact == "***" { return line } // Szenentrenner unangetastet lassen
+            var l = line
+            l = l.replacingOccurrences(of: #"\*\*([^*\n]+?)\*\*"#, with: "$1", options: .regularExpression)
+            l = l.replacingOccurrences(of: #"\*([^*\n]+?)\*"#, with: "$1", options: .regularExpression)
+            l = l.replacingOccurrences(of: #"(?<![\p{L}\p{N}])_([^_\n]+?)_(?![\p{L}\p{N}])"#,
+                                       with: "$1", options: .regularExpression)
+            // Übrig gebliebene Einzel-Sterne in einer Prosazeile entfernen (nie legitim).
+            l = l.replacingOccurrences(of: "*", with: "")
+            // Emojis/Bildzeichen haben in einem Roman nichts verloren (explizite,
+            // ICU-sichere Bereiche statt unsicherer \p{Emoji}-Properties).
+            l = l.replacingOccurrences(
+                of: #"[\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}\x{2300}-\x{23FF}\x{FE0F}\x{200D}]"#,
+                with: "", options: .regularExpression)
+            return l
+        }
+        // Doppelte Leerzeichen, die durch das Entfernen entstehen können, glätten.
+        return cleanedLines.joined(separator: "\n")
+            .replacingOccurrences(of: " {2,}", with: " ", options: .regularExpression)
+    }
+
     /// Macht die Prosa „menschlicher": entfernt Gedankenstriche (—, – als
     /// Stilmittel), die ein typisches KI-Erkennungsmerkmal sind, und ersetzt sie
     /// durch natürliche Interpunktion. Zahlenbereiche (z.B. „12–13") bleiben

@@ -458,6 +458,9 @@ enum PromptFactory {
         Gib AUSSCHLIESSLICH den fertigen Prosatext der Szene aus. Übernimm NIEMALS
         Anweisungen, Labels (z.B. „Ort:", „Ziel:", „Zielumfang"), Überschriften oder
         Hinweise aus diesem Auftrag in den Text – schreibe ausschließlich die Geschichte selbst.
+        REINER FLIESSTEXT: keine Markdown-Formatierung (kein *, **, _, #, keine Aufzählungen),
+        keine Sternchen, keine Emojis, keine Szenen-Überschriften. Betonung entsteht durch
+        Wortwahl, nicht durch Sonderzeichen. Nur normale Wörter und Satzzeichen.
         """
     }
 

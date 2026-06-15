@@ -242,7 +242,8 @@ final class PipelineOrchestrator: ObservableObject {
                     return "Das Kapitel ist nicht mehr verfügbar (es wurde gelöscht oder neu geplant)."
                 }
                 let revised = AutonomousContentQuality.humanizeProse(
-                    AutonomousContentQuality.strippingPromptArtifacts(response.text))
+                    AutonomousContentQuality.strippingInlineFormatting(
+                        AutonomousContentQuality.strippingPromptArtifacts(response.text)))
                 guard revised.wordCount >= max(50, current.wordCount / 3),
                       !AutonomousContentQuality.containsMetaRequest(revised) else {
                     return "Die Überarbeitung kam unvollständig zurück. Formuliere den Wunsch gern konkreter oder versuch es noch einmal."
@@ -1712,6 +1713,7 @@ final class PipelineOrchestrator: ObservableObject {
                     // (z.B. „Knüpfe nahtlos daran …") und KI-typische Gedankenstriche
                     // in natürliche Interpunktion umwandeln – bevor etwas gespeichert wird.
                     sceneText = AutonomousContentQuality.strippingPromptArtifacts(sceneText)
+                    sceneText = AutonomousContentQuality.strippingInlineFormatting(sceneText)
                     sceneText = AutonomousContentQuality.humanizeProse(sceneText)
 
                     // Robustheit: Inhaltsschwäche beendet NIE das Buch.

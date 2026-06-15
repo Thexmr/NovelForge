@@ -349,6 +349,30 @@ final class LogicTests: XCTestCase {
         XCTAssertTrue(erotik.lowercased().contains("einvernehmlich"))
     }
 
+    /// „Komische Sterne" / Markdown im geschriebenen Text müssen verschwinden,
+    /// aber der Szenentrenner „***" (vom Export gebraucht) muss erhalten bleiben.
+    func testStripsMarkdownButKeepsSceneSeparator() {
+        let input = """
+        Sie sah ihn **lange** an und sagte *nichts*.
+
+        ***
+
+        Am Morgen war alles _anders_. Ein Wort. ❤
+        """
+        let out = AutonomousContentQuality.strippingInlineFormatting(input)
+        XCTAssertFalse(out.contains("*lange*"))
+        XCTAssertFalse(out.contains("**"))
+        XCTAssertFalse(out.contains("_anders_"))
+        XCTAssertFalse(out.contains("❤"))
+        XCTAssertTrue(out.contains("lange"))
+        XCTAssertTrue(out.contains("nichts"))
+        XCTAssertTrue(out.contains("anders"))
+        // Szenentrenner bleibt als eigene Zeile erhalten.
+        XCTAssertTrue(out.components(separatedBy: "\n").contains(where: {
+            $0.trimmingCharacters(in: .whitespaces) == "***"
+        }))
+    }
+
     func testDenylistCatchesVagueInteriorityTell() {
         let text = String(repeating: "Sie stand am Fenster und sah hinaus. ", count: 30)
             + "Da war etwas, das sie nicht benennen konnte."

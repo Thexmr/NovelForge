@@ -63,7 +63,8 @@ final class Chapter {
         let raw = rawBestText
         guard let raw, !raw.isEmpty else { return nil }
         let cleaned = AutonomousContentQuality.humanizeProse(
-            AutonomousContentQuality.strippingPromptArtifacts(raw))
+            AutonomousContentQuality.strippingInlineFormatting(
+                AutonomousContentQuality.strippingPromptArtifacts(raw)))
         return cleaned.isEmpty ? nil : cleaned
     }
 
