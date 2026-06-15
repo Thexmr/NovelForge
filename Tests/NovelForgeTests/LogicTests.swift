@@ -405,6 +405,24 @@ final class LogicTests: XCTestCase {
             plot: "Akt 1 bis 3.", chapterCount: 30, wordsPerChapter: 2500)
         XCTAssertTrue(p.contains("KAPITELTITEL kreativ"))
         XCTAssertTrue(p.contains("STRENG VERBOTEN"))
+        XCTAssertTrue(p.contains("doppelbödig"))
+    }
+
+    // MARK: - Bestseller-Sog (Page-Turner) + kühnere Titel
+
+    func testPageTurnerRulesCoverTheKeyTechniques() {
+        let rules = PromptFactory.pageTurnerRules
+        XCTAssertTrue(rules.contains("OFFENE SCHLEIFE"))
+        XCTAssertTrue(rules.contains("MIKROSPANNUNG"))
+        XCTAssertTrue(rules.contains("WITHHOLDING"))
+        XCTAssertTrue(rules.contains("VERZÖGERUNG"))
+    }
+
+    func testBookTitleRulesDemandBoldnessAndBanWeakPatterns() {
+        let p = PromptFactory.bookIdeas(genre: "Liebesroman", language: "Deutsch")
+        XCTAssertTrue(p.contains("HARTE VERBOTE"))
+        XCTAssertTrue(p.contains("BAUARTEN"))
+        XCTAssertTrue(p.contains("im Zweifel das Mutigere"))
     }
 
     // MARK: - Anti-KI-Stil (Detektor-Resistenz)

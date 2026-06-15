@@ -50,14 +50,20 @@ enum PromptFactory {
         – eine konkrete Kernwunde der Hauptfigur und einen Einsatz, bei dem viel zu verlieren ist,
         – eine Eskalation mit Wendung, die man nicht kommen sieht.
 
-        TITEL-PFLICHT – kreativ, kurz, unverwechselbar:
-        – Maximal 2–6 Wörter, eingängig und merkfähig; er soll beim Scrollen STOPPEN lassen.
-        – Erzeuge sofort eine Frage, ein Bild, einen Widerspruch oder ein starkes Versprechen
-          (dramatische Zuspitzung, Gefahr, Begehren, Schuld, ein aufgeladenes Objekt oder ein markanter Ort).
-        – VERBOTEN: austauschbare Berufs-Titel wie "Die Imkerin von X", "Der Kassierer aus Y",
-          "Das Schweigen der Imkerin", "Das Geheimnis der Bäckerin"; ebenso blasse Abstrakta
-          ("Liebe und Hoffnung") und Titel, die nur einen Beruf + Ort nennen.
-        – Jeder der 5 Titel muss anders klingen – kein gemeinsames Schema, keine Nummerierung.
+        TITEL-PFLICHT – kühn, bildstark, unverwechselbar (NICHT der sichere, sondern der mutigste Titel):
+        – Der Titel verspricht das GEFÜHL des Buches, nicht den Schauplatz. 2–6 Wörter bevorzugt
+          (aktive Verb-Sätze dürfen länger, wenn sie ziehen), kein erklärender Nebensatz, kein Gedankenstrich.
+        – HARTE VERBOTE: Berufs-Ort-Klischee ("Die Kassiererin von X"), Berufs-Genitiv
+          ("Das Schweigen der Imkerin", "Die Tochter des …"), blasse Einzelwörter
+          ("Feuerprobe", "Schicksal", "Neuanfang"), generisch-romantische Allerwelts-Sätze, Abstrakta-Ketten ohne Bild.
+        – BAUARTEN (je Idee eine andere wählen): A) konkretes Bild plus Bruch/Paradox ("Honig auf der Klinge");
+          B) aktiver Verb-Satz mitten im Konflikt ("Zähl die Narben, nicht die Jahre");
+          C) Du/Ich-Anrede mit echtem Einsatz ("Was du im Dunkeln versprochen hast");
+          D) unmögliche/synästhetische Verbindung ("Salz im Stromnetz", "Die Farbe deiner Stimme");
+          E) paradoxe Zeit/Zahl ("Drei Winter, die es nie gab"); F) Symbol-Objekt mit Geheimnis
+          ("Das Summen, das er mir verschwieg"); G) direkte Frage/Drohung ("Wer hat das Licht gelöscht?").
+        – HÄRTETEST: Könnte der Titel auf zehn anderen Büchern dieses Genres stehen? Dann verwirf ihn.
+          Wähle den bildstärksten, am wenigsten erwartbaren – im Zweifel das Mutigere. Jeder der 5 Titel klingt anders.
 
         Gib für JEDE Idee GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
         IDEE|Titel|Genre|Prämisse in 2 Sätzen – Satz 1 ist der High-Concept-Hook, Satz 2 nennt Konflikt und Einsatz
@@ -243,7 +249,7 @@ enum PromptFactory {
         - JEDES Kapitel endet mit einem Haken: offene Frage, Bedrohung, Enthüllung oder folgenschwere Entscheidung.
         - Variiere das Tempo: Auf intensive Kapitel folgt ein ruhigeres mit Charaktertiefe – nie zwei gleiche hintereinander.
         - Jedes Kapitel hat genau ein klares Ziel und treibt den Hauptplot messbar voran. Keine Füllkapitel.
-        - KAPITELTITEL kreativ und eigenständig: jeder Titel ist ein konkretes Bild, eine Frage, ein aufgeladenes Objekt oder ein kurzer, neugierig machender Satz, der zur Szene passt. STRENG VERBOTEN: „Kapitel N", „Teil N", „Aufbruch/Eskalation/Krise/Auflösung" oder andere Phasen-/Platzhalternamen, Durchnummerierung und generische Abstrakta. Kurz (1-5 Wörter), unverwechselbar, jedes anders.
+        - KAPITELTITEL kreativ, eigenständig, doppelbödig: jeder Titel ist ein BILD, ein VERSPRECHEN oder eine FRAGE, macht schon im Inhaltsverzeichnis neugierig und verrät NICHT, was passiert (kein Spoiler), klingt im Rückblick aber anders. STRENG VERBOTEN: „Kapitel N", „Teil N", Phasennamen (Aufbruch/Eskalation/Krise/Auflösung), Durchnummerierung und jedes über mehrere Kapitel wiederholte Titelwort. Mische die Bauarten über das Buch (konkretes geladenes Objekt, abgebrochener Halbsatz, Dialog-Echo mit Subtext, sinnliche Wahrnehmung, Paradox, offene Frage, Zeit/Countdown, Drohung/Versprechen); mindestens jeder dritte Titel zielt auf die Beziehungsebene. Kurz (2-6 Wörter), jeder Titel unverwechselbar anders.
 
         Gib für JEDES Kapitel GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
         KAPITEL|Nummer|Titel|Ziel des Kapitels|Zentraler Konflikt
@@ -304,6 +310,23 @@ enum PromptFactory {
         - VERGLEICHS-KRÜCKE BEGRENZEN: „als hätte …", „als ob …", „als wäre …", „als würde …" sowie der Reflex-Vergleich „wie ein …" höchstens EINMAL pro Szene. Sonst das Konkrete unvermittelt hinstellen (statt „Ihre Hände zitterten, als hätte jemand die Kälte aufgedreht" lieber „Ihre Hände zitterten. Sie schob sie unter die Oberschenkel."). Keine vagen Innenschau-Formeln wie „etwas, das sie nicht benennen konnte/wollte", „etwas, das sie nicht in Worte fassen konnte" – benenne das Konkrete oder lass es weg.
         - MOTIV NICHT HÄMMERN: Ein abstraktes Themen-Substantiv (z.B. Kontrolle, Nähe, Schweigen, Protokoll) NICHT als Leitmotiv wiederholen, und das Thema NIE als abstrakten Begriff aussprechen. Zeig es an konkreten Dingen, benenne es nie.
         - SELBSTCHECK vor der Ausgabe (still, nicht in den Text schreiben): Endet ein Absatz auf einer Deutung? Drei gleich lange Sätze in Folge? Ein Gefühl benannt statt gezeigt? Eine Trikola oder ein „nicht X, sondern Y"? Mehr als ein „als hätte/wäre/würde"? – umbauen. Gib nur die korrigierte Prosa aus.
+        """
+    }
+
+    /// Bestseller-Page-Turner-Technik (Donald-Maass-Stil): erzeugt den Zwang
+    /// weiterzulesen. Synthese aus einem Lektoren-Panel; wird beim Szenenschreiben
+    /// zusätzlich zu `humanCraftRules` eingespeist.
+    static var pageTurnerRules: String {
+        """
+        SOG / PAGE-TURNER (der Leser MUSS weiterlesen):
+        - OFFENE SCHLEIFE: In jeder Szene bleibt mindestens eine BENANNTE Frage offen; schließt du eine, öffne im selben Moment eine neue, sodass nie alle Fäden zu sind. Im Liebesroman/Erotik ist die stärkste offene Frage eine BEZIEHUNGSFRAGE (Sehnsucht, Misstrauen, Schuld), nie nur eine Plot-/Technik-Frage.
+        - ZWEI SPANNUNGSSTRÖME: Halte gleichzeitig eine äußere Frage (Gefahr/Plot) UND eine innere/zwischenmenschliche (Begehren/Misstrauen/Schuld) offen; wechsle innerhalb der Szene mindestens einmal die Tonart.
+        - MIKROSPANNUNG ZEILE FÜR ZEILE: In JEDEM Absatz eine kleine offene Frage, ein Widerspruch oder ein unausgesprochenes Gefühl. Keine reinen Beschreibungs- oder Infoabsätze ohne innere Reibung.
+        - WITHHOLDING KONKRET: Halte gezielt EINE BENANNTE Information zurück, kein diffuses „etwas, das nicht stimmte". Eine Andeutung bleibt höchstens zweimal vage, dann wird sie schärfer oder benannt.
+        - VERZÖGERUNG: Springe nie sofort zur Lösung. Beinahe-Momente (fast berührt, fast gesagt, dann unterbrochen); romantische UND Plot-Auflösung bewusst hinauszögern.
+        - SZENE BEGINNT MITTEN DRIN, ENDET AUF EINER WENDE: Öffne in medias res (Streit, Begehren, Drohung, Beinahe-Berührung), nicht mit Ankommen oder Einrichten. Schneide das Szenen-/Kapitelende auf einem Wende-, Schock- oder Enthüllungsmoment, nie auf einer Handlungsanweisung oder ruhigen Beschreibung; mindestens jedes zweite Kapitelende ist eine Beziehungs-Wende.
+        - DIALOG DOPPELBÖDIG: Figuren reden über A und meinen B. Kein reiner Informations-Dialog ohne mitschwingende Beziehungsebene.
+        - STAKES KONKRET: Übersetze jede abstrakte Gefahr in persönlichen Verlust (ein Mensch, ein Zuhause, die Zukunft mit dem Love Interest) und benenne ihn früh.
         """
     }
 
@@ -427,6 +450,7 @@ enum PromptFactory {
         - KEINE WIEDERHOLUNGEN: Greife keine Bilder, Metaphern, Formulierungen oder Motive aus der bisherigen Handlung wieder auf; erkläre etablierte Fakten nie ein zweites Mal. Ein starkes Symbol nur SELTEN erwähnen, nicht in jeder Szene.
         - SOG (dezent): Halte mindestens eine offene Frage aktiv und nutze Mikro-Spannung, aber nie auf Kosten der Verständlichkeit. Pro Szene höchstens EINE neue Figur oder Enthüllung, nicht mehrere gleichzeitig.
         - Der letzte Satz gibt einen Grund zum Weiterlesen, ohne aufgesetzt oder programmatisch zu wirken.
+        \(pageTurnerRules)
         \(genreCraft(genre))
         \(positionNote)
         Gib AUSSCHLIESSLICH den fertigen Prosatext der Szene aus. Übernimm NIEMALS

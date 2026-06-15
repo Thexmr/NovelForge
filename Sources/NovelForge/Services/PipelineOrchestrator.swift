@@ -1486,9 +1486,10 @@ final class PipelineOrchestrator: ObservableObject {
     /// Wiederholungen zu vermeiden.
     private func fallbackIdea(genre: String, index: Int) -> ParsedIdea {
         let titles = [
-            "Das letzte Versprechen", "Wenn der Regen schweigt", "Die Farbe der Erinnerung",
-            "Hinter dem siebten Fenster", "Was vom Sommer blieb", "Der Brief ohne Absender",
-            "Niemandsland", "Die Stunde der Asche", "Solange das Licht bleibt", "Zwei Leben weit"
+            "Honig auf der Klinge", "Drei Winter, die es nie gab", "Was du im Dunkeln versprochen hast",
+            "Sie log beim Frühstück", "Das letzte Streichholz", "Ich habe dich erfunden",
+            "Zähl die Narben, nicht die Jahre", "Der Geruch von Übermorgen", "Wer hat das Licht gelöscht?",
+            "Das Summen, das er mir verschwieg"
         ]
         let premises = [
             "Eine Frau kehrt nach Jahren in ihre Heimatstadt zurück und stößt auf ein Geheimnis, das ihre Familie lange verschwiegen hat, und muss entscheiden, ob die Wahrheit alles zerstört, was sie noch hat.",
