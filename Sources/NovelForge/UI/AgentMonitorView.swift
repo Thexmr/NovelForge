@@ -228,6 +228,7 @@ struct ExportDetailView: View {
                 }
 
                 CoverStudioPanel(project: project)
+                KDPSalesSheetView(project: project)
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Buchformate")

@@ -3,6 +3,8 @@ import SwiftData
 
 @MainActor
 struct NewBookWizardView: View {
+    static let availableGenres = UnlimitedSettings.genrePool
+
     @Environment(\.dismiss) var dismiss
     @Environment(\.modelContext) var modelContext
 
@@ -56,8 +58,7 @@ struct NewBookWizardView: View {
     @State private var seedPremise = ""
 
     let languages = ["Deutsch", "Englisch", "Französisch", "Spanisch"]
-    let genres = ["Thriller", "Roman", "Fantasy", "Science Fiction", "Krimi",
-                  "Liebesroman", "Historischer Roman", "Horror", "Jugendbuch", "Abenteuer"]
+    let genres = Self.availableGenres
     let styles = ["düster", "literarisch", "dialogstark", "humorvoll", "episch",
                   "emotional", "schnell erzählt", "minimalistisch", "atmosphärisch",
                   "actionreich", "psychologisch"]

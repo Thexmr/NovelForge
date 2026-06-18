@@ -13,6 +13,7 @@ enum AgentName {
     static let reviser = "Chapter Reviser"
     static let consistency = "Consistency Checker"
     static let proofreader = "Proofreader"
+    static let repairEditor = "Repair Editor"
     static let copyright = "Copyright Checker"
     static let kdpFormatter = "KDP Formatter"
     static let exporter = "Export Agent"
@@ -64,6 +65,9 @@ enum PromptFactory {
         TITEL-PFLICHT – kühn, bildstark, unverwechselbar (NICHT der sichere, sondern der mutigste Titel):
         – Der Titel verspricht das GEFÜHL des Buches, nicht den Schauplatz. 2–6 Wörter bevorzugt
           (aktive Verb-Sätze dürfen länger, wenn sie ziehen), kein erklärender Nebensatz, kein Gedankenstrich.
+        – AMAZON-KDP-MARKTFIT: Der Titel muss im Amazon-KDP-Suchergebnis und als kleines Thumbnail sofort
+          verständlich, klickbar und genre-richtig wirken. Er braucht ein klares emotionales Klickversprechen,
+          BookTok-Gesprächswert und muss zur Zielgruppe passen – viral, aber nicht billig oder irreführend.
         – HARTE VERBOTE: Berufs-Ort-Klischee ("Die Kassiererin von X"), Berufs-Genitiv
           ("Das Schweigen der Imkerin", "Die Tochter des …"), blasse Einzelwörter
           ("Feuerprobe", "Schicksal", "Neuanfang"), generisch-romantische Allerwelts-Sätze, Abstrakta-Ketten ohne Bild.
@@ -665,6 +669,65 @@ enum PromptFactory {
         \(currentText)
         """
     }
+
+    /// Manuskript-Audit nach dem Proofreading: findet nur echte Reparaturfälle.
+    static func repairAudit(bookTitle: String, summaries: String, characters: String, qualityReports: String) -> String {
+        """
+        Prüfe den Roman „\(bookTitle)" nach dem Proofreading auf echte reparaturpflichtige Stellen.
+        Suche Widersprüche in Zeitlinie, Figurenwissen, Motivation, Schauplätzen, Kontinuität,
+        Stilbrüche, Wiederholungen, Logiklöcher und unklare Kausalität.
+
+        WICHTIG:
+        - Melde nur Probleme, die im Text wirklich repariert werden müssen.
+        - Keine Geschmackskommentare und keine allgemeinen Schreibratschläge.
+        - Benenne die konkrete Fehlerquelle: Zeitlinie, Figurenwissen, Motivation, Logik,
+          Wiederholung, Stilbruch, Perspektive oder Anschlussfehler.
+        - Formuliere die Reparaturanweisung so, dass sie automatisch behoben werden kann.
+        - Wenn alles stimmig ist, antworte exakt: KEINE REPARATUR NÖTIG
+        - Wenn ein Problem klar einem Kapitel zuordenbar ist, nenne dieses Kapitel.
+        - Wenn ein Problem mehrere Kapitel betrifft, nutze "Gesamtmanuskript".
+
+        KAPITELZUSAMMENFASSUNGEN:
+        \(summaries)
+
+        FIGUREN:
+        \(characters.isEmpty ? "Keine Figurenliste vorhanden." : characters)
+
+        BISHERIGE QUALITÄTSBERICHTE:
+        \(qualityReports.isEmpty ? "Keine Befunde." : qualityReports)
+
+        Antworte ausschließlich in diesem Format, eine Zeile pro Befund:
+        REPAIR|Schweregrad|Kapitel|Fehlerquelle/Bereich|Problem|Konkrete Reparaturanweisung
+
+        Schweregrad ist Kritisch, Fehler, Warnung oder Info.
+        Kapitel ist z.B. "Kapitel 7" oder "Gesamtmanuskript".
+        """
+    }
+
+    /// Gezielte Reparatur eines Kapitels nach einem Audit-Befund.
+    static func repairChapter(language: String, bookTitle: String, chapterNumber: Int,
+                              chapterTitle: String, issue: RepairIssue, chapterText: String) -> String {
+        """
+        Repariere Kapitel \(chapterNumber) „\(chapterTitle)" aus dem Roman „\(bookTitle)".
+        Sprache: \(language)
+
+        BEFUND:
+        Fehlerquelle: \(issue.area)
+        Problem: \(issue.problem)
+        Reparaturanweisung: \(issue.instruction)
+
+        Arbeite chirurgisch: Behebe zuerst die Fehlerquelle, dann repariere NUR die betroffene Stelle und die direkt notwendigen
+        Anschlussformulierungen. Schreibe nicht das ganze Kapitel neu, ändere keine funktionierenden
+        Szenen, erfinde keine neuen Nebenplots und verschiebe keine Kapitelstruktur. Erhalte Stimme,
+        Tempo, Figuren und vorhandene Dramaturgie. Liefere Proofreader-Qualität: glatt, konsistent,
+        veröffentlichungsreif, ohne Kommentare und ohne Meta-Hinweise.
+
+        Gib trotzdem den vollständigen reparierten Kapiteltext aus, damit die App ihn speichern kann.
+
+        KAPITELTEXT:
+        \(chapterText)
+        """
+    }
 }
 
 // MARK: - Parser für strukturierte Agenten-Antworten
@@ -764,6 +827,62 @@ enum KDPMetadataParser {
         result.keywords = sections["KEYWORDS"] ?? ""
         result.categories = sections["KATEGORIEN"] ?? ""
         return result
+    }
+}
+
+struct RepairIssue {
+    let severity: Severity
+    let chapterNumber: Int?
+    let area: String
+    let problem: String
+    let instruction: String
+}
+
+enum RepairIssueParser {
+    static func parse(_ text: String) -> [RepairIssue] {
+        var result: [RepairIssue] = []
+        for line in text.components(separatedBy: .newlines) {
+            guard let pipe = line.firstIndex(of: "|") else { continue }
+            let head = String(line[..<pipe])
+                .replacingOccurrences(of: "*", with: "")
+                .replacingOccurrences(of: "#", with: "")
+                .trimmingCharacters(in: CharacterSet(charactersIn: " \t-•·.)("))
+                .uppercased()
+            guard head.hasPrefix("REPAIR") else { continue }
+
+            let payload = String(line[line.index(after: pipe)...])
+            let parts = payload.components(separatedBy: "|").map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .replacingOccurrences(of: "**", with: "")
+            }
+            guard parts.count >= 5 else { continue }
+            let problem = parts[3]
+            let instruction = parts.dropFirst(4).joined(separator: " | ")
+            guard !problem.isEmpty, !instruction.isEmpty else { continue }
+
+            result.append(RepairIssue(
+                severity: severity(from: parts[0]),
+                chapterNumber: chapterNumber(from: parts[1]),
+                area: parts[2].isEmpty ? "Allgemein" : parts[2],
+                problem: problem,
+                instruction: instruction
+            ))
+        }
+        return result
+    }
+
+    private static func severity(from text: String) -> Severity {
+        let lowered = text.lowercased()
+        if lowered.contains("krit") { return .critical }
+        if lowered.contains("fehler") || lowered.contains("hoch") { return .error }
+        if lowered.contains("warn") || lowered.contains("mittel") { return .warning }
+        return .info
+    }
+
+    private static func chapterNumber(from text: String) -> Int? {
+        if text.lowercased().contains("gesamt") { return nil }
+        let digits = text.filter(\.isNumber)
+        return Int(digits)
     }
 }
 

@@ -151,6 +151,39 @@ final class ExportEngineTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Keine Hinweise auf KI"))
     }
 
+    func testKDPSalesSheetContainsTitleHookDescriptionKeywordsAndCategories() throws {
+        let (container, project) = try makeProjectWithChapter()
+        defer { _ = container }
+
+        let profile = BookProfile(
+            premise: "Eine Ermittlerin findet eine Spur, die ihre eigene Vergangenheit belastet.",
+            theme: "Schuld",
+            targetAudience: "Thriller-Leser",
+            tonality: "düster",
+            narrativePerspective: "Personaler Erzähler",
+            tense: "Präteritum"
+        )
+        profile.logline = "Eine Ermittlerin muss einen Hafenfall lösen, bevor ihre Vergangenheit sie zerstört."
+        profile.kdpDescription = "Ein düsterer Thriller über Schuld, Verrat und eine Nacht, die alles verändert."
+        profile.kdpKeywords = "hafen thriller, psychologischer thriller, dunkles geheimnis"
+        profile.kdpCategories = "Belletristik > Krimis & Thriller\nBelletristik > Psychologische Spannung"
+        project.bookProfile = profile
+        profile.project = project
+        container.mainContext.insert(profile)
+
+        let sheet = KDPSalesSheet.make(for: project)
+        let export = sheet.exportText
+
+        XCTAssertEqual(sheet.title, project.title)
+        XCTAssertTrue(sheet.hook.contains("Ermittlerin muss"))
+        XCTAssertTrue(export.contains("VERKAUFSTITEL"))
+        XCTAssertTrue(export.contains("UNTERTITEL / HOOK"))
+        XCTAssertTrue(export.contains("VERKAUFSTEXT"))
+        XCTAssertTrue(export.contains("KEYWORDS"))
+        XCTAssertTrue(export.contains("KATEGORIEN"))
+        XCTAssertTrue(export.contains("Psychologische Spannung"))
+    }
+
     /// rawBestText-Priorität: final > überarbeitet > Rohfassung > Szenen.
     func testRawBestTextPriority() throws {
         let (container, project) = try makeProjectWithChapter()

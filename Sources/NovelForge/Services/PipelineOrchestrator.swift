@@ -290,6 +290,51 @@ final class PipelineOrchestrator: ObservableObject {
         }
     }
 
+    /// Prüft ein fertiges Buch auf echte Inkonsistenzen und repariert nur die
+    /// betroffenen Kapitel. Breite Gesamtbefunde werden als Report gespeichert,
+    /// aber nicht blind über das ganze Manuskript rewritten.
+    func repairBookAfterProofreading(project: Project) async -> String {
+        guard !isRunning else {
+            return "Gerade läuft bereits eine Produktion oder Reparatur. Bitte warte, bis sie fertig ist."
+        }
+        guard project.modelContext != nil else {
+            return "Dieses Projekt ist nicht mehr verfügbar."
+        }
+
+        let previousStatus = project.status
+        let config = ProviderSettingsStore.configuration(for: project)
+        isRunning = true
+        stopMode = .none
+        currentProject = project
+        currentPhase = .manuscriptRevision
+        currentAgent = AgentName.repairEditor
+        lastError = nil
+        progress = max(project.status.progressFraction, PipelinePhase.manuscriptRevision.weight)
+        markProjectActive(project)
+        startHeartbeat()
+
+        do {
+            let result = try await runRepairWorkflow(project: project, config: config)
+            project.status = previousStatus
+            project.updatedAt = Date()
+            try? modelContext?.save()
+            finish()
+            return result
+        } catch is CancellationError {
+            project.status = previousStatus
+            handleStop(project: project)
+            return "Die Nachbearbeitung wurde pausiert."
+        } catch {
+            if let job = currentJob, job.status == .running {
+                failJob(job, error: error)
+            }
+            project.status = previousStatus
+            lastError = (error as? AIError)?.errorDescription ?? error.localizedDescription
+            finish()
+            return "Fehler bei der KI-Nachbearbeitung: \(lastError ?? error.localizedDescription)"
+        }
+    }
+
     // MARK: - Steuerung
 
     func startPipeline(project: Project, providerConfig: ProviderConfiguration) {
@@ -2093,6 +2138,153 @@ final class PipelineOrchestrator: ObservableObject {
         try Task.checkCancellation()
     }
 
+    // MARK: - Manuelle KI-Nachbearbeitung
+
+    private func runRepairWorkflow(project: Project, config: ProviderConfiguration) async throws -> String {
+        try Task.checkCancellation()
+
+        let chapters = sortedChapters(project).filter { chapter in
+            guard let text = chapter.bestText else { return false }
+            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        guard !chapters.isEmpty else {
+            return "Es gibt noch keinen prüfbaren Manuskripttext."
+        }
+
+        // Alte Reparaturberichte ersetzen, damit ein erneuter Lauf nicht dieselben
+        // Befunde mehrfach in der Oberfläche stapelt.
+        if let stale = project.qualityReports?.filter({ $0.checkType == "KI-Nachbearbeitung" }) {
+            for report in stale { modelContext?.delete(report) }
+            project.qualityReports?.removeAll { $0.checkType == "KI-Nachbearbeitung" }
+        }
+
+        let summaries = repairAuditSummaries(for: chapters)
+        let reportBrief = repairReportBrief(for: project)
+        let characters = project.storyBible.map(compactCharacterSummary) ?? ""
+
+        currentAgent = "\(AgentName.repairEditor) – Audit"
+        let auditJob = beginJob(agent: AgentName.repairEditor, phase: .manuscriptRevision, project: project)
+        let auditResponse = try await generate(
+            prompt: PromptFactory.repairAudit(
+                bookTitle: project.title,
+                summaries: summaries,
+                characters: characters,
+                qualityReports: reportBrief
+            ),
+            system: "Du bist ein präziser Schlusslektor. Du findest nur echte Inkonsistenzen und formulierst konkrete Reparaturaufträge.",
+            maxTokens: 3000,
+            temperature: 0.15,
+            config: config
+        )
+        let issues = RepairIssueParser.parse(auditResponse.text)
+        completeJob(auditJob, result: "\(issues.count) Reparaturbefunde", tokens: auditResponse.tokensUsed ?? 0)
+
+        guard !issues.isEmpty else {
+            addReport(project: project,
+                      area: "Gesamtmanuskript",
+                      type: "KI-Nachbearbeitung",
+                      result: "Keine reparaturpflichtigen Inkonsistenzen gefunden.",
+                      severity: .info,
+                      recommendation: "")
+            try? modelContext?.save()
+            return "Prüfung abgeschlossen: keine reparaturpflichtigen Inkonsistenzen gefunden."
+        }
+
+        var repairedCount = 0
+        var skippedCount = 0
+        var processedCount = 0
+
+        for issue in issues {
+            try Task.checkCancellation()
+
+            let baseArea = issue.chapterNumber.map { "Kapitel \($0)" } ?? "Gesamtmanuskript"
+            let area = issue.area.isEmpty ? baseArea : "\(baseArea) · \(issue.area)"
+            let report = addReport(project: project,
+                                   area: area,
+                                   type: "KI-Nachbearbeitung",
+                                   result: issue.problem,
+                                   severity: issue.severity,
+                                   recommendation: issue.instruction)
+
+            guard issue.severity != .info else {
+                skippedCount += 1
+                continue
+            }
+            guard let chapterNumber = issue.chapterNumber,
+                  let chapter = chapters.first(where: { $0.chapterNumber == chapterNumber }),
+                  let currentText = chapter.bestText,
+                  !currentText.isEmpty else {
+                skippedCount += 1
+                continue
+            }
+
+            processedCount += 1
+            currentAgent = "\(AgentName.repairEditor) – Kapitel \(chapterNumber)"
+            let repairJob = beginJob(agent: AgentName.repairEditor,
+                                     phase: .manuscriptRevision,
+                                     project: project,
+                                     chapter: chapterNumber)
+            do {
+                let response = try await generate(
+                    prompt: PromptFactory.repairChapter(
+                        language: project.language,
+                        bookTitle: project.title,
+                        chapterNumber: chapter.chapterNumber,
+                        chapterTitle: chapter.title,
+                        issue: issue,
+                        chapterText: currentText.truncated(to: 36_000)
+                    ),
+                    system: "Du bist ein chirurgisch arbeitender Romanlektor. Du reparierst exakt den Befund und gibst nur den vollständigen Kapiteltext zurück.",
+                    maxTokens: min(12000, max(4000, currentText.wordCount * 3)),
+                    temperature: 0.25,
+                    config: config
+                )
+                let repaired = AutonomousContentQuality.humanizeProse(
+                    AutonomousContentQuality.strippingInlineFormatting(
+                        AutonomousContentQuality.strippingPromptArtifacts(response.text)))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                let minimumWords = max(100, Int(Double(currentText.wordCount) * 0.65))
+                if repaired.wordCount >= minimumWords,
+                   !AutonomousContentQuality.containsMetaRequest(repaired) {
+                    chapter.finalText = repaired
+                    chapter.actualWordCount = repaired.wordCount
+                    chapter.status = .finalized
+                    chapter.updatedAt = Date()
+                    project.updatedAt = Date()
+                    report.autoFixed = true
+                    repairedCount += 1
+                    completeJob(repairJob,
+                                result: "Kapitel \(chapterNumber) repariert",
+                                tokens: response.tokensUsed ?? 0)
+                } else {
+                    addReport(project: project,
+                              area: "Kapitel \(chapterNumber)",
+                              type: "KI-Nachbearbeitung",
+                              result: "Reparaturantwort war unvollständig; Originalfassung blieb erhalten.",
+                              severity: .warning,
+                              recommendation: "Kapitel im Lektor-Chat manuell prüfen.")
+                    completeJob(repairJob,
+                                result: "Reparaturantwort unvollständig",
+                                tokens: response.tokensUsed ?? 0)
+                }
+            } catch {
+                failJob(repairJob, error: error)
+                throw error
+            }
+        }
+
+        try? modelContext?.save()
+        if repairedCount == 0 {
+            return "Prüfung abgeschlossen: \(issues.count) Befund(e) gespeichert, aber keine kapitelgenaue automatische Reparatur ausgeführt."
+        }
+        var message = "Nachbearbeitung abgeschlossen: \(repairedCount) Kapitel repariert."
+        if skippedCount > 0 || processedCount < issues.count {
+            message += " \(max(skippedCount, issues.count - processedCount)) Befund(e) bleiben als Report zur manuellen Prüfung."
+        }
+        return message
+    }
+
     // MARK: - Phase 10: Copyright-Prüfung (lokal)
 
     private func runCopyrightCheck(project: Project) {
@@ -2276,6 +2468,32 @@ final class PipelineOrchestrator: ObservableObject {
         try? modelContext?.save()
     }
 
+    private func repairAuditSummaries(for chapters: [Chapter]) -> String {
+        chapters.map { chapter in
+            let summary = chapter.summary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let core = [chapter.goal, chapter.conflict]
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " | ")
+            let excerpt = (chapter.bestText ?? "").truncated(to: 700)
+            return """
+            Kapitel \(chapter.chapterNumber) (\(chapter.title)):
+            Ziel/Konflikt: \(core.isEmpty ? "nicht angegeben" : core)
+            Zusammenfassung: \(summary.isEmpty ? excerpt : summary)
+            """
+        }.joined(separator: "\n")
+    }
+
+    private func repairReportBrief(for project: Project) -> String {
+        let reports = (project.qualityReports ?? [])
+            .filter { $0.checkType != "Score" && $0.checkType != "KI-Nachbearbeitung" }
+            .sorted { $0.createdAt < $1.createdAt }
+            .suffix(24)
+        return reports.map { report in
+            "\(report.severity.rawValue) | \(report.checkedArea) | \(report.checkType): \(report.result) \(report.recommendation)"
+        }.joined(separator: "\n")
+    }
+
     private func compactCharacterSummary(_ bible: StoryBible) -> String {
         (bible.characters ?? []).prefix(8).map { character in
             var line = "\(character.name) (\(character.role))"
@@ -2285,14 +2503,16 @@ final class PipelineOrchestrator: ObservableObject {
         }.joined(separator: "\n")
     }
 
+    @discardableResult
     private func addReport(project: Project, area: String, type: String, result: String,
-                           severity: Severity, recommendation: String) {
+                           severity: Severity, recommendation: String) -> QualityReport {
         let report = QualityReport(checkedArea: area, checkType: type, result: result,
                                    severity: severity, recommendation: recommendation)
         if project.qualityReports == nil { project.qualityReports = [] }
         report.project = project
         project.qualityReports?.append(report)
         modelContext?.insert(report)
+        return report
     }
 
     private func updateProgress(phase: PipelinePhase, subProgress: Double) {

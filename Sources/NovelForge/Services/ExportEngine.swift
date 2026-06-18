@@ -832,35 +832,7 @@ struct ExportEngine {
     }
 
     static func generateKDPMetadataReport(project: Project) -> String {
-        var report = "KDP-METADATEN FÜR DIE VERÖFFENTLICHUNG\n"
-        report += String(repeating: "=", count: 38) + "\n\n"
-        report += "Titel: \(project.title)\n"
-        report += "Autor: \(project.authorName)\n"
-        report += "Sprache: \(project.language)\n"
-        report += "Trim-Größe (Print): \(project.trimSize.displayName)\n\n"
-        if !project.authorBio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            report += "AUTORPROFIL:\n"
-            report += project.authorBio + "\n\n"
-        }
-
-        guard let profile = project.bookProfile else { return report }
-
-        if !profile.kdpDescription.isEmpty {
-            report += "PRODUKTBESCHREIBUNG (für die KDP-Detailseite):\n"
-            report += profile.kdpDescription + "\n\n"
-        }
-        if !profile.kdpKeywords.isEmpty {
-            report += "KEYWORDS (7 Suchbegriffe):\n"
-            report += profile.kdpKeywords + "\n\n"
-        }
-        if !profile.kdpCategories.isEmpty {
-            report += "KATEGORIE-VORSCHLÄGE:\n"
-            report += profile.kdpCategories + "\n\n"
-        }
-        if profile.kdpDescription.isEmpty {
-            report += "Hinweis: Die Metadaten fehlen noch und werden in der Phase „KDP-Formatierung“ vorbereitet.\n"
-        }
-        return report
+        KDPSalesSheet.make(for: project).exportText
     }
 
     static func generateProductionLog(project: Project) -> String {

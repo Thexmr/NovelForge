@@ -125,6 +125,15 @@ final class UnlimitedProductionTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testSingleBookWizardUsesSameGenrePoolAsAutonomousMode() {
+        XCTAssertEqual(NewBookWizardView.availableGenres, UnlimitedSettings.genrePool)
+        XCTAssertTrue(NewBookWizardView.availableGenres.contains("Dark Romance"))
+        XCTAssertTrue(NewBookWizardView.availableGenres.contains("Romantasy"))
+        XCTAssertTrue(NewBookWizardView.availableGenres.contains("Dystopie"))
+        XCTAssertTrue(NewBookWizardView.availableGenres.contains("Cozy Mystery"))
+    }
+
     func testStoryMemoryBuildsAvoidanceBriefFromPriorBooks() {
         let entries = [
             StoryMemoryEntry(title: "Die letzte Schleuse",
@@ -205,6 +214,16 @@ final class UnlimitedProductionTests: XCTestCase {
                        genre: "Roman",
                        premise: "Eine Frau kehrt in eine Stadt zurück, in der ein alter Unfall nie aufgeklärt wurde, und muss zwischen Loyalität und Wahrheit wählen.")
         ))
+    }
+
+    func testBookIdeasPromptDemandsKDPViralMarketFitWithoutCopyingExamples() {
+        let prompt = PromptFactory.bookIdeas(genre: "Thriller", language: "Deutsch")
+
+        XCTAssertTrue(prompt.contains("Amazon-KDP-Suchergebnis"))
+        XCTAssertTrue(prompt.contains("Thumbnail"))
+        XCTAssertTrue(prompt.contains("BookTok"))
+        XCTAssertTrue(prompt.contains("NUR MUSTER, NICHT KOPIEREN"))
+        XCTAssertTrue(prompt.contains("Berufs-Ort-Klischee"))
     }
 
     func testAutonomousQualityRejectsMetaDraftsAsWrittenScenes() {

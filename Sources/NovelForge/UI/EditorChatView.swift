@@ -8,10 +8,12 @@ struct EditorChatView: View {
     @Query(sort: \Project.updatedAt, order: .reverse) private var projects: [Project]
     @Query(sort: \ChatMessage.createdAt) private var allMessages: [ChatMessage]
     @ObservedObject private var appState = AppState.shared
+    @ObservedObject private var orchestrator = PipelineOrchestrator.shared
 
     @State private var selectedChapterID: PersistentIdentifier?
     @State private var input = ""
     @State private var isProcessing = false
+    @State private var isRepairing = false
 
     private var project: Project? {
         // modelContext == nil ⇒ gelöscht: dann nicht weiter darauf zugreifen.
@@ -72,6 +74,18 @@ struct EditorChatView: View {
                     }
                 }
                 .frame(maxWidth: 280)
+
+                Button {
+                    repairBook()
+                } label: {
+                    Label(isRepairing ? "Prüft & repariert …" : "Buch prüfen & reparieren",
+                          systemImage: "wrench.and.screwdriver")
+                }
+                .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.lime))
+                .disabled(project == nil || isProcessing || isRepairing || orchestrator.isRunning)
+                .help(orchestrator.isRunning
+                      ? "Während einer laufenden Produktion nicht verfügbar"
+                      : "Prüft das gesamte Buch und repariert nur kapitelgenaue Inkonsistenzen")
             }
             Text(selectedChapter == nil
                  ? "Stelle eine Frage oder besprich Änderungen. Für eine konkrete Überarbeitung wähle rechts ein Kapitel."
@@ -96,10 +110,12 @@ struct EditorChatView: View {
                     ForEach(messages) { msg in
                         bubble(msg).id(msg.id)
                     }
-                    if isProcessing {
+                    if isProcessing || isRepairing {
                         HStack(spacing: 8) {
                             ProgressView().controlSize(.small)
-                            Text("Lektor denkt nach …").font(.caption).foregroundStyle(StudioTheme.textMuted)
+                            Text(isRepairing ? "Lektor prüft und repariert …" : "Lektor denkt nach …")
+                                .font(.caption)
+                                .foregroundStyle(StudioTheme.textMuted)
                         }
                         .padding(.leading, 4)
                     }
@@ -174,6 +190,24 @@ struct EditorChatView: View {
                 try? modelContext.save()
             }
             isProcessing = false
+        }
+    }
+
+    private func repairBook() {
+        guard let project, !isRepairing, !isProcessing else { return }
+        isRepairing = true
+        modelContext.insert(ChatMessage(projectID: project.id,
+                                        role: .user,
+                                        text: "Buch prüfen & reparieren"))
+        try? modelContext.save()
+
+        Task { @MainActor in
+            let reply = await orchestrator.repairBookAfterProofreading(project: project)
+            if project.modelContext != nil {
+                modelContext.insert(ChatMessage(projectID: project.id, role: .assistant, text: reply))
+                try? modelContext.save()
+            }
+            isRepairing = false
         }
     }
 }

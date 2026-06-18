@@ -759,8 +759,8 @@ struct ProjectDetailView: View {
 
                 if let profile = project.bookProfile {
                     conceptSection(profile)
-                    kdpMetadataSection(profile)
                 }
+                KDPSalesSheetView(project: project)
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Qualitätsmetriken")
@@ -887,52 +887,6 @@ struct ProjectDetailView: View {
                 .textSelection(.enabled)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private func kdpMetadataSection(_ profile: BookProfile) -> some View {
-        if !profile.kdpDescription.isEmpty || !profile.kdpKeywords.isEmpty || !profile.kdpCategories.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("KDP-Metadaten")
-                    .font(.headline)
-                VStack(alignment: .leading, spacing: 10) {
-                    if !profile.kdpDescription.isEmpty {
-                        metadataRow(label: "Produktbeschreibung", value: profile.kdpDescription)
-                    }
-                    if !profile.kdpKeywords.isEmpty {
-                        metadataRow(label: "Keywords (7)", value: profile.kdpKeywords)
-                    }
-                    if !profile.kdpCategories.isEmpty {
-                        metadataRow(label: "Kategorie-Vorschläge", value: profile.kdpCategories)
-                    }
-                }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .studioGlassTile(cornerRadius: 8, accent: StudioTheme.cyan, opacity: 0.86)
-            }
-        }
-    }
-
-    private func metadataRow(label: String, value: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label)
-                    .font(.caption2)
-                    .foregroundStyle(StudioTheme.textFaint)
-                Text(value)
-                    .font(.caption)
-                    .textSelection(.enabled)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Button {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(value, forType: .string)
-            } label: {
-                Image(systemName: "doc.on.doc")
-            }
-            .buttonStyle(.borderless)
-            .help("In die Zwischenablage kopieren")
-        }
     }
 
     /// Score-Einträge sind bereits als Metriken visualisiert – hier nur echte Befunde.

@@ -125,6 +125,56 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(result.keywords, "krimi hafen, ermittlerin, dunkles geheimnis")
         XCTAssertTrue(result.categories.contains("Belletristik > Spannung"))
     }
+
+    // MARK: - RepairIssueParser
+
+    func testRepairIssueParserTargetsAffectedChapters() {
+        let text = """
+        REPAIR|Kritisch|Kapitel 3|Zeitlinie|Mara liest den Brief, bevor er gefunden wird.|Schreibe die Brief-Entdeckung so um, dass sie erst nach dem Fund passiert.
+        REPAIR|Warnung|Gesamtmanuskript|Figurenlogik|Die Motivation des Antagonisten kippt.|Glätte die Motivationslinie in den betroffenen Kapiteln.
+        Das hier ist Kommentar.
+        """
+
+        let issues = RepairIssueParser.parse(text)
+
+        XCTAssertEqual(issues.count, 2)
+        XCTAssertEqual(issues[0].severity, .critical)
+        XCTAssertEqual(issues[0].chapterNumber, 3)
+        XCTAssertEqual(issues[0].area, "Zeitlinie")
+        XCTAssertTrue(issues[0].problem.contains("bevor er gefunden"))
+        XCTAssertTrue(issues[0].instruction.contains("nach dem Fund"))
+        XCTAssertNil(issues[1].chapterNumber)
+        XCTAssertEqual(issues[1].severity, .warning)
+    }
+
+    func testRepairChapterPromptRepairsOnlyAffectedText() {
+        let audit = PromptFactory.repairAudit(
+            bookTitle: "Nacht über dem Hafen",
+            summaries: "Kapitel 1: Test",
+            characters: "Mara",
+            qualityReports: "Warnung | Zeitlinie"
+        )
+        let prompt = PromptFactory.repairChapter(
+            language: "Deutsch",
+            bookTitle: "Nacht über dem Hafen",
+            chapterNumber: 4,
+            chapterTitle: "Die Schleuse",
+            issue: RepairIssue(severity: .error,
+                               chapterNumber: 4,
+                               area: "Zeitlinie",
+                               problem: "Die Figur kennt ein Geheimnis zu früh.",
+                               instruction: "Setze die Erkenntnis erst in die zweite Hälfte des Kapitels."),
+            chapterText: "Romantext"
+        )
+
+        XCTAssertTrue(audit.contains("Fehlerquelle"))
+        XCTAssertTrue(audit.contains("automatisch behoben"))
+        XCTAssertTrue(prompt.contains("NUR die betroffene Stelle"))
+        XCTAssertTrue(prompt.contains("nicht das ganze Kapitel neu"))
+        XCTAssertTrue(prompt.contains("Proofreader-Qualität"))
+        XCTAssertTrue(prompt.contains("Fehlerquelle"))
+        XCTAssertTrue(prompt.contains("Setze die Erkenntnis"))
+    }
 }
 
 /// Tests für Preislogik, Wortzählung und KDP-Druckmaße.
