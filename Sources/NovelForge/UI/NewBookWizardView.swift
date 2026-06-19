@@ -358,7 +358,7 @@ struct NewBookWizardView: View {
     @MainActor
     private func generateViralTitles() {
         guard let config = usableIdeaConfig() else {
-            titleError = "Kein KI-Provider konfiguriert (Schritt „KI-Provider")."
+            titleError = "Kein KI-Provider konfiguriert – bitte im Schritt KI-Provider einrichten."
             return
         }
         isGeneratingTitles = true
