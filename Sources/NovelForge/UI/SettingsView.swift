@@ -32,6 +32,7 @@ struct GeneralSettingsView: View {
     @AppStorage("defaultAuthor") private var defaultAuthor = ""
     @AppStorage("defaultImprint") private var defaultImprint = DefaultBookSettings.imprint
     @AppStorage("defaultAuthorBio") private var defaultAuthorBio = DefaultBookSettings.authorBio
+    @AppStorage("kdpCoverStudioPath") private var kdpCoverStudioPath = "/Users/dave/AMZ KDP KI"
 
     var body: some View {
         Form {
@@ -73,6 +74,13 @@ struct GeneralSettingsView: View {
                         Text($0).tag($0)
                     }
                 }
+            }
+
+            Section("KDP Cover Studio") {
+                TextField("Pfad zum Cover Studio", text: $kdpCoverStudioPath)
+                Text("Ordner mit „Start KDP Cover Studio.command“ – für druckfertige KDP-Cover (Paperback/Hardcover-Wrap, 300 DPI).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section {

@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import AppKit
 
 struct KDPSalesSheetView: View {
     let project: Project
@@ -286,6 +287,7 @@ struct CoverPromptsView: View {
     @ObservedObject private var orchestrator = PipelineOrchestrator.shared
     @ObservedObject private var coverStore = CoverImageSettingsStore.shared
     @Environment(\.modelContext) private var modelContext
+    @AppStorage("kdpCoverStudioPath") private var coverStudioPath = "/Users/dave/AMZ KDP KI"
     @State private var isGenerating = false
     @State private var statusNote: String?
     @State private var imageStatus: String?
@@ -401,7 +403,34 @@ struct CoverPromptsView: View {
                     .studioGlassTile(cornerRadius: 8, accent: StudioTheme.violet, opacity: 0.9)
                 }
             }
+
+            Button {
+                openCoverStudio()
+            } label: {
+                Label("Im KDP Cover Studio öffnen (druckfertiges Cover)", systemImage: "shippingbox")
+            }
+            .buttonStyle(.borderless)
+            .help("Öffnet das KDP Cover Studio für druckfertige Paperback-/Hardcover-Wraps (exakte KDP-Maße, 300 DPI, mehrere Bild-Anbieter). Der erste Cover-Prompt wird in die Zwischenablage gelegt.")
         }
+    }
+
+    private func openCoverStudio() {
+        let dir = URL(fileURLWithPath: coverStudioPath)
+        let command = dir.appendingPathComponent("Start KDP Cover Studio.command")
+        let html = dir.appendingPathComponent("index.html")
+        let fm = FileManager.default
+        let target: URL
+        if fm.fileExists(atPath: command.path) { target = command }
+        else if fm.fileExists(atPath: html.path) { target = html }
+        else {
+            imageStatus = "KDP Cover Studio nicht gefunden unter \(coverStudioPath) – Pfad in den Einstellungen anpassen."
+            return
+        }
+        let clip = concepts.first?.text ?? "\(project.title) — \(project.genre)"
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(clip, forType: .string)
+        NSWorkspace.shared.open(target)
+        imageStatus = "KDP Cover Studio geöffnet · Cover-Prompt liegt in der Zwischenablage (im Studio einfügen)."
     }
 
     private func generateImage(prompt: String, index: Int) {
