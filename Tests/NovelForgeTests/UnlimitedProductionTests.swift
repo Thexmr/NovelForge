@@ -150,6 +150,16 @@ final class UnlimitedProductionTests: XCTestCase {
         XCTAssertTrue(prompt.contains("KEIN Text"))
     }
 
+    func testKDPBlurbPolishPromptDemandsStrongerSalesCopy() {
+        let prompt = PromptFactory.kdpBlurbPolish(
+            blurb: "Ein ruhiger Roman über das Leben.",
+            title: "Die letzte Nacht", genre: "Thriller",
+            audience: "Thriller-Fans", language: "Deutsch")
+        XCTAssertTrue(prompt.contains("verbesserten Verkaufstext"))
+        XCTAssertTrue(prompt.contains("150-200"))
+        XCTAssertTrue(prompt.contains("Hook"))
+    }
+
     @MainActor
     func testSingleBookWizardUsesSameGenrePoolAsAutonomousMode() {
         XCTAssertEqual(NewBookWizardView.availableGenres, UnlimitedSettings.genrePool)

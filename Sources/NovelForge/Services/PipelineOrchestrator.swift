@@ -373,12 +373,27 @@ final class PipelineOrchestrator: ObservableObject {
                 maxTokens: 1200, temperature: 0.7, config: config
             )
             let parsed = KDPMetadataParser.parse(response.text)
-            profile.kdpDescription = parsed.salesDescription.isEmpty ? response.text : parsed.salesDescription
             profile.kdpKeywords = parsed.keywords
             profile.kdpCategories = parsed.categories
             profile.kdpTitle = parsed.salesTitle
             profile.kdpSubtitle = parsed.subtitle
-            completeJob(job, result: response.text, tokens: response.tokensUsed ?? 0)
+
+            // Judge/Polish: den Verkaufstext in bis zu 2 Runden verkaufsstärker machen.
+            var blurb = parsed.salesDescription.isEmpty ? response.text : parsed.salesDescription
+            let polishTitle = profile.kdpTitle.isEmpty ? project.title : profile.kdpTitle
+            for _ in 0..<2 {
+                guard let polish = try? await generate(
+                    prompt: PromptFactory.kdpBlurbPolish(
+                        blurb: blurb, title: polishTitle, genre: project.genre,
+                        audience: profile.targetAudience, language: project.language),
+                    system: "Du bist ein Spitzen-Texter für Amazon-KDP-Klappentexte.",
+                    maxTokens: 700, temperature: 0.6, config: config
+                ) else { break }
+                let improved = polish.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if improved.count >= 80 { blurb = improved }
+            }
+            profile.kdpDescription = blurb
+            completeJob(job, result: blurb, tokens: response.tokensUsed ?? 0)
         } catch {
             if job.status == .running { failJob(job, error: error) }
             throw error

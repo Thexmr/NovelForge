@@ -284,12 +284,39 @@ struct CoverPromptsView: View {
     let project: Project
 
     @ObservedObject private var orchestrator = PipelineOrchestrator.shared
+    @ObservedObject private var coverStore = CoverImageSettingsStore.shared
     @Environment(\.modelContext) private var modelContext
     @State private var isGenerating = false
     @State private var statusNote: String?
+    @State private var imageStatus: String?
+    @State private var generatingImageIndex: Int?
 
     private var prompts: String {
         project.bookProfile?.coverPrompts.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    struct CoverConcept: Identifiable { let id: Int; let text: String }
+
+    /// Zerlegt den Prompt-Block in einzelne Cover-Konzepte (PROMPT 1/2/3 …).
+    private var concepts: [CoverConcept] {
+        guard !prompts.isEmpty else { return [] }
+        var result: [CoverConcept] = []
+        var current = ""
+        func flush() {
+            let t = current.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !t.isEmpty { result.append(CoverConcept(id: result.count + 1, text: t)) }
+        }
+        for line in prompts.components(separatedBy: .newlines) {
+            if line.range(of: #"^\s*PROMPT\s*\d+\s*:"#, options: .regularExpression) != nil {
+                flush()
+                current = line.replacingOccurrences(of: #"^\s*PROMPT\s*\d+\s*:\s*"#,
+                                                    with: "", options: .regularExpression)
+            } else {
+                current += "\n" + line
+            }
+        }
+        flush()
+        return result
     }
 
     private var canGenerate: Bool {
@@ -324,31 +351,83 @@ struct CoverPromptsView: View {
             if let statusNote {
                 Text(statusNote).font(.caption2).foregroundStyle(StudioTheme.textMuted)
             }
+            if let imageStatus {
+                Text(imageStatus).font(.caption2).foregroundStyle(StudioTheme.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
-            VStack(alignment: .leading, spacing: 8) {
-                if prompts.isEmpty {
-                    Label("Noch keine Cover-Prompts. „Generieren“ erzeugt 3 fertige, einfügefertige Prompts für dieses Buch.",
-                          systemImage: "sparkles")
-                        .font(.caption)
-                        .foregroundStyle(StudioTheme.textMuted)
-                } else {
-                    Text(prompts)
-                        .font(.callout)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(prompts, forType: .string)
-                    } label: {
-                        Label("Alle Prompts kopieren", systemImage: "doc.on.doc")
+            if prompts.isEmpty {
+                Label("Noch keine Cover-Prompts. „Generieren“ erzeugt 3 fertige, einfügefertige Prompts für dieses Buch.",
+                      systemImage: "sparkles")
+                    .font(.caption)
+                    .foregroundStyle(StudioTheme.textMuted)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .studioGlassTile(cornerRadius: 8, accent: StudioTheme.violet, opacity: 0.9)
+            } else {
+                ForEach(concepts) { concept in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Konzept \(concept.id)")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(StudioTheme.textFaint)
+                        Text(concept.text)
+                            .font(.callout)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        HStack(spacing: 10) {
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(concept.text, forType: .string)
+                            } label: {
+                                Label("Kopieren", systemImage: "doc.on.doc")
+                            }
+                            .buttonStyle(.borderless)
+                            Button {
+                                generateImage(prompt: concept.text, index: concept.id)
+                            } label: {
+                                if generatingImageIndex == concept.id {
+                                    HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Bild …") }
+                                } else {
+                                    Label("Als Cover-Bild erzeugen", systemImage: "photo.badge.plus")
+                                }
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(generatingImageIndex != nil || orchestrator.isRunning)
+                        }
                     }
-                    .buttonStyle(.borderless)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .studioGlassTile(cornerRadius: 8, accent: StudioTheme.violet, opacity: 0.9)
                 }
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .studioGlassTile(cornerRadius: 8, accent: StudioTheme.violet, opacity: 0.9)
+        }
+    }
+
+    private func generateImage(prompt: String, index: Int) {
+        guard coverStore.hasAPIKey() else {
+            imageStatus = "Für die direkte Cover-Bild-Erzeugung fehlt der Bild-API-Key (in den Einstellungen hinterlegen). Du kannst den Prompt aber kopieren und in ChatGPT/DALL·E nutzen."
+            return
+        }
+        generatingImageIndex = index
+        imageStatus = nil
+        let settings = coverStore.runtimeSettings()
+        Task {
+            do {
+                let dest = try CoverDesignService.artworkURL(for: project)
+                let artwork = try await CoverImageGateway.shared.generateImage(
+                    prompt: prompt, destination: dest, settings: settings)
+                let cover = try CoverComposer.composeCover(artworkURL: artwork, project: project)
+                await MainActor.run {
+                    imageStatus = "Cover-Bild aus Konzept \(index) erstellt: \(cover.lastPathComponent)"
+                    generatingImageIndex = nil
+                }
+            } catch {
+                await MainActor.run {
+                    imageStatus = error.localizedDescription
+                    generatingImageIndex = nil
+                }
+            }
         }
     }
 

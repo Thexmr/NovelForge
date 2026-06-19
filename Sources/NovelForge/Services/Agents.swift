@@ -617,6 +617,29 @@ enum PromptFactory {
         """
     }
 
+    /// Judge/Polish-Pass: macht einen vorhandenen KDP-Verkaufstext verkaufsstärker.
+    static func kdpBlurbPolish(blurb: String, title: String, genre: String,
+                               audience: String, language: String) -> String {
+        """
+        Du bist ein Spitzen-Texter für Amazon-KDP-Klappentexte und Conversion-Profi.
+        Mach den folgenden Verkaufstext für „\(title)" (Genre: \(genre), Zielgruppe: \(audience))
+        spürbar verkaufsstärker.
+
+        STÄRKE GEZIELT:
+        - Packender Hook bereits in der ersten Zeile (Frage, Spannung, Versprechen).
+        - Steigende Stakes, emotionaler Sog, eine klare kaufauslösende Schlusszeile.
+        - Konkrete Bilder statt Floskeln; kein Spoiler.
+        - Keine verbotenen Begriffe ("Bestseller", "kostenlos"); keine Hinweise auf KI/AI/Automatisierung.
+        - Sprache: \(language).
+
+        AKTUELLER TEXT:
+        \(blurb)
+
+        Gib NUR den verbesserten Verkaufstext aus: 150-200 Wörter, reiner Fließtext,
+        keine Überschriften, keine Anführungszeichen, keine Kommentare oder Meta-Hinweise.
+        """
+    }
+
     /// Erzeugt fertige, kopierbare Bildgenerierungs-Prompts (ChatGPT/DALL·E) für das
     /// Buchcover – exakt auf dieses Buch zugeschnitten.
     static func coverImagePrompts(title: String, author: String, genre: String, subgenre: String,
