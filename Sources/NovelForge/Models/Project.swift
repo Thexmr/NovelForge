@@ -94,6 +94,8 @@ final class BookProfile {
     var kdpTitle: String = ""
     /// Keyword-getriebener KDP-Untertitel (Untertitel-Feld bei Amazon KDP).
     var kdpSubtitle: String = ""
+    /// Fertige, kopierbare Bildgenerierungs-Prompts (ChatGPT/DALL·E) für das Buchcover.
+    var coverPrompts: String = ""
     
     @Relationship(inverse: \Project.bookProfile) var project: Project?
     

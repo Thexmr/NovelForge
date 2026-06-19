@@ -353,31 +353,12 @@ final class PipelineOrchestrator: ObservableObject {
         }
     }
 
-    /// Erzeugt bzw. erneuert die Amazon-KDP-Verkaufstexte auf Knopfdruck – viraler
-    /// Verkaufstitel, Untertitel, Verkaufstext, Keywords und Kategorien – unabhängig
-    /// von der vollständigen Produktionspipeline.
-    func generateKDPSalesSheet(project: Project) async -> String {
-        guard !isRunning else {
-            return "Gerade läuft bereits eine Produktion oder Reparatur. Bitte warte, bis sie fertig ist."
-        }
-        guard project.modelContext != nil else {
-            return "Dieses Projekt ist nicht mehr verfügbar."
-        }
-        guard let profile = project.bookProfile else {
-            return "Für dieses Buch gibt es noch kein Konzept – erst Buch erstellen, dann Verkaufstexte generieren."
-        }
+    // MARK: - Veröffentlichungs-Pipeline (Nachveredelung fertiger Bücher)
 
-        let previousStatus = project.status
-        let config = ProviderSettingsStore.configuration(for: project)
-        isRunning = true
-        stopMode = .none
-        currentProject = project
-        currentPhase = .kdpFormatting
-        currentAgent = AgentName.kdpFormatter
-        lastError = nil
-        markProjectActive(project)
-        startHeartbeat()
-
+    /// Baustein: erzeugt die KDP-Verkaufstexte (viraler Titel, Untertitel, Verkaufstext,
+    /// Keywords, Kategorien) und schreibt sie ins BookProfile. Ohne Running-State-Verwaltung.
+    private func produceKDPMetadata(project: Project, config: ProviderConfiguration) async throws {
+        guard let profile = project.bookProfile else { return }
         let job = beginJob(agent: AgentName.kdpFormatter, phase: .kdpFormatting, project: project)
         do {
             let response = try await generate(
@@ -398,21 +379,164 @@ final class PipelineOrchestrator: ObservableObject {
             profile.kdpTitle = parsed.salesTitle
             profile.kdpSubtitle = parsed.subtitle
             completeJob(job, result: response.text, tokens: response.tokensUsed ?? 0)
+        } catch {
+            if job.status == .running { failJob(job, error: error) }
+            throw error
+        }
+    }
+
+    /// Baustein: erzeugt 3 fertige, kopierbare Cover-Bild-Prompts (ChatGPT/DALL·E),
+    /// zugeschnitten auf dieses Buch, und legt sie im BookProfile + als Cover-Prompt.txt ab.
+    private func produceCoverPrompts(project: Project, config: ProviderConfiguration) async throws {
+        guard let profile = project.bookProfile else { return }
+        let job = beginJob(agent: AgentName.coverDesigner, phase: .export, project: project)
+        do {
+            let signals = [
+                "Logline: \(profile.logline ?? "")",
+                "Prämisse: \(profile.premise)",
+                "Thema: \(profile.theme)",
+                "Tonalität: \(profile.tonality)",
+                "Zielgruppe: \(profile.targetAudience)",
+                "KDP-Beschreibung: \(profile.kdpDescription)"
+            ].joined(separator: "\n")
+            let response = try await generate(
+                prompt: PromptFactory.coverImagePrompts(
+                    title: project.title, author: project.authorName,
+                    genre: project.genre, subgenre: project.subgenre ?? "",
+                    language: project.language,
+                    mood: project.styleProfile,
+                    storySignals: String(signals.prefix(2400))
+                ),
+                system: "Du bist Art-Director für Bestseller-Buchcover und schreibst präzise, einfügefertige Bild-Prompts.",
+                maxTokens: 1100, temperature: 0.8, config: config
+            )
+            let text = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            profile.coverPrompts = text
+            try? CoverDesignService.writePrompt(text, for: project)
+            completeJob(job, result: text, tokens: response.tokensUsed ?? 0)
+        } catch {
+            if job.status == .running { failJob(job, error: error) }
+            throw error
+        }
+    }
+
+    /// Generischer On-Demand-Marketing-Schritt (Running-State, Guards, Fehlerbehandlung).
+    private func runMarketingStep(project: Project, agent: String, phase: PipelinePhase,
+                                  okMessage: String, errPrefix: String,
+                                  _ work: (ProviderConfiguration) async throws -> Void) async -> String {
+        guard !isRunning else {
+            return "Gerade läuft bereits eine Produktion oder Reparatur. Bitte warte, bis sie fertig ist."
+        }
+        guard project.modelContext != nil else {
+            return "Dieses Projekt ist nicht mehr verfügbar."
+        }
+        guard project.bookProfile != nil else {
+            return "Für dieses Buch gibt es noch kein Konzept – erst Buch erstellen."
+        }
+
+        let previousStatus = project.status
+        let config = ProviderSettingsStore.configuration(for: project)
+        isRunning = true
+        stopMode = .none
+        currentProject = project
+        currentPhase = phase
+        currentAgent = agent
+        lastError = nil
+        markProjectActive(project)
+        startHeartbeat()
+        do {
+            try await work(config)
             project.status = previousStatus
             project.updatedAt = Date()
             try? modelContext?.save()
             finish()
-            return "KDP-Verkaufstexte aktualisiert."
+            return okMessage
         } catch is CancellationError {
             project.status = previousStatus
             handleStop(project: project)
             return "Die Generierung wurde pausiert."
         } catch {
-            if currentJob?.status == .running { failJob(job, error: error) }
             project.status = previousStatus
             lastError = (error as? AIError)?.errorDescription ?? error.localizedDescription
             finish()
-            return "Fehler beim Generieren der KDP-Verkaufstexte: \(lastError ?? error.localizedDescription)"
+            return "\(errPrefix): \(lastError ?? error.localizedDescription)"
+        }
+    }
+
+    /// Erzeugt bzw. erneuert die Amazon-KDP-Verkaufstexte auf Knopfdruck.
+    func generateKDPSalesSheet(project: Project) async -> String {
+        await runMarketingStep(project: project, agent: AgentName.kdpFormatter, phase: .kdpFormatting,
+                               okMessage: "KDP-Verkaufstexte aktualisiert.",
+                               errPrefix: "Fehler beim Generieren der KDP-Verkaufstexte") { config in
+            try await self.produceKDPMetadata(project: project, config: config)
+        }
+    }
+
+    /// Erzeugt bzw. erneuert die Cover-Bild-Prompts auf Knopfdruck.
+    func generateCoverPrompts(project: Project) async -> String {
+        await runMarketingStep(project: project, agent: AgentName.coverDesigner, phase: .export,
+                               okMessage: "Cover-Prompts aktualisiert.",
+                               errPrefix: "Fehler beim Generieren der Cover-Prompts") { config in
+            try await self.produceCoverPrompts(project: project, config: config)
+        }
+    }
+
+    /// Eigene Veröffentlichungs-Pipeline: lässt einen fertig produzierten Roman von mehreren
+    /// Agenten nacheinander nachveredeln – Konsistenz-Reparatur (Repair Editor), KDP-Verkaufstexte
+    /// (KDP Formatter) und Cover-Prompts (Cover Designer) – als komplettes Veröffentlichungs-Paket.
+    func runPublishingPackage(project: Project) async -> String {
+        guard !isRunning else {
+            return "Gerade läuft bereits eine Produktion oder Reparatur. Bitte warte, bis sie fertig ist."
+        }
+        guard project.modelContext != nil else {
+            return "Dieses Projekt ist nicht mehr verfügbar."
+        }
+        guard project.bookProfile != nil else {
+            return "Für dieses Buch gibt es noch kein Konzept – erst Buch erstellen."
+        }
+
+        let previousStatus = project.status
+        let config = ProviderSettingsStore.configuration(for: project)
+        isRunning = true
+        stopMode = .none
+        currentProject = project
+        currentAgent = AgentName.publisher
+        lastError = nil
+        markProjectActive(project)
+        startHeartbeat()
+
+        var done: [String] = []
+        do {
+            currentPhase = .manuscriptRevision
+            currentAgent = AgentName.repairEditor
+            let repairResult = try await runRepairWorkflow(project: project, config: config)
+            done.append("Nachbearbeitung: \(repairResult)")
+
+            currentPhase = .kdpFormatting
+            currentAgent = AgentName.kdpFormatter
+            try await produceKDPMetadata(project: project, config: config)
+            done.append("KDP-Verkaufstexte erstellt.")
+
+            currentPhase = .export
+            currentAgent = AgentName.coverDesigner
+            try await produceCoverPrompts(project: project, config: config)
+            done.append("Cover-Prompts erstellt.")
+
+            project.status = previousStatus
+            project.updatedAt = Date()
+            try? modelContext?.save()
+            finish()
+            return "Veröffentlichungs-Paket fertig:\n• " + done.joined(separator: "\n• ")
+        } catch is CancellationError {
+            project.status = previousStatus
+            handleStop(project: project)
+            return "Veröffentlichungs-Paket pausiert. Erledigt:\n• " + (done.isEmpty ? ["nichts"] : done).joined(separator: "\n• ")
+        } catch {
+            if let job = currentJob, job.status == .running { failJob(job, error: error) }
+            project.status = previousStatus
+            lastError = (error as? AIError)?.errorDescription ?? error.localizedDescription
+            finish()
+            return "Veröffentlichungs-Paket gestoppt (\(lastError ?? error.localizedDescription)). Erledigt:\n• " + (done.isEmpty ? ["nichts"] : done).joined(separator: "\n• ")
         }
     }
 

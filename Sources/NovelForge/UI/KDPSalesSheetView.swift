@@ -156,18 +156,211 @@ struct KDPMarketingView: View {
 
             Group {
                 if let project = appState.selectedProject, project.modelContext != nil {
-                    ScrollView {
-                        KDPSalesSheetView(project: project)
-                            .padding(24)
-                            .frame(maxWidth: 760, alignment: .leading)
-                            .frame(maxWidth: .infinity)
-                    }
+                    PublishingDetailView(project: project)
                 } else {
-                    ContentUnavailableView("Buch wählen", systemImage: "cart.badge.plus")
+                    ContentUnavailableView("Buch wählen", systemImage: "shippingbox")
                 }
             }
             .frame(minWidth: 440, maxWidth: .infinity)
         }
-        .navigationTitle("KDP-Verkauf")
+        .navigationTitle("Veröffentlichung")
+    }
+}
+
+/// Veröffentlichungs-Studio für ein fertiges Buch: komplettes Paket per Pipeline
+/// (Nachbearbeitung + KDP-Verkaufstexte + Cover-Prompts) oder einzeln, alles
+/// passgenau auf dieses Buch.
+struct PublishingDetailView: View {
+    let project: Project
+
+    @ObservedObject private var orchestrator = PipelineOrchestrator.shared
+    @Environment(\.modelContext) private var modelContext
+    @State private var isRunningPackage = false
+    @State private var packageNote: String?
+    @State private var isRepairing = false
+    @State private var repairNote: String?
+
+    private var busy: Bool { isRunningPackage || isRepairing || orchestrator.isRunning }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(project.title).font(.title).fontWeight(.bold)
+                    Text("\(project.authorName) · \(project.genre)")
+                        .foregroundStyle(.secondary)
+                }
+
+                // Master: komplette Veröffentlichungs-Pipeline
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Veröffentlichungs-Paket")
+                        .font(.headline)
+                    Text("Eine eigene Agenten-Pipeline veredelt das fertige Buch nach: Konsistenz-Reparatur → perfekte KDP-Verkaufstexte → Cover-Prompts – alles passend zu diesem Buch.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 10) {
+                        Button {
+                            runPackage()
+                        } label: {
+                            if isRunningPackage {
+                                HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Pipeline läuft …") }
+                            } else {
+                                Label("Komplettes Paket erstellen", systemImage: "sparkles")
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(busy)
+                    }
+                    if let packageNote {
+                        Text(packageNote)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 10))
+
+                // Nachbearbeitung einzeln
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Nachbearbeitung").font(.headline)
+                    Text("Die KI prüft das fertige Buch auf Unstimmigkeiten (Zeitlinie, Figurenwissen, Kontinuität, Logik) und korrigiert gezielt nur die betroffenen Stellen – nach dem Proofreading.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 10) {
+                        Button {
+                            repair()
+                        } label: {
+                            if isRepairing {
+                                HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Wird geprüft …") }
+                            } else {
+                                Label("Konsistenz prüfen & reparieren", systemImage: "wand.and.stars")
+                            }
+                        }
+                        .disabled(busy)
+                        if let repairNote {
+                            Text(repairNote).font(.caption).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+
+                KDPSalesSheetView(project: project)
+                CoverPromptsView(project: project)
+            }
+            .padding(24)
+            .frame(maxWidth: 820, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func runPackage() {
+        guard project.modelContext != nil, !busy else { return }
+        isRunningPackage = true
+        packageNote = nil
+        Task { @MainActor in
+            let result = await orchestrator.runPublishingPackage(project: project)
+            try? modelContext.save()
+            packageNote = result
+            isRunningPackage = false
+        }
+    }
+
+    private func repair() {
+        guard project.modelContext != nil, !busy else { return }
+        isRepairing = true
+        repairNote = nil
+        Task { @MainActor in
+            let reply = await orchestrator.repairBookAfterProofreading(project: project)
+            repairNote = reply
+            isRepairing = false
+        }
+    }
+}
+
+/// Eigenes Feld mit fertigen, kopierbaren Cover-Bild-Prompts (für ChatGPT/DALL·E).
+struct CoverPromptsView: View {
+    let project: Project
+
+    @ObservedObject private var orchestrator = PipelineOrchestrator.shared
+    @Environment(\.modelContext) private var modelContext
+    @State private var isGenerating = false
+    @State private var statusNote: String?
+
+    private var prompts: String {
+        project.bookProfile?.coverPrompts.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private var canGenerate: Bool {
+        project.modelContext != nil && project.bookProfile != nil
+            && !isGenerating && !orchestrator.isRunning
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Label("Cover-Prompts (für ChatGPT/DALL·E)", systemImage: "photo.artframe")
+                    .font(.headline)
+                    .foregroundStyle(StudioTheme.heroGradient)
+                Spacer()
+                StudioStatusPill(text: prompts.isEmpty ? "wartet" : "bereit",
+                                 systemImage: prompts.isEmpty ? "clock" : "checkmark.seal",
+                                 color: prompts.isEmpty ? StudioTheme.amber : StudioTheme.lime)
+                Button {
+                    generate()
+                } label: {
+                    if isGenerating {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Label(prompts.isEmpty ? "Generieren" : "Neu generieren", systemImage: "sparkles")
+                    }
+                }
+                .buttonStyle(.borderless)
+                .disabled(!canGenerate)
+                .help("Fertige Bild-Prompts erzeugen, die du direkt in ChatGPT/DALL·E einfügst, um das Cover zu erstellen.")
+            }
+
+            if let statusNote {
+                Text(statusNote).font(.caption2).foregroundStyle(StudioTheme.textMuted)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                if prompts.isEmpty {
+                    Label("Noch keine Cover-Prompts. „Generieren“ erzeugt 3 fertige, einfügefertige Prompts für dieses Buch.",
+                          systemImage: "sparkles")
+                        .font(.caption)
+                        .foregroundStyle(StudioTheme.textMuted)
+                } else {
+                    Text(prompts)
+                        .font(.callout)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(prompts, forType: .string)
+                    } label: {
+                        Label("Alle Prompts kopieren", systemImage: "doc.on.doc")
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .studioGlassTile(cornerRadius: 8, accent: StudioTheme.violet, opacity: 0.9)
+        }
+    }
+
+    private func generate() {
+        guard canGenerate else { return }
+        isGenerating = true
+        statusNote = nil
+        Task { @MainActor in
+            let result = await orchestrator.generateCoverPrompts(project: project)
+            try? modelContext.save()
+            statusNote = result
+            isGenerating = false
+        }
     }
 }

@@ -37,7 +37,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
     case storyBible = "Story Bible"
     case editorChat = "Lektor"
     case export = "Export"
-    case kdp = "KDP-Verkauf"
+    case kdp = "Veröffentlichung"
     case settings = "Einstellungen"
 
     var id: String { rawValue }
@@ -52,7 +52,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         case .storyBible: return "book.closed"
         case .editorChat: return "text.bubble"
         case .export: return "square.and.arrow.up"
-        case .kdp: return "cart.badge.plus"
+        case .kdp: return "shippingbox"
         case .settings: return "gear"
         }
     }

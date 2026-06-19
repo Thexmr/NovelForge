@@ -139,6 +139,17 @@ final class UnlimitedProductionTests: XCTestCase {
         XCTAssertEqual(AutonomousContentQuality.titleViralityScore(""), 0)
     }
 
+    func testCoverImagePromptsRequestThreeTextFreeKDPConcepts() {
+        let prompt = PromptFactory.coverImagePrompts(
+            title: "Sag, dass du bleibst", author: "Test Autor",
+            genre: "Dark Romance", subgenre: "", language: "Deutsch",
+            mood: "düster", storySignals: "Prämisse: zwei Menschen, eine letzte Nacht.")
+        XCTAssertTrue(prompt.contains("PROMPT 1"))
+        XCTAssertTrue(prompt.contains("PROMPT 3"))
+        XCTAssertTrue(prompt.contains("2:3"))
+        XCTAssertTrue(prompt.contains("KEIN Text"))
+    }
+
     @MainActor
     func testSingleBookWizardUsesSameGenrePoolAsAutonomousMode() {
         XCTAssertEqual(NewBookWizardView.availableGenres, UnlimitedSettings.genrePool)

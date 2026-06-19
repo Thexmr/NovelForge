@@ -17,6 +17,8 @@ enum AgentName {
     static let copyright = "Copyright Checker"
     static let kdpFormatter = "KDP Formatter"
     static let exporter = "Export Agent"
+    static let coverDesigner = "Cover Designer"
+    static let publisher = "Publishing Lead"
 }
 
 // MARK: - Prompt-Vorlagen
@@ -612,6 +614,41 @@ enum PromptFactory {
         KEYWORDS: [genau 7 Suchbegriffe, durch Kommas getrennt, je 1-3 Wörter; keine \
         Autorennamen oder Titel fremder Werke, nicht nur "Buch" oder "Roman" allein]
         KATEGORIEN: [3 passende Amazon-Kategorien, eine pro Zeile, Format: Oberkategorie > Unterkategorie]
+        """
+    }
+
+    /// Erzeugt fertige, kopierbare Bildgenerierungs-Prompts (ChatGPT/DALL·E) für das
+    /// Buchcover – exakt auf dieses Buch zugeschnitten.
+    static func coverImagePrompts(title: String, author: String, genre: String, subgenre: String,
+                                  language: String, mood: String, storySignals: String) -> String {
+        """
+        Du bist Art-Director für meistverkaufte Amazon-KDP-Buchcover und schreibst
+        Bildgenerierungs-Prompts, die ein Autor direkt in ChatGPT/DALL·E einfügt, um sein
+        Cover-Bild erzeugen zu lassen. Schreibe die Prompts auf ENGLISCH (beste Bildmodell-Ergebnisse).
+
+        BUCH
+        Titel: \(title)
+        Autor: \(author)
+        Genre: \(genre)\(subgenre.isEmpty ? "" : " / \(subgenre)")
+        Sprache des Buches: \(language)
+        Visuelle Stimmung: \(mood)
+        Story-Signale (Prämisse, Thema, Konflikt, Symbol):
+        \(storySignals)
+
+        REGELN für jeden Prompt
+        - Portrait 2:3 front cover, optimiert für Amazon-KDP-Thumbnail und Vollansicht.
+        - Illustration/Artwork ONLY: absolut KEIN Text, keine Buchstaben, kein Titel, kein Autorname,
+          keine Zahlen, keine Logos, keine Wasserzeichen im Bild.
+        - Klare, ruhige Negativräume im oberen Drittel (für späteren Titel) und unteren Viertel (Autor).
+        - Ein starker Fokuspunkt, der den zentralen Konflikt / das Schlüsselsymbol / die emotionale
+          Wunde des Buches transportiert – nicht generisch, sondern unverwechselbar für DIESES Buch.
+        - Hochwertig, cinematic, professionell – kein billiger KI-Glow, keine verformten Gesichter/Hände.
+        - Keine Hinweise auf KI, AI oder Automatisierung.
+
+        Liefere GENAU 3 unterschiedliche, eigenständige Cover-Konzepte. Antworte exakt in diesem Format:
+        PROMPT 1: [vollständiger, eigenständiger englischer Bild-Prompt, 60-120 Wörter, sofort einfügbar]
+        PROMPT 2: [zweites, deutlich anderes Konzept – andere Bildidee/Komposition]
+        PROMPT 3: [drittes, deutlich anderes Konzept]
         """
     }
 
