@@ -60,6 +60,11 @@ struct NewBookWizardView: View {
     @State private var ideaError: String?
     @State private var seedPremise = ""
 
+    // Viraler Titel-Generator
+    @State private var titleSuggestions: [String] = []
+    @State private var isGeneratingTitles = false
+    @State private var titleError: String?
+
     let languages = ["Deutsch", "Englisch", "Französisch", "Spanisch"]
     let genres = Self.availableGenres
     let styles = ["düster", "literarisch", "dialogstark", "humorvoll", "episch",
@@ -182,6 +187,37 @@ struct NewBookWizardView: View {
         Group {
             Section("Basisdaten") {
                 TextField("Titel", text: $title)
+                HStack {
+                    Button {
+                        generateViralTitles()
+                    } label: {
+                        if isGeneratingTitles {
+                            HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Titel …") }
+                        } else {
+                            Label("Virale Titel vorschlagen", systemImage: "sparkles")
+                        }
+                    }
+                    .disabled(isGeneratingTitles)
+                    if let titleError {
+                        Text(titleError).font(.caption).foregroundStyle(.red)
+                    }
+                }
+                if !titleSuggestions.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(titleSuggestions, id: \.self) { t in
+                            Button { title = t } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: title == t ? "checkmark.circle.fill" : "wand.and.stars")
+                                        .font(.caption)
+                                        .foregroundStyle(title == t ? .green : .secondary)
+                                    Text(t).foregroundStyle(.primary)
+                                    Spacer()
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
                 TextField("Autorname oder Pseudonym", text: $authorName)
                 TextEditor(text: $authorBio)
                     .frame(minHeight: 70)
@@ -315,6 +351,42 @@ struct NewBookWizardView: View {
                 ideaError = error.errorDescription
             } catch {
                 ideaError = error.localizedDescription
+            }
+        }
+    }
+
+    @MainActor
+    private func generateViralTitles() {
+        guard let config = usableIdeaConfig() else {
+            titleError = "Kein KI-Provider konfiguriert (Schritt „KI-Provider")."
+            return
+        }
+        isGeneratingTitles = true
+        titleError = nil
+
+        let request = GenerationRequest(
+            prompt: PromptFactory.viralTitles(genre: effectiveGenre, premise: seedPremise, language: language),
+            systemPrompt: "Du bist ein Bestseller-Titel-Experte für virale, unverwechselbare Buchtitel, die beim Scrollen sofort hängenbleiben.",
+            model: config.defaultModel ?? config.provider.suggestedModels.first ?? "",
+            provider: config.provider,
+            maxTokens: 400,
+            temperature: 0.95
+        )
+
+        Task { @MainActor in
+            defer { isGeneratingTitles = false }
+            do {
+                let response = try await ProviderGateway.shared.generateText(request: request, configuration: config)
+                let titles = StructureParser.parseTitleLines(response.text)
+                if titles.isEmpty {
+                    titleError = "Keine Titel erkannt – bitte erneut versuchen."
+                } else {
+                    titleSuggestions = titles
+                }
+            } catch let error as AIError {
+                titleError = error.errorDescription
+            } catch {
+                titleError = error.localizedDescription
             }
         }
     }

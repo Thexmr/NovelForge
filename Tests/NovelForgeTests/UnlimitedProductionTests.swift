@@ -160,6 +160,25 @@ final class UnlimitedProductionTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Hook"))
     }
 
+    func testViralTitlesPromptDemandsClickyShortTitles() {
+        let p = PromptFactory.viralTitles(genre: "Dark Romance",
+                                          premise: "Zwei Menschen, eine letzte Nacht.",
+                                          language: "Deutsch")
+        XCTAssertTrue(p.contains("VIRALE"))
+        XCTAssertTrue(p.contains("TITEL: "))
+        XCTAssertTrue(p.contains("2-6 Wörter"))
+        XCTAssertTrue(p.contains("Dark Romance"))
+    }
+
+    func testExpandedGenrePoolHasManyMoreGenres() {
+        XCTAssertGreaterThanOrEqual(UnlimitedSettings.genrePool.count, 100)
+        for g in ["LitRPG", "Dark Academia", "Domestic Thriller", "Reverse Harem", "Solarpunk"] {
+            XCTAssertTrue(UnlimitedSettings.genrePool.contains(g), "Genre fehlt: \(g)")
+        }
+        XCTAssertEqual(Set(UnlimitedSettings.genrePool).count, UnlimitedSettings.genrePool.count,
+                       "Genre-Pool enthält Duplikate")
+    }
+
     @MainActor
     func testSingleBookWizardUsesSameGenrePoolAsAutonomousMode() {
         XCTAssertEqual(NewBookWizardView.availableGenres, UnlimitedSettings.genrePool)

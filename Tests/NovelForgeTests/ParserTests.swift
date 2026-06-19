@@ -141,6 +141,17 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(result.keywords, "liebe, drama")
     }
 
+    func testParseTitleLinesStripsPrefixesAndDedupes() {
+        let text = """
+        TITEL: Sag, dass du bleibst
+        2. „Die letzte Nacht“
+        - Sag, dass du bleibst
+        TITEL: Vergiss mich nicht
+        """
+        let titles = StructureParser.parseTitleLines(text)
+        XCTAssertEqual(titles, ["Sag, dass du bleibst", "Die letzte Nacht", "Vergiss mich nicht"])
+    }
+
     // MARK: - RepairIssueParser
 
     func testRepairIssueParserTargetsAffectedChapters() {

@@ -43,7 +43,25 @@ struct UnlimitedSettings {
         "Historischer Roman", "Mittelalter-Saga", "Weltkriegsroman", "Western", "Abenteuer",
         "Survival", "Seeabenteuer",
         // Jung
-        "Jugendbuch", "Fantasy-Jugendbuch", "Kinderbuch", "Märchen"]
+        "Jugendbuch", "Fantasy-Jugendbuch", "Kinderbuch", "Märchen",
+        // Romance-Tropes (KDP)
+        "Romantische Komödie", "Second Chance Romance", "Forbidden Romance", "Fake Dating",
+        "Friends to Lovers", "Grumpy/Sunshine", "Small-Town Romance", "Sports Romance",
+        "Mafia Romance", "Bodyguard Romance", "Workplace Romance", "Holiday Romance",
+        "Reverse Harem", "Why Choose", "Billionaire Romance", "Single Parent Romance",
+        "Marriage of Convenience", "Frauenroman", "Liebesdrama",
+        // Fantasy / SF erweitert
+        "Epic Fantasy", "Sword & Sorcery", "LitRPG", "Progression Fantasy", "Portal-Fantasy",
+        "Götter & Mythen", "Military Science Fiction", "Hard Science Fiction", "Solarpunk",
+        "Biopunk", "Alternate History", "Dark Academia", "Vampirroman", "Werwolf/Shifter",
+        "Hexen", "Geister & Spuk",
+        // Spannung erweitert
+        "Domestic Thriller", "Psychologischer Suspense", "Spionage", "Heist/Raubzug",
+        "Serienkiller-Thriller", "Gerichtsdrama", "Agententhriller", "Techno-Thriller",
+        // Horror / Komödie / Sonstiges
+        "Splatterpunk", "Creature-Horror", "Folk Horror", "Komödie", "Schwarze Komödie",
+        "Climate Fiction", "Familiendrama", "Generationenroman", "Roadtrip-Roman",
+        "Künstlerroman", "Briefroman"]
     static let stylePool = ["düster", "literarisch", "dialogstark", "humorvoll", "episch",
                             "emotional", "sinnlich", "schnell erzählt", "minimalistisch",
                             "atmosphärisch", "actionreich", "psychologisch"]

@@ -640,6 +640,27 @@ enum PromptFactory {
         """
     }
 
+    /// Dedizierter viraler Titel-Generator: liefert mehrere klickstarke, spannende
+    /// Buchtitel, die auf Amazon KDP / BookTok auffallen.
+    static func viralTitles(genre: String, premise: String, language: String) -> String {
+        let genreLine = genre.trimmingCharacters(in: .whitespaces).isEmpty ? "" : "Genre: \(genre)\n"
+        let premiseLine = premise.trimmingCharacters(in: .whitespaces).isEmpty
+            ? "" : "Worum es geht: \(premise.truncated(to: 600))\n"
+        return """
+        Erfinde 8 VIRALE, klickstarke Buchtitel auf \(language), die sofort neugierig machen,
+        spannend sind und gelesen werden wollen.
+        \(genreLine)\(premiseLine)
+        PFLICHT je Titel:
+        - 2-6 Wörter, als Amazon-KDP-Thumbnail sofort lesbar.
+        - Offene Frage / Spannung / starkes Versprechen — ein Sog, der zum Klicken zwingt.
+        - Emotional aufgeladen, konkretes Bild; BookTok-tauglich.
+        - KEINE Berufs-/Ort-Klischees ("Die Bäckerin von …"), keine Anführungszeichen,
+          keine Erklärungen, keine zwei austauschbaren Allerweltstitel.
+
+        Gib NUR die 8 Titel aus, je einen pro Zeile, jeweils beginnend mit "TITEL: ".
+        """
+    }
+
     /// Erzeugt fertige, kopierbare Bildgenerierungs-Prompts (ChatGPT/DALL·E) für das
     /// Buchcover – exakt auf dieses Buch zugeschnitten.
     static func coverImagePrompts(title: String, author: String, genre: String, subgenre: String,
@@ -1000,6 +1021,27 @@ struct ParsedIdea {
 }
 
 enum StructureParser {
+
+    /// Parst eine Liste viraler Titel (eine pro Zeile, mit/ohne "TITEL:"-Präfix,
+    /// Nummerierung, Bullets oder Anführungszeichen). Dedupliziert, max. 10.
+    static func parseTitleLines(_ text: String) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        let strip = CharacterSet(charactersIn: "\"'„“”»«*#-– ")
+        for raw in text.components(separatedBy: .newlines) {
+            var line = raw.trimmingCharacters(in: .whitespaces)
+            line = line.replacingOccurrences(of: #"^\s*titel\s*:\s*"#, with: "",
+                                             options: [.regularExpression, .caseInsensitive])
+            line = line.replacingOccurrences(of: #"^\s*\d+[\.\)]\s*"#, with: "", options: .regularExpression)
+            line = line.trimmingCharacters(in: strip)
+            guard line.count >= 2, line.count <= 70 else { continue }
+            if seen.insert(line.lowercased()).inserted {
+                out.append(line)
+                if out.count >= 10 { break }
+            }
+        }
+        return out
+    }
 
     /// Zerlegt eine Zeile "MARKER|a|b|c" in ihre Felder. Toleriert führende
     /// Aufzählungszeichen, Markdown-Reste UND vom Modell eingefügte Nummern oder
