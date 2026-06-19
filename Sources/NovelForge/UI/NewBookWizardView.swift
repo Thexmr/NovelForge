@@ -4,6 +4,8 @@ import SwiftData
 @MainActor
 struct NewBookWizardView: View {
     static let availableGenres = UnlimitedSettings.genrePool
+    /// Sentinel-Tag für „eigenes Genre frei eingeben" im Genre-Picker.
+    static let customGenreTag = "__eigenes_genre__"
 
     @Environment(\.dismiss) var dismiss
     @Environment(\.modelContext) var modelContext
@@ -24,6 +26,7 @@ struct NewBookWizardView: View {
     @State private var authorName = ""
     @State private var language = "Deutsch"
     @State private var genre = ""
+    @State private var customGenre = ""
     @State private var subgenre = ""
     @State private var imprint = ""
     @State private var authorBio = ""
@@ -67,6 +70,15 @@ struct NewBookWizardView: View {
     let tenses = ["Präteritum", "Präsens"]
 
     private let stepTitles = ["Basis", "Stil", "Umfang", "KI-Provider", "Prüfen"]
+
+    /// Das tatsächlich zu verwendende Genre: bei „Andere…" der frei eingegebene Text,
+    /// sonst die Picker-Auswahl.
+    private var effectiveGenre: String {
+        if genre == Self.customGenreTag {
+            return customGenre.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return genre
+    }
 
     var body: some View {
         NavigationStack {
@@ -201,6 +213,12 @@ struct NewBookWizardView: View {
                 Picker("Genre", selection: $genre) {
                     Text("Bitte wählen").tag("")
                     ForEach(genres, id: \.self) { Text($0).tag($0) }
+                    Divider()
+                    Text("Andere (frei eingeben)…").tag(Self.customGenreTag)
+                }
+
+                if genre == Self.customGenreTag {
+                    TextField("Eigenes Genre", text: $customGenre)
                 }
 
                 TextField("Subgenre (optional)", text: $subgenre)
@@ -277,7 +295,7 @@ struct NewBookWizardView: View {
         ideaError = nil
 
         let request = GenerationRequest(
-            prompt: PromptFactory.bookIdeas(genre: genre, language: language),
+            prompt: PromptFactory.bookIdeas(genre: effectiveGenre, language: language),
             systemPrompt: "Du bist ein Verlagslektor mit sicherem Gespür für verkäufliche, originelle Buchideen.",
             model: config.defaultModel ?? config.provider.suggestedModels.first ?? "",
             provider: config.provider,
@@ -473,7 +491,7 @@ struct NewBookWizardView: View {
         case 0:
             return !title.trimmingCharacters(in: .whitespaces).isEmpty
                 && !authorName.trimmingCharacters(in: .whitespaces).isEmpty
-                && !genre.isEmpty
+                && !effectiveGenre.isEmpty
         case 1:
             return !styleProfile.isEmpty
         case 2:
@@ -501,7 +519,7 @@ struct NewBookWizardView: View {
             title: title.trimmingCharacters(in: .whitespaces),
             authorName: authorName.trimmingCharacters(in: .whitespaces),
             language: language,
-            genre: genre,
+            genre: effectiveGenre,
             styleProfile: styleProfile,
             targetPageCount: targetPageCount,
             outputFormats: selectedFormats

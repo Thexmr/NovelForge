@@ -37,6 +37,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
     case storyBible = "Story Bible"
     case editorChat = "Lektor"
     case export = "Export"
+    case kdp = "KDP-Verkauf"
     case settings = "Einstellungen"
 
     var id: String { rawValue }
@@ -51,6 +52,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         case .storyBible: return "book.closed"
         case .editorChat: return "text.bubble"
         case .export: return "square.and.arrow.up"
+        case .kdp: return "cart.badge.plus"
         case .settings: return "gear"
         }
     }
@@ -103,6 +105,8 @@ struct ContentView: View {
             EditorChatView()
         case .export:
             ExportView()
+        case .kdp:
+            KDPMarketingView()
         case .settings:
             SettingsView()
         case .none:
@@ -119,7 +123,7 @@ struct StudioSidebar: View {
     private let sections: [(String, [SidebarItem])] = [
         ("Studio", [.dashboard, .projects, .production, .agents]),
         ("Inhalt", [.manuscript, .storyBible, .editorChat]),
-        ("Ausgabe", [.export]),
+        ("Ausgabe", [.export, .kdp]),
         ("System", [.settings])
     ]
 

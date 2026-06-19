@@ -11,6 +11,41 @@ enum AutonomousContentQuality {
             && !containsMetaRequest(premise)
     }
 
+    /// Heuristische Klickstärke/„Viralität" eines Titels für die Auto-Produktion:
+    /// bevorzugt kurze, klangstarke, neugierig machende Titel (gut als Amazon-KDP-
+    /// Thumbnail lesbar), bestraft generische und Berufs-/Ort-Klischee-Titel.
+    /// Reine Heuristik – kein Netzwerkaufruf, deterministisch.
+    static func titleViralityScore(_ rawTitle: String) -> Int {
+        let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return 0 }
+        if isGenericPlaceholder(title) { return 0 }
+
+        var score = 50
+        let words = title.split(separator: " ").count
+        switch words {            // Wortzahl-Sweetspot 2–5 (im Suchergebnis sofort lesbar)
+        case 2...5: score += 25
+        case 1, 6: score += 8
+        default: score -= 12      // 7+ Wörter: zu lang fürs Thumbnail
+        }
+        switch title.count {      // kurze Titel = besser sichtbar
+        case ...28: score += 15
+        case 29...40: score += 6
+        default: score -= 10
+        }
+        if isOccupationalTitleCliche(title) { score -= 40 }
+
+        let lower = title.lowercased()
+        let curiosityWords = ["niemand", "nie", "letzte", "letzter", "letztes", "bevor", "wenn",
+                              "warum", "was", "kein", "keiner", "still", "schweigen", "lüge",
+                              "geheimnis", "schatten", "blut", "nacht", "tod", "verloren",
+                              "vergiss", "sag", "bleib", "komm"]
+        if curiosityWords.contains(where: { lower.contains($0) }) { score += 14 }
+        if lower.contains(" und ") || lower.contains(" oder ") || title.contains(",") { score += 6 }
+        if lower.contains("dich") || lower.contains("dir") || lower.contains(" du ") { score += 6 }
+
+        return max(0, score)
+    }
+
     static func hasUsableChapterPlan(_ chapters: [PlannedChapter]) -> Bool {
         guard chapters.count >= 3 else { return false }
         return chapters.allSatisfy { chapter in

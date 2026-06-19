@@ -21,11 +21,29 @@ struct UnlimitedSettings {
     var ideaSeeds: [String]
 
     static let randomToken = "Zufällig"
-    static let genrePool = ["Thriller", "Psychothriller", "Krimi", "Cozy Mystery", "Mystery",
-                            "Roman", "Familiensaga", "Coming-of-Age", "Liebesroman", "Romantasy",
-                            "Erotik", "Dark Romance", "New Adult", "Fantasy", "Urban Fantasy",
-                            "Science Fiction", "Dystopie", "Steampunk", "Historischer Roman",
-                            "Horror", "Western", "Märchen", "Jugendbuch", "Abenteuer"]
+    static let genrePool = [
+        // Spannung / Krimi
+        "Thriller", "Psychothriller", "Spionagethriller", "Justizthriller", "Politthriller",
+        "Wirtschaftsthriller", "Medizinthriller", "Ökothriller", "Krimi", "Regionalkrimi",
+        "Historischer Krimi", "Cozy Mystery", "Mystery", "Whodunit", "Noir",
+        // Roman / Gegenwart / Literarisch
+        "Roman", "Gegenwartsliteratur", "Gesellschaftsroman", "Familiensaga", "Heimatroman",
+        "Coming-of-Age", "Entwicklungsroman", "Feel-Good-Roman", "Tragikomödie", "Satire",
+        "Magischer Realismus",
+        // Liebe / Romance
+        "Liebesroman", "Romance", "Romantasy", "Romantic Suspense", "Paranormal Romance",
+        "Enemies-to-Lovers", "Slow Burn", "Chick-Lit", "Erotik", "Dark Romance", "New Adult",
+        // Fantasy / Science Fiction
+        "Fantasy", "High Fantasy", "Dark Fantasy", "Cozy Fantasy", "Grimdark", "Urban Fantasy",
+        "Mythologie", "Science Fiction", "Space Opera", "Cyberpunk", "Dystopie",
+        "Postapokalyptisch", "Zeitreise", "Steampunk",
+        // Horror
+        "Horror", "Gothic Horror", "Psychologischer Horror",
+        // Historisch / Abenteuer
+        "Historischer Roman", "Mittelalter-Saga", "Weltkriegsroman", "Western", "Abenteuer",
+        "Survival", "Seeabenteuer",
+        // Jung
+        "Jugendbuch", "Fantasy-Jugendbuch", "Kinderbuch", "Märchen"]
     static let stylePool = ["düster", "literarisch", "dialogstark", "humorvoll", "episch",
                             "emotional", "sinnlich", "schnell erzählt", "minimalistisch",
                             "atmosphärisch", "actionreich", "psychologisch"]
@@ -332,6 +350,69 @@ final class PipelineOrchestrator: ObservableObject {
             lastError = (error as? AIError)?.errorDescription ?? error.localizedDescription
             finish()
             return "Fehler bei der KI-Nachbearbeitung: \(lastError ?? error.localizedDescription)"
+        }
+    }
+
+    /// Erzeugt bzw. erneuert die Amazon-KDP-Verkaufstexte auf Knopfdruck – viraler
+    /// Verkaufstitel, Untertitel, Verkaufstext, Keywords und Kategorien – unabhängig
+    /// von der vollständigen Produktionspipeline.
+    func generateKDPSalesSheet(project: Project) async -> String {
+        guard !isRunning else {
+            return "Gerade läuft bereits eine Produktion oder Reparatur. Bitte warte, bis sie fertig ist."
+        }
+        guard project.modelContext != nil else {
+            return "Dieses Projekt ist nicht mehr verfügbar."
+        }
+        guard let profile = project.bookProfile else {
+            return "Für dieses Buch gibt es noch kein Konzept – erst Buch erstellen, dann Verkaufstexte generieren."
+        }
+
+        let previousStatus = project.status
+        let config = ProviderSettingsStore.configuration(for: project)
+        isRunning = true
+        stopMode = .none
+        currentProject = project
+        currentPhase = .kdpFormatting
+        currentAgent = AgentName.kdpFormatter
+        lastError = nil
+        markProjectActive(project)
+        startHeartbeat()
+
+        let job = beginJob(agent: AgentName.kdpFormatter, phase: .kdpFormatting, project: project)
+        do {
+            let response = try await generate(
+                prompt: PromptFactory.kdpMetadata(
+                    title: project.title, author: project.authorName,
+                    authorBio: project.authorBio,
+                    genre: project.genre, audience: profile.targetAudience,
+                    synopsis: profile.synopsis ?? profile.premise,
+                    language: project.language
+                ),
+                system: "Du bist ein erfahrener Buchmarketing-Texter für Amazon KDP. Deine Produktbeschreibungen verkaufen.",
+                maxTokens: 1200, temperature: 0.7, config: config
+            )
+            let parsed = KDPMetadataParser.parse(response.text)
+            profile.kdpDescription = parsed.salesDescription.isEmpty ? response.text : parsed.salesDescription
+            profile.kdpKeywords = parsed.keywords
+            profile.kdpCategories = parsed.categories
+            profile.kdpTitle = parsed.salesTitle
+            profile.kdpSubtitle = parsed.subtitle
+            completeJob(job, result: response.text, tokens: response.tokensUsed ?? 0)
+            project.status = previousStatus
+            project.updatedAt = Date()
+            try? modelContext?.save()
+            finish()
+            return "KDP-Verkaufstexte aktualisiert."
+        } catch is CancellationError {
+            project.status = previousStatus
+            handleStop(project: project)
+            return "Die Generierung wurde pausiert."
+        } catch {
+            if currentJob?.status == .running { failJob(job, error: error) }
+            project.status = previousStatus
+            lastError = (error as? AIError)?.errorDescription ?? error.localizedDescription
+            finish()
+            return "Fehler beim Generieren der KDP-Verkaufstexte: \(lastError ?? error.localizedDescription)"
         }
     }
 
@@ -714,10 +795,17 @@ final class PipelineOrchestrator: ObservableObject {
                 maxTokens: 1000, temperature: 0.95, config: config
             )
             let ideas = StructureParser.parseIdeas(response.text)
-            idea = ideas.first {
+            // Nicht die erste brauchbare Idee nehmen, sondern die mit dem stärksten,
+            // klickträchtigsten Titel (virale Auswahl statt „first wins").
+            let fresh = ideas.filter {
                 AutonomousContentQuality.hasUsableIdea($0)
                     && !StoryMemory.isLikelyDuplicate($0, existing: memoryEntries)
-            } ?? ideas.first { AutonomousContentQuality.hasUsableIdea($0) }
+            }
+            let usable = fresh.isEmpty ? ideas.filter { AutonomousContentQuality.hasUsableIdea($0) } : fresh
+            idea = usable.max {
+                AutonomousContentQuality.titleViralityScore($0.title)
+                    < AutonomousContentQuality.titleViralityScore($1.title)
+            }
             if idea != nil { break }
         }
         // Durchgehende Dauerproduktion: wenn das Modell nach 3 Versuchen keine
@@ -2339,6 +2427,8 @@ final class PipelineOrchestrator: ObservableObject {
                 profile.kdpDescription = parsed.salesDescription.isEmpty ? response.text : parsed.salesDescription
                 profile.kdpKeywords = parsed.keywords
                 profile.kdpCategories = parsed.categories
+                profile.kdpTitle = parsed.salesTitle
+                profile.kdpSubtitle = parsed.subtitle
                 completeJob(metaJob, result: response.text, tokens: response.tokensUsed ?? 0)
             } catch {
                 failJob(metaJob, error: error)
@@ -2469,19 +2559,34 @@ final class PipelineOrchestrator: ObservableObject {
     }
 
     private func repairAuditSummaries(for chapters: [Chapter]) -> String {
-        chapters.map { chapter in
+        // Gesamt-Budget für echte Prosa-Auszüge, fair auf alle Kapitel verteilt,
+        // damit auch lange Manuskripte (50+ Kapitel) den Kontext nicht sprengen.
+        let proseBudget = 24_000
+        let perChapter = chapters.isEmpty ? 0 : max(360, proseBudget / chapters.count)
+        return chapters.map { chapter in
             let summary = chapter.summary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let core = [chapter.goal, chapter.conflict]
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
                 .joined(separator: " | ")
-            let excerpt = (chapter.bestText ?? "").truncated(to: 700)
+            // Echter Text (Anfang + Ende), damit der Audit Widersprüche und
+            // Kontinuitätsbrüche IM Text findet, nicht nur in der Zusammenfassung.
+            let fullText = (chapter.bestText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let prose: String
+            if fullText.count > perChapter {
+                let head = perChapter * 2 / 3
+                let tail = perChapter - head
+                prose = String(fullText.prefix(head)) + "\n[…]\n" + String(fullText.suffix(tail))
+            } else {
+                prose = fullText
+            }
             return """
             Kapitel \(chapter.chapterNumber) (\(chapter.title)):
             Ziel/Konflikt: \(core.isEmpty ? "nicht angegeben" : core)
-            Zusammenfassung: \(summary.isEmpty ? excerpt : summary)
+            Zusammenfassung: \(summary.isEmpty ? "—" : summary)
+            Textauszug: \(prose.isEmpty ? "(noch kein Text)" : prose)
             """
-        }.joined(separator: "\n")
+        }.joined(separator: "\n\n")
     }
 
     private func repairReportBrief(for project: Project) -> String {

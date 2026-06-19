@@ -126,6 +126,21 @@ final class ParserTests: XCTestCase {
         XCTAssertTrue(result.categories.contains("Belletristik > Spannung"))
     }
 
+    func testKDPMetadataParserExtractsSalesTitleAndSubtitle() {
+        let text = """
+        VERKAUFSTITEL: Sag, dass du bleibst
+        UNTERTITEL: Ein Liebesroman über zweite Chancen
+        VERKAUFSTEXT: Packender Roman.
+        KEYWORDS: liebe, drama
+        KATEGORIEN: Belletristik > Liebesroman
+        """
+        let result = KDPMetadataParser.parse(text)
+        XCTAssertEqual(result.salesTitle, "Sag, dass du bleibst")
+        XCTAssertEqual(result.subtitle, "Ein Liebesroman über zweite Chancen")
+        XCTAssertTrue(result.salesDescription.contains("Packender Roman"))
+        XCTAssertEqual(result.keywords, "liebe, drama")
+    }
+
     // MARK: - RepairIssueParser
 
     func testRepairIssueParserTargetsAffectedChapters() {

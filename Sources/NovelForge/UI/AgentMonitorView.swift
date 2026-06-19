@@ -188,7 +188,10 @@ struct ExportView: View {
             .frame(minWidth: 200, idealWidth: 240, maxWidth: 300)
 
             Group {
-                if let project = appState.selectedProject {
+                // modelContext == nil ⇒ Projekt von der Pipeline gelöscht (z.B. resetChapterPlan
+                // während laufender Produktion). Zugriff auf gelöschte @Model-Relationen würde
+                // den Prozess beenden (SwiftData assertionFailure) – daher hier abfangen.
+                if let project = appState.selectedProject, project.modelContext != nil {
                     ExportDetailView(project: project)
                 } else {
                     ContentUnavailableView("Projekt wählen", systemImage: "square.and.arrow.up")
@@ -203,12 +206,26 @@ struct ExportView: View {
 struct ExportDetailView: View {
     let project: Project
 
+    @ObservedObject private var orchestrator = PipelineOrchestrator.shared
+    @Environment(\.modelContext) private var modelContext
+    @State private var isRepairing = false
+    @State private var repairNote: String?
+
     private var scores: QualityScores {
-        QualityScores.compute(for: project)
+        // Defensive: gelöschtes Projekt liefert Null-Scores statt auf tote Relationen zuzugreifen.
+        guard project.modelContext != nil else {
+            return QualityScores(structure: 0, characters: 0, style: 0, consistency: 0, kdp: 0)
+        }
+        return QualityScores.compute(for: project)
     }
 
     var body: some View {
-        ScrollView {
+        // Lastentragender Guard: wird ExportDetailView nach einem Pipeline-Delete erneut
+        // gerendert, dürfen keine SwiftData-Relationen des toten Objekts gelesen werden.
+        if project.modelContext == nil {
+            ContentUnavailableView("Projekt nicht mehr verfügbar", systemImage: "square.and.arrow.up")
+        } else {
+            ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(project.title)
@@ -229,6 +246,35 @@ struct ExportDetailView: View {
 
                 CoverStudioPanel(project: project)
                 KDPSalesSheetView(project: project)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Nachbearbeitung")
+                        .font(.headline)
+                    Text("Die KI prüft das fertige Buch auf inhaltliche Unstimmigkeiten (Zeitlinie, Figurenwissen, Kontinuität, Logik) und korrigiert gezielt nur die betroffenen Stellen – nach dem Proofreading.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 10) {
+                        Button {
+                            repair()
+                        } label: {
+                            if isRepairing {
+                                HStack(spacing: 6) {
+                                    ProgressView().controlSize(.small)
+                                    Text("Wird geprüft …")
+                                }
+                            } else {
+                                Label("Konsistenz prüfen & reparieren", systemImage: "wand.and.stars")
+                            }
+                        }
+                        .disabled(isRepairing || orchestrator.isRunning)
+                        if let repairNote {
+                            Text(repairNote)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Buchformate")
@@ -292,6 +338,18 @@ struct ExportDetailView: View {
             .padding(24)
             .frame(maxWidth: 760, alignment: .leading)
             .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    private func repair() {
+        guard project.modelContext != nil, !isRepairing, !orchestrator.isRunning else { return }
+        isRepairing = true
+        repairNote = nil
+        Task { @MainActor in
+            let reply = await orchestrator.repairBookAfterProofreading(project: project)
+            repairNote = reply
+            isRepairing = false
         }
     }
 }

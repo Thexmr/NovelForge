@@ -90,6 +90,10 @@ final class BookProfile {
     var kdpDescription: String = ""
     var kdpKeywords: String = ""
     var kdpCategories: String = ""
+    /// Viraler, klickstarker Verkaufstitel für Amazon KDP (kann vom literarischen Buchtitel abweichen).
+    var kdpTitle: String = ""
+    /// Keyword-getriebener KDP-Untertitel (Untertitel-Feld bei Amazon KDP).
+    var kdpSubtitle: String = ""
     
     @Relationship(inverse: \Project.bookProfile) var project: Project?
     

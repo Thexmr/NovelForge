@@ -18,12 +18,15 @@ struct KDPSalesSheet {
 
     static func make(for project: Project) -> KDPSalesSheet {
         let profile = project.bookProfile
+        // Bevorzugt den eigens generierten viralen KDP-Verkaufstitel; sonst der Buchtitel.
+        let marketingTitle = clean(profile?.kdpTitle ?? "")
+        let subtitle = clean(profile?.kdpSubtitle ?? "")
         return KDPSalesSheet(
-            title: clean(project.title),
+            title: marketingTitle.isEmpty ? clean(project.title) : marketingTitle,
             author: clean(project.authorName),
             language: clean(project.language),
             trimSize: clean(project.trimSize.displayName),
-            hook: hook(from: profile),
+            hook: subtitle.isEmpty ? hook(from: profile) : subtitle,
             salesDescription: clean(profile?.kdpDescription ?? ""),
             keywords: clean(profile?.kdpKeywords ?? ""),
             categories: clean(profile?.kdpCategories ?? ""),

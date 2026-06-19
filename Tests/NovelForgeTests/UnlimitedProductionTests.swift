@@ -125,6 +125,20 @@ final class UnlimitedProductionTests: XCTestCase {
         }
     }
 
+    func testGenrePoolIsLargeAndUnique() {
+        XCTAssertGreaterThanOrEqual(UnlimitedSettings.genrePool.count, 40)
+        XCTAssertEqual(Set(UnlimitedSettings.genrePool).count, UnlimitedSettings.genrePool.count,
+                       "Genre-Pool enthält Duplikate")
+    }
+
+    func testTitleViralityPrefersShortPunchyTitles() {
+        let strong = AutonomousContentQuality.titleViralityScore("Sag, dass du bleibst")
+        let weak = AutonomousContentQuality.titleViralityScore(
+            "Ein ganz gewöhnlicher Tag im Leben einer Frau in der großen Stadt")
+        XCTAssertGreaterThan(strong, weak)
+        XCTAssertEqual(AutonomousContentQuality.titleViralityScore(""), 0)
+    }
+
     @MainActor
     func testSingleBookWizardUsesSameGenrePoolAsAutonomousMode() {
         XCTAssertEqual(NewBookWizardView.availableGenres, UnlimitedSettings.genrePool)

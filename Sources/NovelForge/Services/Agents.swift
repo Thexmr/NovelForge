@@ -600,6 +600,12 @@ enum PromptFactory {
         in Verkaufstext, Keywords oder Kategorien. Die Ausgabe muss wie professionelle Verlagsmetadaten wirken.
 
         Antworte exakt in diesem Format:
+        VERKAUFSTITEL: [viraler, klickstarker Verkaufstitel für Amazon KDP, 2-6 Wörter, \
+        als Thumbnail im Suchergebnis sofort lesbar, neugierig machend (offene Frage/Spannung), \
+        emotional aufgeladen. Darf vom Originaltitel "\(title)" abweichen, wenn er stärker verkauft. \
+        Kein Untertitel, keine Anführungszeichen.]
+        UNTERTITEL: [keyword-getriebener KDP-Untertitel, der Genre und Lesernutzen transportiert \
+        und ein zugkräftiges Suchwort vorn trägt; eine Zeile.]
         VERKAUFSTEXT: [150-200 Wörter Amazon-Produktbeschreibung: packender Hook in der \
         ersten Zeile, dann Konflikt und Einsatz, am Ende ein kaufauslösender Abschluss. \
         Keine Spoiler. Keine verbotenen Begriffe wie "Bestseller" oder "kostenlos". Reiner Fließtext.]
@@ -685,9 +691,12 @@ enum PromptFactory {
         - Formuliere die Reparaturanweisung so, dass sie automatisch behoben werden kann.
         - Wenn alles stimmig ist, antworte exakt: KEINE REPARATUR NÖTIG
         - Wenn ein Problem klar einem Kapitel zuordenbar ist, nenne dieses Kapitel.
-        - Wenn ein Problem mehrere Kapitel betrifft, nutze "Gesamtmanuskript".
+        - Wenn ein Problem mehrere Kapitel betrifft, schreibe eine eigene REPAIR-Zeile pro
+          betroffenem Kapitel, damit die App diese Kapitel automatisch korrigieren kann.
+        - Nutze "Gesamtmanuskript" nur, wenn keine konkrete Textreparatur möglich ist.
+        - Stütze Befunde zu Wortlaut, Anschluss und Kontinuität auf die mitgelieferten Textauszüge.
 
-        KAPITELZUSAMMENFASSUNGEN:
+        KAPITEL (Zusammenfassung + echter Textauszug):
         \(summaries)
 
         FIGUREN:
@@ -789,6 +798,8 @@ enum ConceptParser {
 }
 
 struct KDPMetadataResult {
+    var salesTitle = ""
+    var subtitle = ""
     var salesDescription = ""
     var keywords = ""
     var categories = ""
@@ -796,7 +807,7 @@ struct KDPMetadataResult {
 
 enum KDPMetadataParser {
     static func parse(_ text: String) -> KDPMetadataResult {
-        let labels = ["VERKAUFSTEXT", "KEYWORDS", "KATEGORIEN"]
+        let labels = ["VERKAUFSTITEL", "UNTERTITEL", "VERKAUFSTEXT", "KEYWORDS", "KATEGORIEN"]
         var sections: [String: String] = [:]
         var currentLabel: String?
 
@@ -823,6 +834,8 @@ enum KDPMetadataParser {
         }
 
         var result = KDPMetadataResult()
+        result.salesTitle = sections["VERKAUFSTITEL"] ?? ""
+        result.subtitle = sections["UNTERTITEL"] ?? ""
         result.salesDescription = sections["VERKAUFSTEXT"] ?? ""
         result.keywords = sections["KEYWORDS"] ?? ""
         result.categories = sections["KATEGORIEN"] ?? ""
