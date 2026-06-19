@@ -38,7 +38,11 @@ enum AutonomousContentQuality {
         let curiosityWords = ["niemand", "nie", "letzte", "letzter", "letztes", "bevor", "wenn",
                               "warum", "was", "kein", "keiner", "still", "schweigen", "lüge",
                               "geheimnis", "schatten", "blut", "nacht", "tod", "verloren",
-                              "vergiss", "sag", "bleib", "komm"]
+                              "vergiss", "sag", "bleib", "komm",
+                              // Romance/Sehnsucht (größter KDP-Markt)
+                              "küss", "berühr", "versprich", "gehörst", "mein", "dein",
+                              "sehnsucht", "verboten", "verbotene", "zwischen uns", "ansieht",
+                              "begehr", "herz", "haut", "näher", "fremder"]
         if curiosityWords.contains(where: { lower.contains($0) }) { score += 14 }
         if lower.contains(" und ") || lower.contains(" oder ") || title.contains(",") { score += 6 }
         if lower.contains("dich") || lower.contains("dir") || lower.contains(" du ") { score += 6 }

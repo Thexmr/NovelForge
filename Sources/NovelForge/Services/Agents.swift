@@ -608,12 +608,20 @@ enum PromptFactory {
         Kein Untertitel, keine Anführungszeichen.]
         UNTERTITEL: [keyword-getriebener KDP-Untertitel, der Genre und Lesernutzen transportiert \
         und ein zugkräftiges Suchwort vorn trägt; eine Zeile.]
-        VERKAUFSTEXT: [150-200 Wörter Amazon-Produktbeschreibung: packender Hook in der \
-        ersten Zeile, dann Konflikt und Einsatz, am Ende ein kaufauslösender Abschluss. \
-        Keine Spoiler. Keine verbotenen Begriffe wie "Bestseller" oder "kostenlos". Reiner Fließtext.]
-        KEYWORDS: [genau 7 Suchbegriffe, durch Kommas getrennt, je 1-3 Wörter; keine \
-        Autorennamen oder Titel fremder Werke, nicht nur "Buch" oder "Roman" allein]
-        KATEGORIEN: [3 passende Amazon-Kategorien, eine pro Zeile, Format: Oberkategorie > Unterkategorie]
+        VERKAUFSTEXT: [150-200 Wörter Amazon-Produktbeschreibung in kurzen, scanbaren Absätzen \
+        (keine Textwand, keine Markdown-Symbole): erste Zeile ein eigenständiger, zugkräftiger \
+        Tagline-Hook; dann 2-3 kurze Absätze mit steigenden Stakes und emotionalem Sog; eine \
+        kaufauslösende Schlusszeile; danach EINE "Für Fans von …"-Zeile mit 1-2 genre-typischen \
+        Lese-Erlebnissen/Tropes (KEINE fremden Buchtitel oder Autorennamen). Keine Spoiler. \
+        Keine verbotenen Begriffe wie "Bestseller" oder "kostenlos".]
+        KEYWORDS: [genau 7 unterschiedliche Long-Tail-Suchphrasen, wie echte KDP-Käufer suchen, \
+        je 2-4 Wörter, durch Kommas getrennt. Mische Genre+Trope, Stimmung/Heat, Zielleser und \
+        Setting. Keine nackten Einzelwörter, keine doppelten Wortstämme, keine Autorennamen oder \
+        Titel fremder Werke.]
+        KATEGORIEN: [3 ECHTE Amazon-Kindle-Kategorien (keine erfundenen Pfade), eine pro Zeile, \
+        Format: Oberkategorie > Unterkategorie. Wähle möglichst spezifische Nischen-Unterkategorien \
+        des Genres, in denen der Bestseller-Rang erreichbar ist (z.B. "Liebesromane > Zeitgenössisch", \
+        "Krimis & Thriller > Psychothriller", "Fantasy > Romantasy"). Bevorzuge 2 Nische + 1 breiter.]
         """
     }
 
@@ -629,6 +637,9 @@ enum PromptFactory {
         - Packender Hook bereits in der ersten Zeile (Frage, Spannung, Versprechen).
         - Steigende Stakes, emotionaler Sog, eine klare kaufauslösende Schlusszeile.
         - Konkrete Bilder statt Floskeln; kein Spoiler.
+        - Kurze, scanbare Absätze (keine Textwand); erste Zeile als eigenständiger Tagline-Hook.
+        - Schließe mit EINER "Für Fans von …"-Zeile (genre-typische Tropes/Lese-Erlebnisse, \
+        KEINE fremden Buchtitel oder Autorennamen).
         - Keine verbotenen Begriffe ("Bestseller", "kostenlos"); keine Hinweise auf KI/AI/Automatisierung.
         - Sprache: \(language).
 
@@ -918,9 +929,27 @@ enum KDPMetadataParser {
         result.salesTitle = sections["VERKAUFSTITEL"] ?? ""
         result.subtitle = sections["UNTERTITEL"] ?? ""
         result.salesDescription = sections["VERKAUFSTEXT"] ?? ""
-        result.keywords = sections["KEYWORDS"] ?? ""
-        result.categories = sections["KATEGORIEN"] ?? ""
+        result.keywords = cappedKeywords(sections["KEYWORDS"] ?? "")
+        result.categories = cappedCategories(sections["KATEGORIEN"] ?? "")
         return result
+    }
+
+    /// KDP erlaubt max. 7 Keyword-Slots: trimmen, leere/doppelte entfernen, auf 7 kappen.
+    static func cappedKeywords(_ raw: String) -> String {
+        var seen = Set<String>()
+        let items = raw.components(separatedBy: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
+        return items.prefix(7).joined(separator: ", ")
+    }
+
+    /// KDP-Kategorien: eine pro Zeile, leere/doppelte entfernen, auf 3 kappen.
+    static func cappedCategories(_ raw: String) -> String {
+        var seen = Set<String>()
+        let items = raw.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
+        return items.prefix(3).joined(separator: "\n")
     }
 }
 
@@ -975,8 +1004,10 @@ enum RepairIssueParser {
 
     private static func chapterNumber(from text: String) -> Int? {
         if text.lowercased().contains("gesamt") { return nil }
-        let digits = text.filter(\.isNumber)
-        return Int(digits)
+        // Nur die ERSTE Zahlengruppe nehmen: "Kapitel 12-14" -> 12, "Kap. 3 (S. 40)" -> 3.
+        // Sonst würden alle Ziffern verkettet (1214/340) und der Befund verpufft.
+        guard let range = text.range(of: #"\d+"#, options: .regularExpression) else { return nil }
+        return Int(text[range])
     }
 }
 

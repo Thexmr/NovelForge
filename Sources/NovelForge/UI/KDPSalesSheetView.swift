@@ -52,6 +52,17 @@ struct KDPSalesSheetView: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 salesField("Verkaufstitel", sheet.title, accent: StudioTheme.cyan)
+                if project.modelContext != nil, !sheet.title.isEmpty, sheet.title != project.title {
+                    Button {
+                        project.title = sheet.title
+                        project.updatedAt = Date()
+                        try? modelContext.save()
+                    } label: {
+                        Label("Als Buchtitel übernehmen", systemImage: "arrow.up.doc")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.borderless)
+                }
                 if !sheet.hook.isEmpty {
                     salesField("Untertitel / Hook", sheet.hook, accent: StudioTheme.violet)
                 }

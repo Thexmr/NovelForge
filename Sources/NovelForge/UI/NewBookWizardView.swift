@@ -381,7 +381,11 @@ struct NewBookWizardView: View {
                 if titles.isEmpty {
                     titleError = "Keine Titel erkannt – bitte erneut versuchen."
                 } else {
-                    titleSuggestions = titles
+                    // Stärksten Titel nach oben (gleiche Heuristik wie die Auto-Produktion).
+                    titleSuggestions = titles.sorted {
+                        AutonomousContentQuality.titleViralityScore($0)
+                            > AutonomousContentQuality.titleViralityScore($1)
+                    }
                 }
             } catch let error as AIError {
                 titleError = error.errorDescription

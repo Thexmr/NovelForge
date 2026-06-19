@@ -390,27 +390,39 @@ final class PipelineOrchestrator: ObservableObject {
                 system: "Du bist ein erfahrener Buchmarketing-Texter für Amazon KDP. Deine Produktbeschreibungen verkaufen.",
                 maxTokens: 1200, temperature: 0.7, config: config
             )
-            let parsed = KDPMetadataParser.parse(response.text)
-            profile.kdpKeywords = parsed.keywords
-            profile.kdpCategories = parsed.categories
-            profile.kdpTitle = parsed.salesTitle
-            profile.kdpSubtitle = parsed.subtitle
+            let raw = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !raw.isEmpty else {
+                throw AIError.systemError("Leere Antwort vom Modell – KDP-Texte nicht überschrieben.")
+            }
+            let parsed = KDPMetadataParser.parse(raw)
+            // Nur nicht-leere Felder übernehmen, damit eine schwache Antwort gute Daten nicht löscht.
+            if !parsed.keywords.isEmpty { profile.kdpKeywords = parsed.keywords }
+            if !parsed.categories.isEmpty { profile.kdpCategories = parsed.categories }
+            if !parsed.salesTitle.isEmpty { profile.kdpTitle = parsed.salesTitle }
+            if !parsed.subtitle.isEmpty { profile.kdpSubtitle = parsed.subtitle }
 
-            // Judge/Polish: den Verkaufstext in bis zu 2 Runden verkaufsstärker machen.
-            var blurb = parsed.salesDescription.isEmpty ? response.text : parsed.salesDescription
+            // Verkaufstext-Veredelung: EINE Runde mit Plausibilitäts-Gate (Re-Polish degradiert sonst).
+            var blurb = parsed.salesDescription.isEmpty ? raw : parsed.salesDescription
             let polishTitle = profile.kdpTitle.isEmpty ? project.title : profile.kdpTitle
-            for _ in 0..<2 {
-                guard let polish = try? await generate(
+            do {
+                let polish = try await generate(
                     prompt: PromptFactory.kdpBlurbPolish(
                         blurb: blurb, title: polishTitle, genre: project.genre,
                         audience: profile.targetAudience, language: project.language),
                     system: "Du bist ein Spitzen-Texter für Amazon-KDP-Klappentexte.",
                     maxTokens: 700, temperature: 0.6, config: config
-                ) else { break }
+                )
                 let improved = polish.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if improved.count >= 80 { blurb = improved }
+                if improved.count >= 80 && improved.count <= 2400
+                    && !improved.lowercased().contains("als ki") {
+                    blurb = improved
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // Veredelung übersprungen – Basistext behalten (nicht fatal).
             }
-            profile.kdpDescription = blurb
+            if !blurb.isEmpty { profile.kdpDescription = blurb }
             completeJob(job, result: blurb, tokens: response.tokensUsed ?? 0)
         } catch {
             if job.status == .running { failJob(job, error: error) }
@@ -444,6 +456,9 @@ final class PipelineOrchestrator: ObservableObject {
                 maxTokens: 1100, temperature: 0.8, config: config
             )
             let text = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else {
+                throw AIError.systemError("Leere Antwort vom Modell – Cover-Prompts nicht überschrieben.")
+            }
             profile.coverPrompts = text
             try? CoverDesignService.writePrompt(text, for: project)
             completeJob(job, result: text, tokens: response.tokensUsed ?? 0)
@@ -492,7 +507,8 @@ final class PipelineOrchestrator: ObservableObject {
             project.status = previousStatus
             lastError = (error as? AIError)?.errorDescription ?? error.localizedDescription
             finish()
-            return "\(errPrefix): \(lastError ?? error.localizedDescription)"
+            let hint = (error as? AIError)?.recoverySuggestion.map { " \($0)" } ?? ""
+            return "\(errPrefix): \(lastError ?? error.localizedDescription)\(hint)"
         }
     }
 

@@ -152,6 +152,21 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(titles, ["Sag, dass du bleibst", "Die letzte Nacht", "Vergiss mich nicht"])
     }
 
+    func testKDPKeywordsCappedToSeven() {
+        let r = KDPMetadataParser.parse("KEYWORDS: a, b, c, d, e, f, g, h, i")
+        XCTAssertEqual(r.keywords.components(separatedBy: ", ").count, 7)
+    }
+
+    func testKDPCategoriesCappedToThree() {
+        let r = KDPMetadataParser.parse("KATEGORIEN: A > 1\nA > 2\nA > 3\nA > 4\nA > 5")
+        XCTAssertEqual(r.categories.components(separatedBy: "\n").count, 3)
+    }
+
+    func testRepairChapterNumberTakesFirstNumberOnly() {
+        let issues = RepairIssueParser.parse("REPAIR|Kritisch|Kapitel 12-14|Zeitlinie|Problem|Anweisung")
+        XCTAssertEqual(issues.first?.chapterNumber, 12)
+    }
+
     // MARK: - RepairIssueParser
 
     func testRepairIssueParserTargetsAffectedChapters() {
