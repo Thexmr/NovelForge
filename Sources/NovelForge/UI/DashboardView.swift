@@ -362,23 +362,45 @@ struct StatCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Image(systemName: icon)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(color)
-                .frame(width: 32, height: 32)
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 38, height: 38)
                 .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(color.opacity(0.12))
-                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(color.opacity(0.28), lineWidth: 1))
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .fill(color)
+                        .shadow(color: color.opacity(0.85), radius: 12, x: 0, y: 0)
                 )
             StudioStatNumber(value: value, gradient: StudioTheme.accentGradient(color))
             Text(title)
-                .font(.caption)
-                .foregroundStyle(StudioTheme.textMuted)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.9))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .studioPanel(cornerRadius: 8, accent: color)
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(
+                    LinearGradient(colors: [
+                        color.opacity(0.34),
+                        color.opacity(0.12),
+                        StudioTheme.glassInk.opacity(0.55)
+                    ], startPoint: .topLeading, endPoint: .bottomTrailing)
+                )
+                .overlay(alignment: .top) {
+                    LinearGradient(colors: [.white.opacity(0.34), .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 26)
+                        .mask(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(colors: [color.opacity(0.95), color.opacity(0.30)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing),
+                    lineWidth: 1.5
+                )
+        )
+        .shadow(color: color.opacity(0.50), radius: 20, x: 0, y: 7)
     }
 }
 
