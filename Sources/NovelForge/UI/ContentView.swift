@@ -305,8 +305,8 @@ struct SidebarButton: View {
                         }
                         .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
                             .strokeBorder(Color.white.opacity(0.32), lineWidth: 1))
-                        .shadow(color: StudioTheme.violet.opacity(0.55), radius: 14, x: 0, y: 5)
-                        .shadow(color: StudioTheme.cyan.opacity(0.40), radius: 10, x: 0, y: 0)
+                        .shadow(color: StudioTheme.violet.opacity(0.34), radius: 12, x: 0, y: 5)
+                        .shadow(color: StudioTheme.cyan.opacity(0.22), radius: 8, x: 0, y: 0)
                 }
             }
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))

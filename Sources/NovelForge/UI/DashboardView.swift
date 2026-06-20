@@ -330,12 +330,12 @@ struct DashboardView: View {
         HStack(spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(StudioTheme.glassInk)
                 .frame(width: 30, height: 30)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(color)
-                        .shadow(color: color.opacity(0.8), radius: 9, x: 0, y: 0)
+                        .shadow(color: color.opacity(0.40), radius: 8, x: 0, y: 0)
                 )
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -367,12 +367,12 @@ struct StatCard: View {
         VStack(alignment: .leading, spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(StudioTheme.glassInk)
                 .frame(width: 38, height: 38)
                 .background(
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
                         .fill(color)
-                        .shadow(color: color.opacity(0.85), radius: 12, x: 0, y: 0)
+                        .shadow(color: color.opacity(0.45), radius: 9, x: 0, y: 0)
                 )
             StudioStatNumber(value: value, gradient: StudioTheme.accentGradient(color))
             Text(title)
@@ -404,7 +404,7 @@ struct StatCard: View {
                     lineWidth: 1.5
                 )
         )
-        .shadow(color: color.opacity(0.50), radius: 20, x: 0, y: 7)
+        .shadow(color: color.opacity(0.28), radius: 14, x: 0, y: 7)
     }
 }
 

@@ -67,13 +67,13 @@ struct KDPSalesSheetView: View {
                     salesField("Untertitel / Hook", sheet.hook, accent: StudioTheme.violet)
                 }
                 if !sheet.salesDescription.isEmpty {
-                    salesField("Verkaufstext", sheet.salesDescription, accent: StudioTheme.magenta)
+                    salesField("Verkaufstext", sheet.salesDescription, accent: StudioTheme.cyan)
                 }
                 if !sheet.keywords.isEmpty {
-                    salesField("Keywords", sheet.keywords, accent: StudioTheme.lime)
+                    salesField("Keywords", sheet.keywords, accent: StudioTheme.violet)
                 }
                 if !sheet.categories.isEmpty {
-                    salesField("Kategorien", sheet.categories, accent: StudioTheme.amber)
+                    salesField("Kategorien", sheet.categories, accent: StudioTheme.cyan)
                 }
                 if !sheet.authorProfile.isEmpty {
                     salesField("Autorprofil", sheet.authorProfile, accent: StudioTheme.cyan)
