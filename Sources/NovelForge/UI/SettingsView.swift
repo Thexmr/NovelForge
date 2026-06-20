@@ -375,12 +375,23 @@ struct CoverImageSettingsView: View {
 
     var body: some View {
         Form {
-            Section("Bildmodell") {
-                Picker("Modell", selection: binding(\.model)) {
-                    ForEach(CoverImageSettings.modelOptions, id: \.self) { model in
-                        Text(model).tag(model)
+            Section("Bild-Anbieter") {
+                Picker("Anbieter", selection: providerBinding) {
+                    ForEach(CoverImageSettings.providers) { p in
+                        Text(p.name).tag(p.id)
                     }
                 }
+                Text(activePreset.note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("API-Key holen unter: \(activePreset.keyHint) — danach unten nur den Key eintragen.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
+            Section("Bildmodell") {
+                TextField("Modell", text: binding(\.model))
+                    .textFieldStyle(.roundedBorder)
 
                 Picker("Format", selection: binding(\.size)) {
                     Text("KDP Frontcover 2:3").tag("1024x1536")
@@ -410,7 +421,7 @@ struct CoverImageSettingsView: View {
                     Spacer()
                 }
 
-                SecureField("OpenAI API-Key für Bildmodell", text: $newAPIKey)
+                SecureField("API-Key des gewählten Bild-Anbieters", text: $newAPIKey)
                 HStack {
                     Spacer()
                     Button("Key speichern") {
@@ -434,6 +445,23 @@ struct CoverImageSettingsView: View {
             store.settings[keyPath: keyPath]
         } set: { newValue in
             store.settings[keyPath: keyPath] = newValue
+            store.save()
+        }
+    }
+
+    private var activePreset: ImageProviderPreset {
+        CoverImageSettings.preset(store.settings.provider)
+    }
+
+    /// Wählt einen Anbieter und übernimmt dessen Endpoint + Modell automatisch.
+    private var providerBinding: Binding<String> {
+        Binding {
+            store.settings.provider
+        } set: { id in
+            let preset = CoverImageSettings.preset(id)
+            store.settings.provider = id
+            store.settings.baseURL = preset.baseURL
+            store.settings.model = preset.model
             store.save()
         }
     }

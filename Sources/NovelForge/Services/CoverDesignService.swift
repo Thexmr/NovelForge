@@ -1,21 +1,61 @@
 import AppKit
 import Foundation
 
+/// Voreingestellter Bild-KI-Anbieter: Endpoint + Modell sind hinterlegt, der Nutzer
+/// muss nur den API-Key eintragen.
+struct ImageProviderPreset: Identifiable, Hashable {
+    let id: String          // openai | flux | fal | stability | custom
+    let name: String
+    let note: String
+    let keyHint: String
+    let baseURL: String
+    let model: String
+}
+
 struct CoverImageSettings: Codable, Equatable, Sendable {
     static let defaultBaseURL = "https://api.openai.com/v1"
-    static let defaultModel = "gpt-image-2"
-    static let modelOptions = ["gpt-image-2", "gpt-image-1", "dall-e-3"]
+    static let defaultModel = "gpt-image-1"
+    static let modelOptions = ["gpt-image-1", "dall-e-3"]
     static let sizeOptions = ["1024x1536", "1024x1024", "1536x1024"]
     static let qualityOptions = ["high", "medium", "low"]
 
+    /// Beste & aktuellste Bild-Anbieter (verifizierte Endpunkte), nur API-Key nötig.
+    static let providers: [ImageProviderPreset] = [
+        .init(id: "openai", name: "OpenAI · gpt-image-1",
+              note: "Beste Prompt-Treue – setzt Vorgaben am genauesten um.",
+              keyHint: "platform.openai.com",
+              baseURL: "https://api.openai.com/v1", model: "gpt-image-1"),
+        .init(id: "flux", name: "Black Forest Labs · FLUX 1.1 Pro",
+              note: "Spitzen-Fotorealismus für Cover-Artwork.",
+              keyHint: "bfl.ai / docs.bfl.ai",
+              baseURL: "https://api.bfl.ai", model: "flux-pro-1.1"),
+        .init(id: "fal", name: "fal.ai · FLUX",
+              note: "Schnell und günstig, sehr gute Qualität.",
+              keyHint: "fal.ai",
+              baseURL: "https://fal.run", model: "fal-ai/flux/dev"),
+        .init(id: "stability", name: "Stability AI · Stable Diffusion 3.5 Large",
+              note: "Große Stilbandbreite.",
+              keyHint: "platform.stability.ai",
+              baseURL: "https://api.stability.ai", model: "sd3.5-large"),
+        .init(id: "custom", name: "Eigener (OpenAI-kompatibel)",
+              note: "Eigene Basis-URL und Modell selbst eintragen.",
+              keyHint: "Anbieter-spezifisch",
+              baseURL: "https://api.openai.com/v1", model: "gpt-image-1"),
+    ]
+
+    static func preset(_ id: String) -> ImageProviderPreset {
+        providers.first { $0.id == id } ?? providers[0]
+    }
+
     var apiKey: String? = nil
+    var provider: String = "openai"
     var baseURL: String = Self.defaultBaseURL
     var model: String = Self.defaultModel
     var size: String = "1024x1536"
     var quality: String = "high"
 
     enum CodingKeys: String, CodingKey {
-        case baseURL, model, size, quality
+        case provider, baseURL, model, size, quality
     }
 
     var normalizedBaseURL: String {
@@ -30,6 +70,20 @@ struct CoverImageSettings: Codable, Equatable, Sendable {
             return quality == "high" ? "hd" : "standard"
         }
         return quality
+    }
+}
+
+extension CoverImageSettings {
+    /// Tolerantes Decodieren: fehlende Keys (z.B. ältere gespeicherte Einstellungen ohne
+    /// `provider`) fallen auf die Defaults zurück, statt das Decodieren scheitern zu lassen.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init()
+        provider = try c.decodeIfPresent(String.self, forKey: .provider) ?? "openai"
+        baseURL = try c.decodeIfPresent(String.self, forKey: .baseURL) ?? Self.defaultBaseURL
+        model = try c.decodeIfPresent(String.self, forKey: .model) ?? Self.defaultModel
+        size = try c.decodeIfPresent(String.self, forKey: .size) ?? "1024x1536"
+        quality = try c.decodeIfPresent(String.self, forKey: .quality) ?? "high"
     }
 }
 
@@ -81,6 +135,9 @@ final class CoverImageSettingsStore: ObservableObject {
 
     private func normalized(_ value: CoverImageSettings) -> CoverImageSettings {
         var normalized = value
+        if normalized.provider.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            normalized.provider = "openai"
+        }
         if normalized.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             normalized.baseURL = CoverImageSettings.defaultBaseURL
         }
@@ -246,42 +303,144 @@ actor CoverImageGateway {
         guard let apiKey = settings.apiKey, !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw AIError.apiKeyInvalid
         }
+        let imageData: Data
+        switch settings.provider {
+        case "stability": imageData = try await generateStability(prompt: prompt, apiKey: apiKey, model: settings.model)
+        case "flux":      imageData = try await generateFlux(prompt: prompt, apiKey: apiKey)
+        case "fal":       imageData = try await generateFal(prompt: prompt, apiKey: apiKey, model: settings.model)
+        default:          imageData = try await generateOpenAICompatible(prompt: prompt, apiKey: apiKey, settings: settings)
+        }
+        try imageData.write(to: destination, options: .atomic)
+        return destination
+    }
+
+    private func throwIfBadStatus(_ response: HTTPURLResponse, _ data: Data) throws {
+        switch response.statusCode {
+        case 200...299: return
+        case 401, 403: throw AIError.apiKeyInvalid
+        case 402: throw AIError.quotaExceeded
+        case 404: throw AIError.modelUnavailable
+        case 429: throw AIError.rateLimitExceeded
+        case 500...599: throw AIError.providerUnavailable
+        default: throw AIError.systemError("Bild-API HTTP \(response.statusCode): \(decodeErrorMessage(from: data) ?? "")")
+        }
+    }
+
+    // OpenAI-kompatibel (/images/generations, b64_json oder url).
+    private func generateOpenAICompatible(prompt: String, apiKey: String, settings: CoverImageSettings) async throws -> Data {
         guard let url = URL(string: "\(settings.normalizedBaseURL)/images/generations") else {
             throw AIError.systemError("Ungültige Bild-API-URL: \(settings.normalizedBaseURL)")
         }
-
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let body: [String: Any] = [
-            "model": settings.model,
-            "prompt": prompt,
-            "size": settings.size,
-            "quality": settings.apiQualityValue,
-            "n": 1
+            "model": settings.model, "prompt": prompt,
+            "size": settings.size, "quality": settings.apiQualityValue, "n": 1
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
         let (data, response) = try await perform(request)
-        switch response.statusCode {
-        case 200:
-            let imageData = try await decodeImageData(from: data)
-            try imageData.write(to: destination, options: .atomic)
-            return destination
-        case 401, 403:
-            throw AIError.apiKeyInvalid
-        case 402:
-            throw AIError.quotaExceeded
-        case 404:
-            throw AIError.modelUnavailable
-        case 429:
-            throw AIError.rateLimitExceeded
-        case 500...599:
-            throw AIError.providerUnavailable
-        default:
-            throw AIError.systemError("Bild-API HTTP \(response.statusCode): \(decodeErrorMessage(from: data) ?? "")")
+        try throwIfBadStatus(response, data)
+        return try await decodeImageData(from: data)
+    }
+
+    // Stability AI · SD 3.5 Large (multipart, liefert Bild-Bytes direkt).
+    private func generateStability(prompt: String, apiKey: String, model: String) async throws -> Data {
+        guard let url = URL(string: "https://api.stability.ai/v2beta/stable-image/generate/sd3") else {
+            throw AIError.networkError
         }
+        let boundary = "----nfcover\(UUID().uuidString)"
+        var body = Data()
+        func field(_ name: String, _ value: String) {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(value)\r\n".data(using: .utf8)!)
+        }
+        field("prompt", prompt)
+        field("model", model.isEmpty ? "sd3.5-large" : model)
+        field("aspect_ratio", "2:3")
+        field("output_format", "jpeg")
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("image/*", forHTTPHeaderField: "Accept")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        let (data, response) = try await perform(request)
+        try throwIfBadStatus(response, data)
+        return data
+    }
+
+    // Black Forest Labs · FLUX 1.1 Pro (asynchron: einreichen, dann pollen).
+    private func generateFlux(prompt: String, apiKey: String) async throws -> Data {
+        guard let url = URL(string: "https://api.bfl.ai/v1/flux-pro-1.1") else { throw AIError.networkError }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(apiKey, forHTTPHeaderField: "x-key")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "prompt": prompt, "width": 832, "height": 1216, "output_format": "jpeg"
+        ])
+        let (data, response) = try await perform(request)
+        try throwIfBadStatus(response, data)
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let pollString = obj["polling_url"] as? String,
+              let pollURL = URL(string: pollString) else {
+            throw AIError.systemError("FLUX: keine polling_url erhalten")
+        }
+        for _ in 0..<90 {
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+            var pollReq = URLRequest(url: pollURL)
+            pollReq.setValue(apiKey, forHTTPHeaderField: "x-key")
+            pollReq.setValue("application/json", forHTTPHeaderField: "accept")
+            let (pdata, presp) = try await perform(pollReq)
+            try throwIfBadStatus(presp, pdata)
+            guard let pobj = try? JSONSerialization.jsonObject(with: pdata) as? [String: Any] else { continue }
+            let status = (pobj["status"] as? String) ?? ""
+            if status == "Ready" {
+                if let result = pobj["result"] as? [String: Any],
+                   let sample = result["sample"] as? String, let sampleURL = URL(string: sample) {
+                    return try await fetchBytes(sampleURL)
+                }
+                throw AIError.systemError("FLUX: kein Ergebnis erhalten")
+            }
+            if ["Error", "Failed", "Content Moderated", "Request Moderated"].contains(status) {
+                throw AIError.systemError("FLUX: \(status)")
+            }
+        }
+        throw AIError.systemError("FLUX: Zeitüberschreitung")
+    }
+
+    // fal.ai · FLUX (liefert Bild-URL, die wir nachladen).
+    private func generateFal(prompt: String, apiKey: String, model: String) async throws -> Data {
+        let endpoint = model.isEmpty ? "fal-ai/flux/dev" : model
+        guard let url = URL(string: "https://fal.run/\(endpoint)") else { throw AIError.networkError }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Key \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "prompt": prompt, "image_size": ["width": 832, "height": 1216], "num_images": 1
+        ])
+        let (data, response) = try await perform(request)
+        try throwIfBadStatus(response, data)
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let images = obj["images"] as? [[String: Any]],
+              let first = images.first, let urlString = first["url"] as? String,
+              let imageURL = URL(string: urlString) else {
+            throw AIError.systemError("fal: keine Bild-URL erhalten")
+        }
+        return try await fetchBytes(imageURL)
+    }
+
+    private func fetchBytes(_ url: URL) async throws -> Data {
+        let (data, response) = try await urlSession.data(from: url)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw AIError.networkError
+        }
+        return data
     }
 
     private func perform(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {

@@ -625,6 +625,21 @@ final class LogicTests: XCTestCase {
         XCTAssertNil(try JSONDecoder().decode(CoverImageSettings.self, from: data).apiKey)
     }
 
+    func testImageProviderPresetsResolve() {
+        XCTAssertGreaterThanOrEqual(CoverImageSettings.providers.count, 4)
+        XCTAssertEqual(CoverImageSettings.preset("flux").baseURL, "https://api.bfl.ai")
+        XCTAssertEqual(CoverImageSettings.preset("fal").model, "fal-ai/flux/dev")
+        XCTAssertEqual(CoverImageSettings.preset("unbekannt").id, "openai")
+    }
+
+    func testCoverImageSettingsDecodesWithoutProviderKey() throws {
+        // Ältere gespeicherte Einstellungen ohne "provider" dürfen nicht scheitern.
+        let legacy = #"{"baseURL":"https://x/v1","model":"m","size":"1024x1536","quality":"high"}"#
+        let s = try JSONDecoder().decode(CoverImageSettings.self, from: Data(legacy.utf8))
+        XCTAssertEqual(s.provider, "openai")
+        XCTAssertEqual(s.model, "m")
+    }
+
     /// Gewählter Ansatz „Artwork + scharfer Text-Overlay": das Bildmodell darf KEINEN
     /// Text ins Bild rendern (KI-Text wird verzerrt). Titel/Autor kommen als Overlay.
     @MainActor
