@@ -158,7 +158,7 @@ private struct GlassSurface: ViewModifier {
                     .mask(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
             .shadow(color: Color.black.opacity(0.22), radius: isInteractiveGlass ? 9 : 5, x: 0, y: isInteractiveGlass ? 7 : 3)
-            .shadow(color: accent.opacity(0.055 * Double(bloom)), radius: (isInteractiveGlass ? 6 : 3) * bloom, x: 0, y: 3)
+            .shadow(color: accent.opacity(0.18 * Double(bloom)), radius: (isInteractiveGlass ? 16 : 9) * bloom, x: 0, y: 4)
     }
 }
 
@@ -238,8 +238,9 @@ struct StudioPrimaryButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(Color.white.opacity(isEnabled ? 0.24 : 0.08), lineWidth: 1)
             }
-            .shadow(color: StudioTheme.cyan.opacity(isEnabled ? 0.18 : 0), radius: configuration.isPressed ? 4 : 8, x: 0, y: 5)
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .shadow(color: StudioTheme.violet.opacity(isEnabled ? 0.45 : 0), radius: configuration.isPressed ? 7 : 18, x: 0, y: 6)
+            .shadow(color: StudioTheme.cyan.opacity(isEnabled ? 0.32 : 0), radius: configuration.isPressed ? 5 : 12, x: 0, y: 0)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
@@ -301,6 +302,7 @@ struct StudioStatNumber: View {
             .lineLimit(1)
             .minimumScaleFactor(0.5)
             .monospacedDigit()
+            .shadow(color: StudioTheme.violet.opacity(0.45), radius: 12, x: 0, y: 0)
     }
 }
 
@@ -353,8 +355,9 @@ struct StudioStatusPill: View {
         .foregroundStyle(color)
         .padding(.horizontal, 9)
         .padding(.vertical, 5)
-        .background(color.opacity(0.12), in: Capsule())
-        .overlay(Capsule().strokeBorder(color.opacity(0.28), lineWidth: 1))
+        .background(color.opacity(0.14), in: Capsule())
+        .overlay(Capsule().strokeBorder(color.opacity(0.32), lineWidth: 1))
+        .shadow(color: color.opacity(0.40), radius: 6, x: 0, y: 0)
     }
 }
 
@@ -391,6 +394,7 @@ struct StudioGlassTile: ViewModifier {
                     )
             )
             .shadow(color: Color.black.opacity(0.12 * opacity), radius: 3, x: 0, y: 2)
+            .shadow(color: accent.opacity(0.30 * opacity), radius: 11, x: 0, y: 0)
     }
 }
 
