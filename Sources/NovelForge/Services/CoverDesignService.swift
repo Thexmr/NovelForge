@@ -115,16 +115,39 @@ final class CoverImageSettingsStore: ObservableObject {
         }
     }
 
+    private func keyStore(_ provider: String) -> String { "imgapikey_\(provider)" }
+
+    /// Speichert den API-Key für den AKTUELL gewählten Bild-Anbieter (pro Anbieter
+    /// getrennt), damit ein Wechsel den Key eines anderen Anbieters nicht überschreibt.
     func saveAPIKey(_ apiKey: String) {
-        KeychainService.saveAPIKey(apiKey, for: .openAI)
+        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let provider = settings.provider
+        if trimmed.isEmpty {
+            UserDefaults.standard.removeObject(forKey: keyStore(provider))
+        } else {
+            UserDefaults.standard.set(Data(trimmed.utf8).base64EncodedString(), forKey: keyStore(provider))
+        }
+        // OpenAI/Custom zusätzlich im bisherigen Keychain-Slot spiegeln (Abwärtskompatibilität).
+        if provider == "openai" || provider == "custom" {
+            KeychainService.saveAPIKey(trimmed, for: .openAI)
+        }
     }
 
     func apiKey() -> String? {
-        KeychainService.getAPIKey(for: .openAI)
+        let provider = settings.provider
+        if let encoded = UserDefaults.standard.string(forKey: keyStore(provider)),
+           let data = Data(base64Encoded: encoded),
+           let key = String(data: data, encoding: .utf8), !key.isEmpty {
+            return key
+        }
+        if provider == "openai" || provider == "custom" {
+            return KeychainService.getAPIKey(for: .openAI)
+        }
+        return nil
     }
 
     func hasAPIKey() -> Bool {
-        KeychainService.hasStoredAPIKey(for: .openAI)
+        (apiKey()?.isEmpty == false)
     }
 
     func runtimeSettings() -> CoverImageSettings {

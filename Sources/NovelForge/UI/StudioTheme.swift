@@ -66,25 +66,38 @@ enum StudioTheme {
 }
 
 struct StudioBackground: View {
+    @State private var drift = false
+
     var body: some View {
         ZStack {
             LinearGradient(colors: [StudioTheme.pageTop, StudioTheme.pageMiddle, StudioTheme.pageBottom],
                            startPoint: .top, endPoint: .bottom)
-            RadialGradient(colors: [StudioTheme.cyan.opacity(0.34), .clear],
-                           center: UnitPoint(x: 0.10, y: 0.02), startRadius: 20, endRadius: 700)
-            RadialGradient(colors: [StudioTheme.violet.opacity(0.32), .clear],
-                           center: UnitPoint(x: 0.88, y: 0.18), startRadius: 40, endRadius: 780)
-            RadialGradient(colors: [StudioTheme.magenta.opacity(0.18), .clear],
-                           center: UnitPoint(x: 0.70, y: 1.05), startRadius: 40, endRadius: 640)
+            bloom(StudioTheme.cyan.opacity(0.42), UnitPoint(x: 0.10, y: 0.02), 720)
+                .offset(x: drift ? 28 : -24, y: drift ? 16 : -12)
+            bloom(StudioTheme.violet.opacity(0.40), UnitPoint(x: 0.88, y: 0.18), 800)
+                .offset(x: drift ? -30 : 18, y: drift ? -14 : 16)
+            bloom(StudioTheme.magenta.opacity(0.24), UnitPoint(x: 0.70, y: 1.05), 660)
+                .offset(x: drift ? 18 : -22, y: drift ? -10 : 14)
+            bloom(StudioTheme.lime.opacity(0.13), UnitPoint(x: 0.16, y: 0.94), 520)
+                .offset(x: drift ? -16 : 18, y: drift ? 12 : -10)
             Rectangle()
-                .fill(.black.opacity(0.34))
+                .fill(.black.opacity(0.32))
             LinearGradient(colors: [
-                Color.white.opacity(0.035),
+                Color.white.opacity(0.045),
                 Color.clear,
-                StudioTheme.cyan.opacity(0.025)
+                StudioTheme.cyan.opacity(0.03)
             ], startPoint: .topLeading, endPoint: .bottomTrailing)
         }
         .ignoresSafeArea()
+        .onAppear {
+            withAnimation(.easeInOut(duration: 17).repeatForever(autoreverses: true)) {
+                drift = true
+            }
+        }
+    }
+
+    private func bloom(_ color: Color, _ center: UnitPoint, _ radius: CGFloat) -> some View {
+        RadialGradient(colors: [color, .clear], center: center, startRadius: 30, endRadius: radius)
     }
 }
 
