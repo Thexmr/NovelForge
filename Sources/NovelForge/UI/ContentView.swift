@@ -268,24 +268,24 @@ struct SidebarButton: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: item.icon)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 14, weight: .bold))
                     .frame(width: 22)
-                    .foregroundStyle(isSelected ? StudioTheme.cyan : StudioTheme.textMuted)
+                    .foregroundStyle(isSelected ? Color.black.opacity(0.85) : StudioTheme.textMuted)
                 Text(item.rawValue)
-                    .font(.callout.weight(isSelected ? .semibold : .medium))
-                    .foregroundStyle(isSelected ? Color.primary : StudioTheme.textMuted)
+                    .font(.callout.weight(isSelected ? .bold : .medium))
+                    .foregroundStyle(isSelected ? Color.black.opacity(0.9) : StudioTheme.textMuted)
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 if let badge {
                     Text(badge)
                         .font(.caption2.weight(.bold))
                         .monospacedDigit()
-                        .foregroundStyle(isSelected ? Color.black.opacity(0.84) : StudioTheme.cyan)
+                        .foregroundStyle(isSelected ? Color.black.opacity(0.8) : StudioTheme.cyan)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
                         .background {
                             if isSelected {
-                                Capsule().fill(StudioTheme.brandGradient)
+                                Capsule().fill(Color.white.opacity(0.42))
                             } else {
                                 Capsule().fill(StudioTheme.cyan.opacity(0.12))
                             }
@@ -296,18 +296,17 @@ struct SidebarButton: View {
             .frame(height: 38)
             .background {
                 if isSelected {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(
-                            LinearGradient(colors: [
-                                StudioTheme.cyan.opacity(0.16),
-                                StudioTheme.glassInk.opacity(0.20)
-                            ], startPoint: .topLeading, endPoint: .bottomTrailing)
-                        )
-                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(StudioTheme.cyan.opacity(0.12)))
-                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(StudioTheme.cyan.opacity(0.36), lineWidth: 1))
-                        .shadow(color: StudioTheme.cyan.opacity(0.16), radius: 12, y: 6)
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(StudioTheme.brandGradient)
+                        .overlay(alignment: .top) {
+                            LinearGradient(colors: [.white.opacity(0.32), .clear], startPoint: .top, endPoint: .bottom)
+                                .frame(height: 16)
+                                .mask(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        }
+                        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.32), lineWidth: 1))
+                        .shadow(color: StudioTheme.violet.opacity(0.55), radius: 14, x: 0, y: 5)
+                        .shadow(color: StudioTheme.cyan.opacity(0.40), radius: 10, x: 0, y: 0)
                 }
             }
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))

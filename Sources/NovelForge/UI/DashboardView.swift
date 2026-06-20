@@ -329,10 +329,14 @@ struct DashboardView: View {
     private func commandTile(title: String, value: String, detail: String, icon: String, color: Color) -> some View {
         HStack(spacing: 10) {
             Image(systemName: icon)
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(color)
-                .frame(width: 28, height: 28)
-                .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 30, height: 30)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(color)
+                        .shadow(color: color.opacity(0.8), radius: 9, x: 0, y: 0)
+                )
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.caption2.weight(.semibold))
