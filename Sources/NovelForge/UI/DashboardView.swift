@@ -129,7 +129,7 @@ struct DashboardView: View {
                                          color: StudioTheme.cyan)
                     }
                     Text("NovelForge")
-                        .font(.system(size: 44, weight: .bold, design: .serif))
+                        .font(.system(size: 44, weight: .heavy, design: .rounded))
                         .foregroundStyle(StudioTheme.heroGradient)
                     Text("Autonome Buchproduktion mit Story-Gedächtnis, Qualitäts-Agenten, KDP-Export und kontrollierbarer Parallelität.")
                         .font(.subheadline)
@@ -335,7 +335,7 @@ struct DashboardView: View {
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(color)
-                        .shadow(color: color.opacity(0.40), radius: 8, x: 0, y: 0)
+                        .shadow(color: color.opacity(0.70), radius: 11, x: 0, y: 0)
                 )
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -372,7 +372,7 @@ struct StatCard: View {
                 .background(
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
                         .fill(color)
-                        .shadow(color: color.opacity(0.45), radius: 9, x: 0, y: 0)
+                        .shadow(color: color.opacity(0.75), radius: 13, x: 0, y: 0)
                 )
             StudioStatNumber(value: value, gradient: StudioTheme.accentGradient(color))
             Text(title)
@@ -404,7 +404,7 @@ struct StatCard: View {
                     lineWidth: 1.5
                 )
         )
-        .shadow(color: color.opacity(0.28), radius: 14, x: 0, y: 7)
+        .shadow(color: color.opacity(0.45), radius: 20, x: 0, y: 7)
     }
 }
 
