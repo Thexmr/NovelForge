@@ -72,14 +72,12 @@ struct StudioBackground: View {
         ZStack {
             LinearGradient(colors: [StudioTheme.pageTop, StudioTheme.pageMiddle, StudioTheme.pageBottom],
                            startPoint: .top, endPoint: .bottom)
-            bloom(StudioTheme.cyan.opacity(0.42), UnitPoint(x: 0.10, y: 0.02), 720)
+            bloom(StudioTheme.cyan.opacity(0.40), UnitPoint(x: 0.10, y: 0.02), 740)
                 .offset(x: drift ? 28 : -24, y: drift ? 16 : -12)
-            bloom(StudioTheme.violet.opacity(0.40), UnitPoint(x: 0.88, y: 0.18), 800)
+            bloom(StudioTheme.violet.opacity(0.42), UnitPoint(x: 0.88, y: 0.18), 820)
                 .offset(x: drift ? -30 : 18, y: drift ? -14 : 16)
-            bloom(StudioTheme.magenta.opacity(0.24), UnitPoint(x: 0.70, y: 1.05), 660)
+            bloom(StudioTheme.violet.opacity(0.20), UnitPoint(x: 0.62, y: 1.04), 660)
                 .offset(x: drift ? 18 : -22, y: drift ? -10 : 14)
-            bloom(StudioTheme.lime.opacity(0.13), UnitPoint(x: 0.16, y: 0.94), 520)
-                .offset(x: drift ? -16 : 18, y: drift ? 12 : -10)
             Rectangle()
                 .fill(.black.opacity(0.32))
             LinearGradient(colors: [

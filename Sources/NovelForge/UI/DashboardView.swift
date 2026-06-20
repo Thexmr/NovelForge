@@ -123,7 +123,7 @@ struct DashboardView: View {
                     HStack(spacing: 8) {
                         StudioStatusPill(text: providerReady ? "Provider bereit" : "Provider fehlt",
                                          systemImage: providerReady ? "checkmark.seal.fill" : "key",
-                                         color: providerReady ? StudioTheme.lime : StudioTheme.amber)
+                                         color: providerReady ? StudioTheme.cyan : StudioTheme.amber)
                         StudioStatusPill(text: orchestrator.isUnlimitedMode ? "Dauerproduktion" : "Command Center",
                                          systemImage: orchestrator.isUnlimitedMode ? "infinity" : "rectangle.grid.2x2",
                                          color: StudioTheme.cyan)
@@ -151,7 +151,7 @@ struct DashboardView: View {
                     } label: {
                         Label("Auto-Modus", systemImage: "infinity")
                     }
-                    .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.lime))
+                    .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.violet))
                 }
             }
 
@@ -165,12 +165,12 @@ struct DashboardView: View {
                             value: orchestrator.isRunning ? "Schreibt" : "Bereit",
                             detail: orchestrator.isRunning ? orchestrator.currentAgent : "Auto oder Einzelbuch starten",
                             icon: orchestrator.isRunning ? "bolt.horizontal.fill" : "sparkles",
-                            color: orchestrator.isRunning ? StudioTheme.lime : StudioTheme.violet)
+                            color: StudioTheme.violet)
                 commandTile(title: "Gedächtnis",
                             value: "\(projects.count) Projekte",
                             detail: "Titel, Figuren und Plots werden abgeglichen",
                             icon: "brain.head.profile",
-                            color: StudioTheme.amber)
+                            color: StudioTheme.cyan)
             }
         }
         .padding(22)
@@ -207,9 +207,9 @@ struct DashboardView: View {
             StatCard(title: "Aktive Projekte", value: "\(activeProjects.count)",
                      icon: "book.fill", color: StudioTheme.cyan)
             StatCard(title: "Abgeschlossen", value: "\(completedProjects.count)",
-                     icon: "checkmark.circle.fill", color: StudioTheme.lime)
+                     icon: "checkmark.circle.fill", color: StudioTheme.violet)
             StatCard(title: "Geschriebene Wörter", value: FormattingHelpers.formatWordCount(totalWords),
-                     icon: "text.word.spacing", color: StudioTheme.violet)
+                     icon: "text.word.spacing", color: StudioTheme.cyan)
             StatCard(title: "Fehlgeschlagen", value: "\(failedProjects.count)",
                      icon: "exclamationmark.triangle.fill", color: StudioTheme.danger)
         }
