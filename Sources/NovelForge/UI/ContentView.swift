@@ -181,23 +181,17 @@ struct StudioSidebar: View {
 
     private var brandHeader: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(StudioTheme.brandGradient)
-                    Image(systemName: "books.vertical.fill")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(.black.opacity(0.84))
-                }
-                .frame(width: 38, height: 38)
-                .shadow(color: StudioTheme.cyan.opacity(0.18), radius: 8, y: 4)
+            HStack(spacing: 11) {
+                NovelForgeLogo(size: 40)
 
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text("NovelForge")
-                        .font(.system(size: 19, weight: .bold, design: .rounded))
-                    Text("KDP Auto Studio")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(StudioTheme.textMuted)
+                        .font(.system(size: 20, weight: .bold, design: .serif))
+                        .foregroundStyle(StudioTheme.brandGradient)
+                    Text("KDP AUTO STUDIO")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(StudioTheme.textFaint)
+                        .tracking(1.8)
                 }
             }
 

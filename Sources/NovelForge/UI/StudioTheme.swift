@@ -1,33 +1,33 @@
 import SwiftUI
 
-/// Branding „Aurora Pastel": ein ruhiges, premium Schreibstudio. Sanftes Dämmerungs-
-/// Indigo als Bühne, darauf eine harmonische Pastell-Palette – Lavendel + Himmelblau
-/// als Signatur, Mint/Pfirsich/Rosé als Akzente. Töne sind weich statt grell, Glows
-/// sind zarte Halos. EIN durchgängiges Farbschema für die ganze App; Farbe trägt
-/// Bedeutung (Rosé = Fehler, Pfirsich = Warnung, Mint = Erfolg).
+/// Branding „Tinte & Papier": ein warmes, literarisches Premium-Studio. Warmes
+/// Anthrazit-Braun als Bühne, Creme statt Reinweiß für editoriale Wärme. Signatur
+/// ist Salbei-Grün → warmes Gold; Terrakotta als Akzent. EIN durchgängiges, hoch-
+/// professionelles Schema für die ganze App; Farbe trägt Bedeutung (Brick = Fehler,
+/// Gold = Warnung, Oliv/Salbei = Erfolg).
 enum StudioTheme {
-    // Weiches Dämmerungs-Indigo (nicht Schwarz), damit Pastelltöne edel wirken.
-    static let pageTop = Color(red: 0.090, green: 0.082, blue: 0.130)
-    static let pageMiddle = Color(red: 0.130, green: 0.116, blue: 0.180)
-    static let pageBottom = Color(red: 0.072, green: 0.066, blue: 0.110)
+    // Warmes Espresso-/Anthrazit-Braun als Bühne (nicht Schwarz).
+    static let pageTop = Color(red: 0.118, green: 0.102, blue: 0.083)
+    static let pageMiddle = Color(red: 0.152, green: 0.131, blue: 0.105)
+    static let pageBottom = Color(red: 0.090, green: 0.077, blue: 0.061)
 
-    static let surface = Color(red: 0.140, green: 0.128, blue: 0.190)
-    static let surfaceElevated = Color(red: 0.185, green: 0.168, blue: 0.245)
-    static let surfaceDeep = Color(red: 0.098, green: 0.090, blue: 0.140)
-    static let glassBase = Color(red: 0.115, green: 0.105, blue: 0.160)
-    static let glassInk = Color(red: 0.055, green: 0.050, blue: 0.085)
-    static let hairline = Color.white.opacity(0.14)
-    static let hairlineBright = Color.white.opacity(0.28)
-    static let textMuted = Color.white.opacity(0.74)
-    static let textFaint = Color.white.opacity(0.52)
+    static let surface = Color(red: 0.162, green: 0.141, blue: 0.114)
+    static let surfaceElevated = Color(red: 0.208, green: 0.181, blue: 0.146)
+    static let surfaceDeep = Color(red: 0.112, green: 0.097, blue: 0.078)
+    static let glassBase = Color(red: 0.137, green: 0.119, blue: 0.096)
+    static let glassInk = Color(red: 0.072, green: 0.061, blue: 0.047)
+    static let hairline = Color(red: 0.96, green: 0.93, blue: 0.85).opacity(0.13)
+    static let hairlineBright = Color(red: 0.96, green: 0.93, blue: 0.85).opacity(0.28)
+    static let textMuted = Color(red: 0.95, green: 0.92, blue: 0.84).opacity(0.76)   // Creme
+    static let textFaint = Color(red: 0.95, green: 0.92, blue: 0.84).opacity(0.52)
 
-    // Pastell-Palette: Lavendel + Himmelblau als Signatur.
-    static let cyan = Color(red: 0.60, green: 0.74, blue: 0.98)    // Himmelblau (Pastell, sekundär)
-    static let violet = Color(red: 0.74, green: 0.66, blue: 0.97)  // Lavendel (Pastell, primär)
-    static let magenta = Color(red: 0.95, green: 0.72, blue: 0.87) // Blush-Rosa
-    static let lime = Color(red: 0.64, green: 0.88, blue: 0.78)    // Mint (Erfolg)
-    static let amber = Color(red: 0.97, green: 0.82, blue: 0.66)   // Pfirsich (Warnung)
-    static let danger = Color(red: 0.95, green: 0.66, blue: 0.71)  // Rosé (Fehler, sanft)
+    // Signatur: Salbei-Grün + warmes Gold; Terrakotta/Brick als Akzente.
+    static let cyan = Color(red: 0.60, green: 0.71, blue: 0.56)    // Salbei-Grün (primär)
+    static let violet = Color(red: 0.82, green: 0.67, blue: 0.41)  // warmes Gold/Messing (sekundär)
+    static let magenta = Color(red: 0.83, green: 0.51, blue: 0.37) // Terrakotta
+    static let lime = Color(red: 0.68, green: 0.75, blue: 0.50)    // Oliv-Salbei (Erfolg)
+    static let amber = Color(red: 0.86, green: 0.69, blue: 0.41)   // Gold (Warnung)
+    static let danger = Color(red: 0.81, green: 0.43, blue: 0.37)  // Brick-Rot (Fehler)
 
     /// Signatur-Verlauf: Neon-Blau → Neon-Lila (durchgängig in der ganzen App).
     static var brandGradient: LinearGradient {
@@ -410,5 +410,56 @@ struct StudioSectionLabel: View {
             .font(.system(size: 10, weight: .bold, design: .rounded))
             .foregroundStyle(StudioTheme.textFaint)
             .tracking(0)
+    }
+}
+
+/// Marken-Logo „Tinte & Papier": dunkles Emblem mit Gold-Kante, „N"-Monogramm im
+/// Salbei→Gold-Verlauf und einem Forge-Funken. Skaliert über `size`.
+struct NovelForgeLogo: View {
+    var size: CGFloat = 44
+
+    var body: some View {
+        let radius = size * 0.27
+        RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .fill(
+                LinearGradient(colors: [StudioTheme.surfaceElevated, StudioTheme.glassInk],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+            )
+            .frame(width: size, height: size)
+            .overlay(alignment: .top) {
+                LinearGradient(colors: [.white.opacity(0.16), .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: size * 0.42)
+                    .mask(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            }
+            .overlay {
+                NMonogram()
+                    .stroke(StudioTheme.brandGradient,
+                            style: StrokeStyle(lineWidth: size * 0.13, lineCap: .round, lineJoin: .round))
+                    .padding(.horizontal, size * 0.30)
+                    .padding(.vertical, size * 0.26)
+            }
+            .overlay(alignment: .topTrailing) {
+                Image(systemName: "sparkle")
+                    .font(.system(size: size * 0.20, weight: .bold))
+                    .foregroundStyle(StudioTheme.amber)
+                    .padding(size * 0.10)
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(StudioTheme.violet.opacity(0.55), lineWidth: max(1, size * 0.024))
+            )
+            .shadow(color: StudioTheme.violet.opacity(0.25), radius: size * 0.16, x: 0, y: size * 0.06)
+    }
+}
+
+/// Geometrisches „N" als Pfad: links hoch, Diagonale runter, rechts hoch.
+struct NMonogram: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        return p
     }
 }

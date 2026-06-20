@@ -129,7 +129,7 @@ struct DashboardView: View {
                                          color: StudioTheme.cyan)
                     }
                     Text("NovelForge")
-                        .font(.system(size: 42, weight: .bold, design: .rounded))
+                        .font(.system(size: 44, weight: .bold, design: .serif))
                         .foregroundStyle(StudioTheme.heroGradient)
                     Text("Autonome Buchproduktion mit Story-Gedächtnis, Qualitäts-Agenten, KDP-Export und kontrollierbarer Parallelität.")
                         .font(.subheadline)
