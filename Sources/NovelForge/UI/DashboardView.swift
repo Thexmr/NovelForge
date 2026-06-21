@@ -372,12 +372,13 @@ struct StatCard: View {
                 .background(
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
                         .fill(color)
-                        .shadow(color: color.opacity(0.75), radius: 13, x: 0, y: 0)
+                        .shadow(color: color.opacity(0.45), radius: 10, x: 0, y: 0)
                 )
             StudioStatNumber(value: value, gradient: StudioTheme.accentGradient(color))
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.9))
+            Text(title.uppercased())
+                .font(.system(.caption2, design: .monospaced).weight(.semibold))
+                .foregroundStyle(StudioTheme.textMuted)
+                .tracking(0.8)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
@@ -404,7 +405,7 @@ struct StatCard: View {
                     lineWidth: 1.5
                 )
         )
-        .shadow(color: color.opacity(0.45), radius: 20, x: 0, y: 7)
+        .shadow(color: color.opacity(0.26), radius: 14, x: 0, y: 7)
     }
 }
 

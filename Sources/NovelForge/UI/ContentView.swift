@@ -60,6 +60,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var appState = AppState.shared
     @State private var showingNewBookSheet = false
 
@@ -75,6 +76,9 @@ struct ContentView: View {
             detailContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .id(appState.selectedSidebarItem)
+                .transition(reduceMotion
+                            ? .opacity
+                            : .opacity.combined(with: .move(edge: .trailing)))
         }
         .sheet(isPresented: $showingNewBookSheet) {
             NewBookWizardView(onStarted: {

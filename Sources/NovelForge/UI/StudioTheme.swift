@@ -62,39 +62,62 @@ enum StudioTheme {
     }
 }
 
+/// Ruhige, statische Atmosphäre statt zielloser Drift-Animation: zwei tiefe Neon-Halos
+/// (Cyan oben, Violett rechts) + ein feines Punkt-Raster (futuristische HUD-Textur, nur
+/// gefühlt). Bewegung ist dem aktiven Zustand vorbehalten, nicht dem Hintergrund.
 struct StudioBackground: View {
-    @State private var drift = false
-
     var body: some View {
         ZStack {
             LinearGradient(colors: [StudioTheme.pageTop, StudioTheme.pageMiddle, StudioTheme.pageBottom],
                            startPoint: .top, endPoint: .bottom)
-            bloom(StudioTheme.cyan.opacity(0.50), UnitPoint(x: 0.08, y: 0.00), 760)
-                .offset(x: drift ? 30 : -26, y: drift ? 18 : -14)
-            bloom(StudioTheme.violet.opacity(0.52), UnitPoint(x: 0.92, y: 0.16), 840)
-                .offset(x: drift ? -32 : 20, y: drift ? -16 : 18)
-            bloom(StudioTheme.magenta.opacity(0.30), UnitPoint(x: 0.62, y: 1.06), 700)
-                .offset(x: drift ? 20 : -24, y: drift ? -12 : 16)
-            bloom(StudioTheme.cyan.opacity(0.18), UnitPoint(x: 0.30, y: 0.96), 560)
-                .offset(x: drift ? -16 : 18, y: drift ? 14 : -12)
-            Rectangle()
-                .fill(.black.opacity(0.30))
-            LinearGradient(colors: [
-                Color.white.opacity(0.045),
-                Color.clear,
-                StudioTheme.cyan.opacity(0.03)
-            ], startPoint: .topLeading, endPoint: .bottomTrailing)
+            RadialGradient(colors: [StudioTheme.cyan.opacity(0.15), .clear],
+                           center: UnitPoint(x: 0.15, y: -0.05), startRadius: 40, endRadius: 760)
+            RadialGradient(colors: [StudioTheme.violet.opacity(0.17), .clear],
+                           center: UnitPoint(x: 0.92, y: 0.10), startRadius: 60, endRadius: 820)
+            DotGrid()
+            Rectangle().fill(.black.opacity(0.34))
         }
         .ignoresSafeArea()
-        .onAppear {
-            withAnimation(.easeInOut(duration: 17).repeatForever(autoreverses: true)) {
-                drift = true
+    }
+}
+
+/// Feines Punkt-Raster (sub-perzeptuell), gibt dem Hintergrund einen „System"-Charakter.
+struct DotGrid: View {
+    var body: some View {
+        Canvas { ctx, size in
+            let step: CGFloat = 26
+            let dot: CGFloat = 1.0
+            let shading = GraphicsContext.Shading.color(.white.opacity(0.045))
+            var y: CGFloat = step
+            while y < size.height {
+                var x: CGFloat = step
+                while x < size.width {
+                    ctx.fill(Path(ellipseIn: CGRect(x: x, y: y, width: dot, height: dot)), with: shading)
+                    x += step
+                }
+                y += step
             }
         }
+        .allowsHitTesting(false)
+        .blendMode(.plusLighter)
     }
+}
 
-    private func bloom(_ color: Color, _ center: UnitPoint, _ radius: CGFloat) -> some View {
-        RadialGradient(colors: [color, .clear], center: center, startRadius: 30, endRadius: radius)
+/// Bewegungs-Tokens für ein konsistentes Gefühl in der ganzen App.
+enum Motion {
+    static let fast = Animation.easeOut(duration: 0.12)
+    static let standard = Animation.spring(response: 0.32, dampingFraction: 0.85)
+    static let expressive = Animation.spring(response: 0.5, dampingFraction: 0.72)
+}
+
+extension View {
+    /// Echter Neon-Glow als gestaffeltes Licht-Decay (mehrere Schatten, ~2× Radius je Stufe)
+    /// statt eines einzelnen fetten Blurs. `intensity` skaliert die Stärke (0 = aus).
+    func neonGlow(_ color: Color, intensity: Double = 1) -> some View {
+        self
+            .shadow(color: color.opacity(0.55 * intensity), radius: 4)
+            .shadow(color: color.opacity(0.32 * intensity), radius: 11)
+            .shadow(color: color.opacity(0.16 * intensity), radius: 22)
     }
 }
 
@@ -155,7 +178,7 @@ private struct GlassSurface: ViewModifier {
                     .mask(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
             .shadow(color: Color.black.opacity(0.22), radius: isInteractiveGlass ? 9 : 5, x: 0, y: isInteractiveGlass ? 7 : 3)
-            .shadow(color: accent.opacity(0.24 * Double(bloom)), radius: (isInteractiveGlass ? 18 : 11) * bloom, x: 0, y: 4)
+            .shadow(color: accent.opacity(0.15 * Double(bloom)), radius: (isInteractiveGlass ? 13 : 8) * bloom, x: 0, y: 4)
     }
 }
 
@@ -294,12 +317,13 @@ struct StudioStatNumber: View {
 
     var body: some View {
         Text(value)
-            .font(.system(size: 30, weight: .bold, design: .rounded))
+            .font(.system(size: 30, weight: .bold, design: .monospaced))
             .foregroundStyle(gradient)
             .lineLimit(1)
             .minimumScaleFactor(0.5)
-            .monospacedDigit()
-            .shadow(color: StudioTheme.cyan.opacity(0.55), radius: 15, x: 0, y: 0)
+            .contentTransition(.numericText())
+            .animation(Motion.standard, value: value)
+            .shadow(color: StudioTheme.cyan.opacity(0.38), radius: 12, x: 0, y: 0)
     }
 }
 
@@ -345,16 +369,17 @@ struct StudioStatusPill: View {
                 Image(systemName: systemImage)
                     .font(.caption2.weight(.bold))
             }
-            Text(text)
+            Text(text.uppercased())
+                .tracking(0.8)
                 .lineLimit(1)
         }
-        .font(.caption.weight(.semibold))
+        .font(.system(.caption2, design: .monospaced).weight(.semibold))
         .foregroundStyle(color)
-        .padding(.horizontal, 9)
+        .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background(color.opacity(0.14), in: Capsule())
-        .overlay(Capsule().strokeBorder(color.opacity(0.42), lineWidth: 1))
-        .shadow(color: color.opacity(0.50), radius: 8, x: 0, y: 0)
+        .background(color.opacity(0.13), in: Capsule())
+        .overlay(Capsule().strokeBorder(color.opacity(0.40), lineWidth: 1))
+        .shadow(color: color.opacity(0.28), radius: 6, x: 0, y: 0)
     }
 }
 
@@ -391,7 +416,7 @@ struct StudioGlassTile: ViewModifier {
                     )
             )
             .shadow(color: Color.black.opacity(0.12 * opacity), radius: 3, x: 0, y: 2)
-            .shadow(color: accent.opacity(0.42 * opacity), radius: 14, x: 0, y: 0)
+            .shadow(color: accent.opacity(0.22 * opacity), radius: 11, x: 0, y: 0)
     }
 }
 
@@ -407,9 +432,9 @@ struct StudioSectionLabel: View {
     let text: String
     var body: some View {
         Text(text.uppercased())
-            .font(.system(size: 10, weight: .bold, design: .rounded))
-            .foregroundStyle(StudioTheme.textFaint)
-            .tracking(0)
+            .font(.system(size: 10, weight: .bold, design: .monospaced))
+            .foregroundStyle(StudioTheme.textMuted)
+            .tracking(1.5)
     }
 }
 
