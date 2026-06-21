@@ -601,23 +601,28 @@ enum PromptFactory {
         Keine Hinweise auf KI, AI, künstliche Intelligenz, Automatisierung, Tools oder NovelForge
         in Verkaufstext, Keywords oder Kategorien. Die Ausgabe muss wie professionelle Verlagsmetadaten wirken.
 
+        Optimiere TITEL, UNTERTITEL und KEYWORDS für die Amazon-KDP-/Kindle-SUCHE, damit das Buch
+        bei den gesuchten Begriffen möglichst weit oben rankt – ohne Keyword-Spam, ohne unleserliche Titel.
+
         Antworte exakt in diesem Format:
-        VERKAUFSTITEL: [viraler, klickstarker Verkaufstitel für Amazon KDP, 2-6 Wörter, \
-        als Thumbnail im Suchergebnis sofort lesbar, neugierig machend (offene Frage/Spannung), \
-        emotional aufgeladen. Darf vom Originaltitel "\(title)" abweichen, wenn er stärker verkauft. \
-        Kein Untertitel, keine Anführungszeichen.]
-        UNTERTITEL: [keyword-getriebener KDP-Untertitel, der Genre und Lesernutzen transportiert \
-        und ein zugkräftiges Suchwort vorn trägt; eine Zeile.]
+        VERKAUFSTITEL: [klickstarker, verkaufender Verkaufstitel für Amazon KDP, 2-6 Wörter, als \
+        Thumbnail im Suchergebnis sofort lesbar, neugierig machend (offene Frage/Spannung), emotional. \
+        Wenn es natürlich passt, ein gesuchtes Genre-/Trope-Wort enthalten, damit der Titel auch über \
+        die Suche gefunden wird. Darf vom Originaltitel "\(title)" abweichen, wenn er stärker verkauft. \
+        Keine Anführungszeichen.]
+        UNTERTITEL: [SEO-Untertitel – das wichtigste Such-Feld bei KDP. Trage die 1-2 stärksten \
+        Suchbegriffe, die echte Leser tippen, VORN (Genre + Trope + Lesernutzen), 5-12 Wörter, \
+        natürlich lesbar, KEIN Keyword-Stuffing; eine Zeile.]
         VERKAUFSTEXT: [150-200 Wörter Amazon-Produktbeschreibung in kurzen, scanbaren Absätzen \
         (keine Textwand, keine Markdown-Symbole): erste Zeile ein eigenständiger, zugkräftiger \
-        Tagline-Hook; dann 2-3 kurze Absätze mit steigenden Stakes und emotionalem Sog; eine \
-        kaufauslösende Schlusszeile; danach EINE "Für Fans von …"-Zeile mit 1-2 genre-typischen \
-        Lese-Erlebnissen/Tropes (KEINE fremden Buchtitel oder Autorennamen). Keine Spoiler. \
-        Keine verbotenen Begriffe wie "Bestseller" oder "kostenlos".]
-        KEYWORDS: [genau 7 unterschiedliche Long-Tail-Suchphrasen, wie echte KDP-Käufer suchen, \
-        je 2-4 Wörter, durch Kommas getrennt. Mische Genre+Trope, Stimmung/Heat, Zielleser und \
-        Setting. Keine nackten Einzelwörter, keine doppelten Wortstämme, keine Autorennamen oder \
-        Titel fremder Werke.]
+        Tagline-Hook, der ein zentrales Suchwort natürlich aufgreift; dann 2-3 kurze Absätze mit \
+        steigenden Stakes und emotionalem Sog; eine kaufauslösende Schlusszeile; danach EINE \
+        "Für Fans von …"-Zeile mit 1-2 genre-typischen Lese-Erlebnissen/Tropes (KEINE fremden \
+        Buchtitel oder Autorennamen). Keine Spoiler. Keine verbotenen Begriffe wie "Bestseller" oder "kostenlos".]
+        KEYWORDS: [genau 7 Backend-Suchbegriffe, die das KDP-Ranking treiben – Long-Tail-Phrasen, \
+        wie echte Käufer suchen, je 2-4 Wörter, durch Kommas getrennt. Mische Genre+Trope, \
+        Stimmung/Heat, Zielleser und Setting. Keine nackten Einzelwörter, keine doppelten \
+        Wortstämme, keine Autorennamen oder Titel fremder Werke.]
         KATEGORIEN: [3 ECHTE Amazon-Kindle-Kategorien (keine erfundenen Pfade), eine pro Zeile, \
         Format: Oberkategorie > Unterkategorie. Wähle möglichst spezifische Nischen-Unterkategorien \
         des Genres, in denen der Bestseller-Rang erreichbar ist (z.B. "Liebesromane > Zeitgenössisch", \

@@ -16,6 +16,20 @@ struct KDPSalesSheet {
         !salesDescription.isEmpty || !keywords.isEmpty || !categories.isEmpty
     }
 
+    /// Die KDP-Keyword-Slots (max. 7), einzeln – für die „Tags"-Ansicht beim Upload.
+    var keywordSlots: [String] {
+        keywords.components(separatedBy: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Die KDP-Kategorien als einzelne Pfade (max. 3).
+    var categorySlots: [String] {
+        categories.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
     static func make(for project: Project) -> KDPSalesSheet {
         let profile = project.bookProfile
         // Bevorzugt den eigens generierten viralen KDP-Verkaufstitel; sonst der Buchtitel.

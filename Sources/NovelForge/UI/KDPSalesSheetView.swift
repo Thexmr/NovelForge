@@ -88,6 +88,70 @@ struct KDPSalesSheetView: View {
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .studioGlassTile(cornerRadius: 8, accent: StudioTheme.cyan, opacity: 0.9)
+
+            if !sheet.keywordSlots.isEmpty || !sheet.categorySlots.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Label("KDP-Upload · Tags & Felder", systemImage: "tag")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(StudioTheme.heroGradient)
+                        Spacer()
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(sheet.exportText, forType: .string)
+                        } label: {
+                            Label("Komplettes Blatt kopieren", systemImage: "doc.on.doc")
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                    }
+                    Text("Genau die Felder, die Amazon KDP beim Hochladen abfragt.")
+                        .font(.caption2).foregroundStyle(StudioTheme.textFaint)
+
+                    if !sheet.keywordSlots.isEmpty {
+                        Text("7 SUCHBEGRIFFE (KEYWORDS)")
+                            .font(.system(.caption2, design: .monospaced).weight(.bold))
+                            .tracking(1).foregroundStyle(StudioTheme.textFaint)
+                        ForEach(Array(sheet.keywordSlots.prefix(7).enumerated()), id: \.offset) { i, kw in
+                            uploadSlot("\(i + 1)", kw, accent: StudioTheme.violet)
+                        }
+                    }
+                    if !sheet.categorySlots.isEmpty {
+                        Text("KATEGORIEN (MAX. 3)")
+                            .font(.system(.caption2, design: .monospaced).weight(.bold))
+                            .tracking(1).foregroundStyle(StudioTheme.textFaint)
+                            .padding(.top, 4)
+                        ForEach(Array(sheet.categorySlots.prefix(3).enumerated()), id: \.offset) { i, cat in
+                            uploadSlot("\(i + 1)", cat, accent: StudioTheme.cyan)
+                        }
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .studioGlassTile(cornerRadius: 8, accent: StudioTheme.violet, opacity: 0.9)
+            }
+        }
+    }
+
+    private func uploadSlot(_ index: String, _ value: String, accent: Color) -> some View {
+        HStack(spacing: 10) {
+            Text(index)
+                .font(.system(.caption, design: .monospaced).weight(.bold))
+                .foregroundStyle(accent)
+                .frame(width: 16)
+            Text(value)
+                .font(.callout)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(value, forType: .string)
+            } label: {
+                Image(systemName: "doc.on.doc").frame(width: 22, height: 22)
+            }
+            .buttonStyle(.borderless)
+            .help("Kopieren")
         }
     }
 
