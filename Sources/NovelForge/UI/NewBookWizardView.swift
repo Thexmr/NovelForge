@@ -230,6 +230,9 @@ struct NewBookWizardView: View {
                     }
                 }
                 TextField("Autorname oder Pseudonym", text: $authorName)
+
+                Text("Autorprofil")
+                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 TextEditor(text: $authorBio)
                     .frame(minHeight: 70)
                     .overlay(alignment: .topLeading) {
@@ -241,13 +244,9 @@ struct NewBookWizardView: View {
                                 .allowsHitTesting(false)
                         }
                     }
-                HStack(spacing: 12) {
-                    TextField("Serie (optional – für Read-Through)", text: $seriesName)
-                    if !seriesName.trimmingCharacters(in: .whitespaces).isEmpty {
-                        Stepper("Band \(seriesNumber)", value: $seriesNumber, in: 1...50)
-                            .fixedSize()
-                    }
-                }
+
+                Text("Impressum / Copyright (für KDP)")
+                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 TextEditor(text: $imprint)
                     .frame(minHeight: 70)
                     .overlay(alignment: .topLeading) {
@@ -319,6 +318,16 @@ struct NewBookWizardView: View {
                 Text("Branchenübliche Einstufung der erotischen Intensität (1–5). Steuert die Ausführlichkeit intimer Szenen und die passende Einordnung in Verkaufstext, Keywords und Kategorien.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                Text("Serie / Reihe (optional – für Read-Through)")
+                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    TextField("Reihenname", text: $seriesName)
+                    if !seriesName.trimmingCharacters(in: .whitespaces).isEmpty {
+                        Stepper("Band \(seriesNumber)", value: $seriesNumber, in: 1...50)
+                            .fixedSize()
+                    }
+                }
             }
 
             Section("Inspiration") {
