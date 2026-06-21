@@ -67,6 +67,7 @@ struct NewBookWizardView: View {
 
     // Trope-Vertrag
     @State private var tropes = ""
+    @State private var spiceLevel = 0
     @State private var tropeSuggestions: [String] = []
     @State private var isGeneratingTropes = false
     @State private var tropeError: String?
@@ -308,6 +309,16 @@ struct NewBookWizardView: View {
                         }
                     }
                 }
+
+                Picker("Spice / Hitzegrad", selection: $spiceLevel) {
+                    Text("Nicht angegeben").tag(0)
+                    ForEach(SpiceLevel.range, id: \.self) { lvl in
+                        Text(SpiceLevel.pickerLabel(lvl)).tag(lvl)
+                    }
+                }
+                Text("Heat-Achse: Leser suchen gezielt nach Hitzegrad. Steuert die Explizitheit der Szenen und fließt automatisch in Verkaufstext, Keywords und Kategorien.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Inspiration") {
@@ -603,6 +614,9 @@ struct NewBookWizardView: View {
                     ReviewRow(label: "Impressum", value: imprint.truncated(to: 120))
                 }
                 ReviewRow(label: "Genre", value: subgenre.isEmpty ? genre : "\(genre) / \(subgenre)")
+                if SpiceLevel.isValid(spiceLevel) {
+                    ReviewRow(label: "Spice", value: SpiceLevel.pickerLabel(spiceLevel))
+                }
                 ReviewRow(label: "Sprache", value: language)
                 ReviewRow(label: "Stil", value: "\(styleProfile)\(tonality.isEmpty ? "" : ", \(tonality)")")
                 ReviewRow(label: "Perspektive", value: "\(narrativePerspective), \(tense)")
@@ -690,6 +704,7 @@ struct NewBookWizardView: View {
         )
         project.subgenre = subgenre.isEmpty ? nil : subgenre
         project.tropes = tropes.trimmingCharacters(in: .whitespacesAndNewlines)
+        project.spiceLevel = spiceLevel
         let trimmedSeries = seriesName.trimmingCharacters(in: .whitespacesAndNewlines)
         project.seriesName = trimmedSeries
         project.seriesNumber = trimmedSeries.isEmpty ? 0 : seriesNumber

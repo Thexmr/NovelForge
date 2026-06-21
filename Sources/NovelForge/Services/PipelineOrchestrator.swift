@@ -385,7 +385,8 @@ final class PipelineOrchestrator: ObservableObject {
                     authorBio: project.authorBio,
                     genre: project.genre, audience: profile.targetAudience,
                     synopsis: profile.synopsis ?? profile.premise,
-                    language: project.language, tropes: project.tropes
+                    language: project.language, tropes: project.tropes,
+                    spiceLevel: project.spiceLevel
                 ),
                 system: "Du bist ein erfahrener Buchmarketing-Texter für Amazon KDP. Deine Produktbeschreibungen verkaufen.",
                 maxTokens: 1200, temperature: 0.7, config: config
@@ -2085,7 +2086,8 @@ final class PipelineOrchestrator: ObservableObject {
                         previousSceneEnding: previousEnding,
                         isFirstScene: isFirstScene, isFinalScene: isFinalScene,
                         targetWords: scene.targetWordCount,
-                        bookSignature: project.styleSignature
+                        bookSignature: project.styleSignature,
+                        spiceLevel: project.spiceLevel
                     )
                     let maxTokens = LongFormProductionPlan.draftMaxTokens(forTargetWords: scene.targetWordCount)
                     let minWords = Int(Double(scene.targetWordCount) * 0.75)
@@ -2701,7 +2703,8 @@ final class PipelineOrchestrator: ObservableObject {
                         authorBio: project.authorBio,
                         genre: project.genre, audience: profile.targetAudience,
                         synopsis: profile.synopsis ?? profile.premise,
-                        language: project.language, tropes: project.tropes
+                        language: project.language, tropes: project.tropes,
+                        spiceLevel: project.spiceLevel
                     ),
                     system: "Du bist ein erfahrener Buchmarketing-Texter für Amazon KDP. Deine Produktbeschreibungen verkaufen.",
                     maxTokens: 1200, temperature: 0.7, config: config

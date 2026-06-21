@@ -12,6 +12,9 @@ final class Project {
     var styleProfile: String
     /// Vom Autor gewählte/ gewünschte Tropes (kommagetrennt) – die Zielgruppe kauft nach Trope.
     var tropes: String = ""
+    /// „Spice"/Hitzegrad 1–5 (0 = nicht angegeben). Eigene Such-/Filterachse in Romance;
+    /// steuert Explizitheit der Generierung und fließt in KDP-Text/Keywords/Kategorien.
+    var spiceLevel: Int = 0
     /// Serien-Metadaten (Read-Through-Hebel): Reihenname + Bandnummer.
     var seriesName: String = ""
     var seriesNumber: Int = 0

@@ -447,7 +447,7 @@ enum PromptFactory {
                            charactersSummary: String, styleRules: String,
                            storySoFar: String, previousSceneEnding: String,
                            isFirstScene: Bool, isFinalScene: Bool,
-                           targetWords: Int, bookSignature: String = "") -> String {
+                           targetWords: Int, bookSignature: String = "", spiceLevel: Int = 0) -> String {
         var positionNote = ""
         if isFirstScene {
             positionNote = """
@@ -478,6 +478,8 @@ enum PromptFactory {
 
         let trimmedSignature = bookSignature.trimmingCharacters(in: .whitespacesAndNewlines)
         let signatureBlock = trimmedSignature.isEmpty ? "" : "\n\(trimmedSignature)\n"
+        let spiceDirective = SpiceLevel.generationDirective(spiceLevel)
+        let spiceBlock = spiceDirective.isEmpty ? "" : "\n\(spiceDirective)\n"
 
         return """
         Schreibe Szene \(sceneNumber) aus Kapitel \(chapterNumber) ("\(chapterTitle)") des Romans "\(bookTitle)".
@@ -485,7 +487,7 @@ enum PromptFactory {
         SPRACHE: Schreibe ausschließlich auf \(language).
         STIL: \(style); Tonalität: \(tonality); Erzählperspektive: \(scenePerspective.isEmpty ? perspective : scenePerspective); Zeitform: \(tense).
         STILREGELN: \(styleRules.truncated(to: 600))
-        \(signatureBlock)
+        \(signatureBlock)\(spiceBlock)
         KAPITELZIEL: \(chapterGoal)
         SZENE:
         - Ort: \(sceneLocation)
@@ -610,16 +612,18 @@ enum PromptFactory {
     }
 
     static func kdpMetadata(title: String, author: String, authorBio: String = "", genre: String,
-                            audience: String, synopsis: String, language: String, tropes: String = "") -> String {
+                            audience: String, synopsis: String, language: String, tropes: String = "",
+                            spiceLevel: Int = 0) -> String {
         let authorBlock = authorBio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? ""
             : "\nAutorprofil für Tonalität/Markenstimme:\n\(authorBio.truncated(to: 800))\n"
         let tropesLine = tropes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? ""
             : "\nTropes (in KEYWORDS und VERKAUFSTEXT als gesuchte Begriffe natürlich aufgreifen): \(tropes)"
+        let spiceLine = SpiceLevel.kdpGuidance(spiceLevel)
         return """
         Erstelle Amazon-KDP-Metadaten für das Buch "\(title)" von \(author).
-        Genre: \(genre) | Zielgruppe: \(audience) | Sprache: \(language)\(tropesLine)
+        Genre: \(genre) | Zielgruppe: \(audience) | Sprache: \(language)\(tropesLine)\(spiceLine)
         \(authorBlock)
 
         Inhalt:

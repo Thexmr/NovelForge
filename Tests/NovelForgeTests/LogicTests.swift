@@ -643,6 +643,37 @@ final class LogicTests: XCTestCase {
         XCTAssertTrue(CoverImageSettings.modelChoices(for: "custom").isEmpty)
     }
 
+    /// Spice/Hitzegrad: ein Wert steuert Generierungs-Explizitheit UND KDP-Discovery.
+    func testSpiceLevelDirectivesScaleAndZeroIsNeutral() {
+        XCTAssertTrue(SpiceLevel.generationDirective(0).isEmpty, "0 = nicht angegeben → kein Block")
+        XCTAssertTrue(SpiceLevel.kdpGuidance(0).isEmpty)
+        for lvl in SpiceLevel.range {
+            XCTAssertTrue(SpiceLevel.generationDirective(lvl).contains("HITZEGRAD"))
+        }
+        // niedriger Heat = clean-Signal, hoher Heat = explizite Keywords + Trigger
+        XCTAssertTrue(SpiceLevel.kdpGuidance(1).lowercased().contains("clean"))
+        XCTAssertTrue(SpiceLevel.kdpGuidance(5).lowercased().contains("explicit"))
+        XCTAssertTrue(SpiceLevel.kdpGuidance(4).lowercased().contains("trigger"))
+        XCTAssertEqual(SpiceLevel.chili(3), "🌶🌶🌶")
+    }
+
+    /// Der gewählte Hitzegrad muss real in Generierungs- und KDP-Prompt einfließen.
+    func testSpiceLevelFlowsIntoPrompts() {
+        let kdp = PromptFactory.kdpMetadata(
+            title: "Titel", author: "Autor", genre: "Liebesroman", audience: "Erwachsene",
+            synopsis: "Inhalt", language: "Deutsch", tropes: "", spiceLevel: 4)
+        XCTAssertTrue(kdp.contains("HITZEGRAD: 4/5"))
+        let scene = PromptFactory.draftScene(
+            language: "Deutsch", style: "warm", tonality: "intim", perspective: "Ich",
+            tense: "Präsens", genre: "Liebesroman", bookTitle: "Titel", chapterNumber: 1,
+            chapterTitle: "K1", chapterGoal: "Ziel", sceneNumber: 1, sceneGoal: "Ziel",
+            sceneLocation: "Ort", sceneTime: "Nacht", sceneObstacle: "Hindernis",
+            sceneTurn: "Wendung", scenePerspective: "", charactersSummary: "Figuren",
+            styleRules: "Regeln", storySoFar: "", previousSceneEnding: "",
+            isFirstScene: true, isFinalScene: false, targetWords: 1500, spiceLevel: 4)
+        XCTAssertTrue(scene.contains("HITZEGRAD 4/5"))
+    }
+
     /// Stil-DNA: reproduzierbar pro Seed, aber über verschiedene Seeds hinweg
     /// unterschiedlich – das ist der Kern des Schutzes gegen Amazon-„Programmatic Content".
     func testNarrativeSignatureIsDeterministicPerSeedAndVariesAcrossSeeds() {
