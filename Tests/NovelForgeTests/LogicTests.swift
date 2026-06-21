@@ -643,26 +643,26 @@ final class LogicTests: XCTestCase {
         XCTAssertTrue(CoverImageSettings.modelChoices(for: "custom").isEmpty)
     }
 
-    /// Spice/Hitzegrad: ein Wert steuert Generierungs-Explizitheit UND KDP-Discovery.
+    /// Sinnlichkeitsgrad: ein Wert steuert Generierungs-Ausführlichkeit UND KDP-Einordnung.
     func testSpiceLevelDirectivesScaleAndZeroIsNeutral() {
         XCTAssertTrue(SpiceLevel.generationDirective(0).isEmpty, "0 = nicht angegeben → kein Block")
         XCTAssertTrue(SpiceLevel.kdpGuidance(0).isEmpty)
         for lvl in SpiceLevel.range {
-            XCTAssertTrue(SpiceLevel.generationDirective(lvl).contains("HITZEGRAD"))
+            XCTAssertTrue(SpiceLevel.generationDirective(lvl).contains("SINNLICHKEITSGRAD"))
         }
-        // niedriger Heat = clean-Signal, hoher Heat = explizite Keywords + Trigger
-        XCTAssertTrue(SpiceLevel.kdpGuidance(1).lowercased().contains("clean"))
-        XCTAssertTrue(SpiceLevel.kdpGuidance(5).lowercased().contains("explicit"))
-        XCTAssertTrue(SpiceLevel.kdpGuidance(4).lowercased().contains("trigger"))
-        XCTAssertEqual(SpiceLevel.chili(3), "🌶🌶🌶")
+        // niedrige Stufe = zurückhaltend, hohe Stufe = explizit + Inhaltshinweis
+        XCTAssertTrue(SpiceLevel.kdpGuidance(1).lowercased().contains("dezent"))
+        XCTAssertTrue(SpiceLevel.kdpGuidance(5).lowercased().contains("erotik"))
+        XCTAssertTrue(SpiceLevel.kdpGuidance(4).lowercased().contains("erwachsene"))
+        XCTAssertEqual(SpiceLevel.pickerLabel(4), "Stufe 4 – Explizit")
     }
 
-    /// Der gewählte Hitzegrad muss real in Generierungs- und KDP-Prompt einfließen.
+    /// Der gewählte Sinnlichkeitsgrad muss real in Generierungs- und KDP-Prompt einfließen.
     func testSpiceLevelFlowsIntoPrompts() {
         let kdp = PromptFactory.kdpMetadata(
             title: "Titel", author: "Autor", genre: "Liebesroman", audience: "Erwachsene",
             synopsis: "Inhalt", language: "Deutsch", tropes: "", spiceLevel: 4)
-        XCTAssertTrue(kdp.contains("HITZEGRAD: 4/5"))
+        XCTAssertTrue(kdp.contains("SINNLICHKEITSGRAD: 4/5"))
         let scene = PromptFactory.draftScene(
             language: "Deutsch", style: "warm", tonality: "intim", perspective: "Ich",
             tense: "Präsens", genre: "Liebesroman", bookTitle: "Titel", chapterNumber: 1,
@@ -671,7 +671,7 @@ final class LogicTests: XCTestCase {
             sceneTurn: "Wendung", scenePerspective: "", charactersSummary: "Figuren",
             styleRules: "Regeln", storySoFar: "", previousSceneEnding: "",
             isFirstScene: true, isFinalScene: false, targetWords: 1500, spiceLevel: 4)
-        XCTAssertTrue(scene.contains("HITZEGRAD 4/5"))
+        XCTAssertTrue(scene.contains("SINNLICHKEITSGRAD 4/5"))
     }
 
     /// Stil-DNA: reproduzierbar pro Seed, aber über verschiedene Seeds hinweg

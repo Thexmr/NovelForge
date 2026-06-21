@@ -310,13 +310,13 @@ struct NewBookWizardView: View {
                     }
                 }
 
-                Picker("Spice / Hitzegrad", selection: $spiceLevel) {
+                Picker("Sinnlichkeitsgrad", selection: $spiceLevel) {
                     Text("Nicht angegeben").tag(0)
                     ForEach(SpiceLevel.range, id: \.self) { lvl in
                         Text(SpiceLevel.pickerLabel(lvl)).tag(lvl)
                     }
                 }
-                Text("Heat-Achse: Leser suchen gezielt nach Hitzegrad. Steuert die Explizitheit der Szenen und fließt automatisch in Verkaufstext, Keywords und Kategorien.")
+                Text("Branchenübliche Einstufung der erotischen Intensität (1–5). Steuert die Ausführlichkeit intimer Szenen und die passende Einordnung in Verkaufstext, Keywords und Kategorien.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -615,7 +615,7 @@ struct NewBookWizardView: View {
                 }
                 ReviewRow(label: "Genre", value: subgenre.isEmpty ? genre : "\(genre) / \(subgenre)")
                 if SpiceLevel.isValid(spiceLevel) {
-                    ReviewRow(label: "Spice", value: SpiceLevel.pickerLabel(spiceLevel))
+                    ReviewRow(label: "Sinnlichkeit", value: SpiceLevel.pickerLabel(spiceLevel))
                 }
                 ReviewRow(label: "Sprache", value: language)
                 ReviewRow(label: "Stil", value: "\(styleProfile)\(tonality.isEmpty ? "" : ", \(tonality)")")
