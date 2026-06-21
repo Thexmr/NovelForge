@@ -191,8 +191,10 @@ struct PublishingDetailView: View {
     @State private var packageNote: String?
     @State private var isRepairing = false
     @State private var repairNote: String?
+    @State private var isOptimizingOpening = false
+    @State private var openingNote: String?
 
-    private var busy: Bool { isRunningPackage || isRepairing || orchestrator.isRunning }
+    private var busy: Bool { isRunningPackage || isRepairing || isOptimizingOpening || orchestrator.isRunning }
 
     var body: some View {
         ScrollView {
@@ -237,7 +239,7 @@ struct PublishingDetailView: View {
                 // Nachbearbeitung einzeln
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Nachbearbeitung").font(.headline)
-                    Text("Die KI prüft das fertige Buch auf Unstimmigkeiten (Zeitlinie, Figurenwissen, Kontinuität, Logik) und korrigiert gezielt nur die betroffenen Stellen – nach dem Proofreading.")
+                    Text("Die KI prüft das fertige Buch auf Unstimmigkeiten (Zeitlinie, Figurenwissen, Kontinuität, Logik) UND Lesesog (schwache Kapitel-Enden, durchhängende Spannung) und korrigiert gezielt nur die betroffenen Stellen – nach dem Proofreading.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     HStack(spacing: 10) {
@@ -247,12 +249,36 @@ struct PublishingDetailView: View {
                             if isRepairing {
                                 HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Wird geprüft …") }
                             } else {
-                                Label("Konsistenz prüfen & reparieren", systemImage: "wand.and.stars")
+                                Label("Konsistenz & Spannung prüfen", systemImage: "wand.and.stars")
                             }
                         }
                         .disabled(busy)
                         if let repairNote {
                             Text(repairNote).font(.caption).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+
+                // Blick ins Buch (Conversion-Hebel)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Blick ins Buch").font(.headline)
+                    Text("Die Amazon-Leseprobe (erste Seiten) entscheidet den Kauf. Die KI schärft den Anfang des ersten Kapitels auf maximalen Lesesog – Hook in Zeile 1, sofort Stakes, ohne die Handlung zu ändern.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 10) {
+                        Button {
+                            optimizeOpening()
+                        } label: {
+                            if isOptimizingOpening {
+                                HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Wird optimiert …") }
+                            } else {
+                                Label("Anfang optimieren", systemImage: "text.alignleft")
+                            }
+                        }
+                        .disabled(busy)
+                        if let openingNote {
+                            Text(openingNote).font(.caption).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
@@ -287,6 +313,18 @@ struct PublishingDetailView: View {
             let reply = await orchestrator.repairBookAfterProofreading(project: project)
             repairNote = reply
             isRepairing = false
+        }
+    }
+
+    private func optimizeOpening() {
+        guard project.modelContext != nil, !busy else { return }
+        isOptimizingOpening = true
+        openingNote = nil
+        Task { @MainActor in
+            let reply = await orchestrator.optimizeOpening(project: project)
+            try? modelContext.save()
+            openingNote = reply
+            isOptimizingOpening = false
         }
     }
 }

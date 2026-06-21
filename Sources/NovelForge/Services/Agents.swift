@@ -787,6 +787,11 @@ enum PromptFactory {
           betroffenem Kapitel, damit die App diese Kapitel automatisch korrigieren kann.
         - Nutze "Gesamtmanuskript" nur, wenn keine konkrete Textreparatur möglich ist.
         - Stütze Befunde zu Wortlaut, Anschluss und Kontinuität auf die mitgelieferten Textauszüge.
+        - Prüfe AUCH die Lesesog-/Bestseller-Qualität: ein schwaches Kapitel-Ende ohne Haken/
+          Cliffhanger, flache oder durchhängende Spannung, ein nicht eingelöstes Genre-Versprechen
+          oder ein zäher Einstieg sind reparaturpflichtig (Fehlerquelle: Spannung). Reparaturanweisung
+          dann: Kapitel-Schluss zu einem Sog/Haken schärfen bzw. Stakes/Spannung der Stelle anheben –
+          ohne Fakten, Figuren oder Struktur zu ändern.
 
         KAPITEL (Zusammenfassung + echter Textauszug):
         \(summaries)
@@ -827,6 +832,30 @@ enum PromptFactory {
 
         KAPITELTEXT:
         \(chapterText)
+        """
+    }
+
+    /// „Blick ins Buch"-Optimierung: macht den Anfang (Amazon-Leseprobe) zu maximalem Lesesog.
+    static func openingHook(language: String, bookTitle: String, genre: String, chapterText: String) -> String {
+        """
+        Überarbeite den ANFANG (Blick ins Buch / Amazon-Leseprobe) von „\(bookTitle)"
+        (Genre: \(genre), Sprache: \(language)) zu unwiderstehlichem Lesesog. Die ersten Sätze
+        entscheiden über den Kauf.
+
+        PFLICHT:
+        - Erste Zeile = sofortiger Hook (Spannung, Frage, Irritation, starke Stimme). KEIN Wetter,
+          kein Aufwachen, kein Info-Dump, kein Prolog-Geschwafel.
+        - Sofort eine konkrete Figur in einem konkreten Moment mit etwas auf dem Spiel.
+        - Zeigen statt erklären; eigene, sofort erkennbare Erzählstimme; konkrete Sinnesdetails.
+        - Eine Spannungsfrage, die zum Weiterlesen zwingt, bleibt am Ende des Auszugs offen.
+        - Erhalte Figuren, Setting, Fakten und Handlung des Kapitels – ändere NUR Anziehung/Sog
+          und Formulierung, nicht das Geschehen.
+        - Reine Prosa, keine Überschriften, keine Kommentare, keine Meta-Hinweise.
+
+        KAPITELTEXT:
+        \(chapterText)
+
+        Gib den vollständigen, überarbeiteten Kapiteltext aus.
         """
     }
 }

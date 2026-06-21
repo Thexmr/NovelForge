@@ -589,6 +589,54 @@ final class PipelineOrchestrator: ObservableObject {
         }
     }
 
+    /// „Blick ins Buch": optimiert den Anfang des fertigen Buches (erstes Kapitel) auf
+    /// maximalen Lesesog – der stärkste Conversion-Hebel auf Amazon (die Leseprobe verkauft).
+    func optimizeOpening(project: Project) async -> String {
+        await runMarketingStep(project: project, agent: AgentName.repairEditor, phase: .manuscriptRevision,
+                               okMessage: "Buchanfang auf Lesesog optimiert (Blick ins Buch).",
+                               errPrefix: "Fehler beim Optimieren des Anfangs") { config in
+            try await self.produceOpeningOptimization(project: project, config: config)
+        }
+    }
+
+    private func produceOpeningOptimization(project: Project, config: ProviderConfiguration) async throws {
+        let chapters = (project.chapters ?? []).sorted { $0.chapterNumber < $1.chapterNumber }
+        guard let chapter = chapters.first,
+              let currentText = chapter.bestText?.trimmingCharacters(in: .whitespacesAndNewlines),
+              currentText.count > 200 else {
+            throw AIError.systemError("Kein verwertbares erstes Kapitel zum Optimieren.")
+        }
+        let job = beginJob(agent: AgentName.repairEditor, phase: .manuscriptRevision, project: project)
+        do {
+            let response = try await generate(
+                prompt: PromptFactory.openingHook(
+                    language: project.language, bookTitle: project.title,
+                    genre: project.genre, chapterText: currentText.truncated(to: 36_000)),
+                system: "Du bist ein Bestseller-Lektor und optimierst den Buchanfang (Amazon-Leseprobe) auf maximalen Lesesog. Gib nur den vollständigen Kapiteltext zurück.",
+                maxTokens: min(12000, max(4000, currentText.wordCount * 3)),
+                temperature: 0.5, config: config)
+            let improved = AutonomousContentQuality.humanizeProse(
+                AutonomousContentQuality.strippingInlineFormatting(
+                    AutonomousContentQuality.strippingPromptArtifacts(response.text)))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard improved.wordCount >= max(100, Int(Double(currentText.wordCount) * 0.6)),
+                  !AutonomousContentQuality.containsMetaRequest(improved) else {
+                throw AIError.systemError("Optimierter Anfang war unvollständig – Original behalten.")
+            }
+            chapter.finalText = improved
+            chapter.actualWordCount = improved.wordCount
+            chapter.status = .finalized
+            chapter.updatedAt = Date()
+            addReport(project: project, area: "Kapitel \(chapter.chapterNumber)", type: "Blick ins Buch",
+                      result: "Anfang auf Lesesog optimiert.", severity: .info,
+                      recommendation: "Leseprobe entscheidet den Kauf – Anfang wurde geschärft.")
+            completeJob(job, result: "Anfang optimiert", tokens: response.tokensUsed ?? 0)
+        } catch {
+            if job.status == .running { failJob(job, error: error) }
+            throw error
+        }
+    }
+
     // MARK: - Steuerung
 
     func startPipeline(project: Project, providerConfig: ProviderConfiguration) {
