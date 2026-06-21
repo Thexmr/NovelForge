@@ -155,6 +155,7 @@ struct KDPSalesSheetView: View {
             }
             .buttonStyle(.borderless)
             .help("Kopieren")
+            .accessibilityLabel("Kopieren")
         }
     }
 
@@ -198,6 +199,7 @@ struct KDPSalesSheetView: View {
             }
             .buttonStyle(.borderless)
             .help("\(label) kopieren")
+            .accessibilityLabel("\(label) kopieren")
         }
     }
 }

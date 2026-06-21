@@ -239,6 +239,7 @@ struct ProviderRow: View {
                 if let succeeded = testSucceeded {
                     Image(systemName: succeeded ? "checkmark.circle.fill" : "xmark.circle.fill")
                         .foregroundStyle(succeeded ? .green : .red)
+                        .accessibilityLabel(succeeded ? "Verbindung erfolgreich" : "Verbindung fehlgeschlagen")
                 }
 
                 Button(role: .destructive) {
@@ -248,6 +249,7 @@ struct ProviderRow: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Provider entfernen (API-Key bleibt in der Keychain)")
+                .accessibilityLabel("Provider entfernen")
             }
 
             if let result = testResult {

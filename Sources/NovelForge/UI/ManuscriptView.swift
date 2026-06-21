@@ -197,6 +197,8 @@ struct BookReaderView: View {
                         Image(systemName: "chevron.left")
                     }
                     .disabled(selectedIndex == 0)
+                    .help("Vorheriges Kapitel")
+                    .accessibilityLabel("Vorheriges Kapitel")
 
                     Button {
                         selectedIndex = min(chapters.count - 1, selectedIndex + 1)
@@ -204,6 +206,8 @@ struct BookReaderView: View {
                         Image(systemName: "chevron.right")
                     }
                     .disabled(selectedIndex >= chapters.count - 1)
+                    .help("Nächstes Kapitel")
+                    .accessibilityLabel("Nächstes Kapitel")
                 }
             }
             .padding(12)

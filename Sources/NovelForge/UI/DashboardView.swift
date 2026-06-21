@@ -734,6 +734,7 @@ struct ProjectDetailView: View {
                     }
                     .help(isProjectActive ? "Während der Produktion nicht löschbar" : "Projekt löschen")
                     .disabled(isProjectActive)
+                    .accessibilityLabel("Projekt löschen")
                 }
                 .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.cyan))
                 .padding(12)

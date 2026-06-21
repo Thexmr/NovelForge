@@ -168,6 +168,8 @@ struct EditorChatView: View {
             }
             .buttonStyle(.plain)
             .disabled(isProcessing || input.trimmingCharacters(in: .whitespaces).isEmpty)
+            .help("Senden")
+            .accessibilityLabel("Nachricht senden")
         }
         .padding(14)
     }

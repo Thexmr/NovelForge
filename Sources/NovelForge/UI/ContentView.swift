@@ -229,6 +229,7 @@ struct StudioSidebar: View {
             HStack(spacing: 7) {
                 Image(systemName: orchestrator.isRunning ? "arrow.triangle.2.circlepath" : "pause.circle")
                     .foregroundStyle(orchestrator.isRunning ? StudioTheme.cyan : StudioTheme.textFaint)
+                    .accessibilityHidden(true)
                 Text(orchestrator.isRunning ? orchestrator.currentAgent : "Keine aktive Produktion")
                     .font(.caption)
                     .foregroundStyle(StudioTheme.textMuted)
