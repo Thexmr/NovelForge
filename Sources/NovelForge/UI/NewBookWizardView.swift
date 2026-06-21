@@ -71,6 +71,10 @@ struct NewBookWizardView: View {
     @State private var isGeneratingTropes = false
     @State private var tropeError: String?
 
+    // Serie (Read-Through)
+    @State private var seriesName = ""
+    @State private var seriesNumber = 1
+
     let languages = ["Deutsch", "Englisch", "Französisch", "Spanisch"]
     let genres = Self.availableGenres
     let styles = ["düster", "literarisch", "dialogstark", "humorvoll", "episch",
@@ -236,6 +240,13 @@ struct NewBookWizardView: View {
                                 .allowsHitTesting(false)
                         }
                     }
+                HStack(spacing: 12) {
+                    TextField("Serie (optional – für Read-Through)", text: $seriesName)
+                    if !seriesName.trimmingCharacters(in: .whitespaces).isEmpty {
+                        Stepper("Band \(seriesNumber)", value: $seriesNumber, in: 1...50)
+                            .fixedSize()
+                    }
+                }
                 TextEditor(text: $imprint)
                     .frame(minHeight: 70)
                     .overlay(alignment: .topLeading) {
@@ -679,6 +690,9 @@ struct NewBookWizardView: View {
         )
         project.subgenre = subgenre.isEmpty ? nil : subgenre
         project.tropes = tropes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedSeries = seriesName.trimmingCharacters(in: .whitespacesAndNewlines)
+        project.seriesName = trimmedSeries
+        project.seriesNumber = trimmedSeries.isEmpty ? 0 : seriesNumber
         project.trimSizeRaw = trimSize.rawValue
         project.preferredProviderRaw = selectedProvider.rawValue
         project.preferredModel = effectiveModel

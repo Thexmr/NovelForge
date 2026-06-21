@@ -887,6 +887,30 @@ enum PromptFactory {
         Gib den vollständigen, überarbeiteten Kapiteltext aus.
         """
     }
+
+    /// Serie/Read-Through: baut am Ende des letzten Kapitels einen Cliffhanger + Teaser aufs
+    /// nächste Buch ein – der stärkste Hebel, damit Leser den Folgeband kaufen.
+    static func cliffhangerTeaser(language: String, bookTitle: String, genre: String,
+                                  seriesName: String, chapterText: String) -> String {
+        let seriesLine = seriesName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "" : "Reihe: \(seriesName)\n"
+        return """
+        Überarbeite das ENDE des letzten Kapitels von „\(bookTitle)" (Genre: \(genre), Sprache:
+        \(language)) so, dass es Lust auf den nächsten Band macht (Read-Through auf Kindle).
+        \(seriesLine)
+        PFLICHT:
+        - Der eigene Handlungsbogen DIESES Buches bleibt befriedigend abgeschlossen – kein Betrug am Leser.
+        - Setze GANZ AM ENDE einen starken Haken/Cliffhanger: eine neue Bedrohung, offene Frage oder
+          Wendung, die klar auf einen Folgeband zeigt – emotional, konkret.
+        - Ändere keine Fakten/Figuren; erweitere/schärfe nur das Ende.
+        - Reine Prosa, keine Überschriften, keine Meta-Hinweise wie „Fortsetzung folgt".
+
+        KAPITELTEXT (letztes Kapitel):
+        \(chapterText)
+
+        Gib den vollständigen, überarbeiteten Kapiteltext aus.
+        """
+    }
 }
 
 // MARK: - Parser für strukturierte Agenten-Antworten

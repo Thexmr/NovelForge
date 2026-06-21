@@ -63,6 +63,9 @@ struct KDPSalesSheetView: View {
                     }
                     .buttonStyle(.borderless)
                 }
+                if !sheet.series.isEmpty {
+                    salesField("Serie / Reihe", sheet.series, accent: StudioTheme.violet)
+                }
                 if !sheet.hook.isEmpty {
                     salesField("Untertitel / Hook", sheet.hook, accent: StudioTheme.violet)
                 }
@@ -257,8 +260,10 @@ struct PublishingDetailView: View {
     @State private var repairNote: String?
     @State private var isOptimizingOpening = false
     @State private var openingNote: String?
+    @State private var isAddingCliffhanger = false
+    @State private var cliffhangerNote: String?
 
-    private var busy: Bool { isRunningPackage || isRepairing || isOptimizingOpening || orchestrator.isRunning }
+    private var busy: Bool { isRunningPackage || isRepairing || isOptimizingOpening || isAddingCliffhanger || orchestrator.isRunning }
 
     var body: some View {
         ScrollView {
@@ -348,6 +353,30 @@ struct PublishingDetailView: View {
                     }
                 }
 
+                // Serie / Read-Through
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Serie · Read-Through").font(.headline)
+                    Text("Auf Kindle liegt das Geld in Reihen: Leser bingen Band für Band. Die KI baut am Ende einen Cliffhanger + Teaser auf den nächsten Band ein – der Abschluss dieses Buches bleibt erhalten.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 10) {
+                        Button {
+                            addCliffhanger()
+                        } label: {
+                            if isAddingCliffhanger {
+                                HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Wird eingebaut …") }
+                            } else {
+                                Label("Cliffhanger + Teaser einbauen", systemImage: "books.vertical")
+                            }
+                        }
+                        .disabled(busy)
+                        if let cliffhangerNote {
+                            Text(cliffhangerNote).font(.caption).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+
                 KDPSalesSheetView(project: project)
                 CoverPromptsView(project: project)
             }
@@ -389,6 +418,18 @@ struct PublishingDetailView: View {
             try? modelContext.save()
             openingNote = reply
             isOptimizingOpening = false
+        }
+    }
+
+    private func addCliffhanger() {
+        guard project.modelContext != nil, !busy else { return }
+        isAddingCliffhanger = true
+        cliffhangerNote = nil
+        Task { @MainActor in
+            let reply = await orchestrator.addSeriesCliffhanger(project: project)
+            try? modelContext.save()
+            cliffhangerNote = reply
+            isAddingCliffhanger = false
         }
     }
 }

@@ -6,6 +6,7 @@ struct KDPSalesSheet {
     let author: String
     let language: String
     let trimSize: String
+    let series: String
     let hook: String
     let salesDescription: String
     let keywords: String
@@ -35,11 +36,17 @@ struct KDPSalesSheet {
         // Bevorzugt den eigens generierten viralen KDP-Verkaufstitel; sonst der Buchtitel.
         let marketingTitle = clean(profile?.kdpTitle ?? "")
         let subtitle = clean(profile?.kdpSubtitle ?? "")
+        let seriesLabel: String = {
+            let name = clean(project.seriesName)
+            guard !name.isEmpty else { return "" }
+            return project.seriesNumber > 0 ? "\(name), Band \(project.seriesNumber)" : name
+        }()
         return KDPSalesSheet(
             title: marketingTitle.isEmpty ? clean(project.title) : marketingTitle,
             author: clean(project.authorName),
             language: clean(project.language),
             trimSize: clean(project.trimSize.displayName),
+            series: seriesLabel,
             hook: subtitle.isEmpty ? hook(from: profile) : subtitle,
             salesDescription: clean(profile?.kdpDescription ?? ""),
             keywords: clean(profile?.kdpKeywords ?? ""),
@@ -55,6 +62,9 @@ struct KDPSalesSheet {
         report += "AUTOR:\n\(author)\n\n"
         report += "SPRACHE:\n\(language)\n\n"
         report += "TRIM-GRÖSSE (PRINT):\n\(trimSize)\n\n"
+        if !series.isEmpty {
+            report += "SERIE / REIHE:\n\(series)\n\n"
+        }
         if !hook.isEmpty {
             report += "UNTERTITEL / HOOK:\n\(hook)\n\n"
         }

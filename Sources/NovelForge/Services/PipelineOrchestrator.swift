@@ -637,6 +637,55 @@ final class PipelineOrchestrator: ObservableObject {
         }
     }
 
+    /// Serie/Read-Through: baut am Ende des letzten Kapitels einen Cliffhanger + Teaser auf
+    /// den nächsten Band ein – damit Leser die Reihe weiterkaufen.
+    func addSeriesCliffhanger(project: Project) async -> String {
+        await runMarketingStep(project: project, agent: AgentName.repairEditor, phase: .manuscriptRevision,
+                               okMessage: "Cliffhanger + Teaser aufs nächste Buch eingebaut.",
+                               errPrefix: "Fehler beim Einbauen des Cliffhangers") { config in
+            try await self.produceSeriesCliffhanger(project: project, config: config)
+        }
+    }
+
+    private func produceSeriesCliffhanger(project: Project, config: ProviderConfiguration) async throws {
+        let chapters = (project.chapters ?? []).sorted { $0.chapterNumber < $1.chapterNumber }
+        guard let chapter = chapters.last,
+              let currentText = chapter.bestText?.trimmingCharacters(in: .whitespacesAndNewlines),
+              currentText.count > 200 else {
+            throw AIError.systemError("Kein verwertbares letztes Kapitel für den Cliffhanger.")
+        }
+        let job = beginJob(agent: AgentName.repairEditor, phase: .manuscriptRevision, project: project)
+        do {
+            let response = try await generate(
+                prompt: PromptFactory.cliffhangerTeaser(
+                    language: project.language, bookTitle: project.title,
+                    genre: project.genre, seriesName: project.seriesName,
+                    chapterText: currentText.truncated(to: 36_000)),
+                system: "Du bist ein Bestseller-Lektor für Serien und baust einen starken Cliffhanger + Teaser ein, ohne den Abschluss des Buches zu zerstören. Gib nur den vollständigen Kapiteltext zurück.",
+                maxTokens: min(12000, max(4000, currentText.wordCount * 3)),
+                temperature: 0.5, config: config)
+            let improved = AutonomousContentQuality.humanizeProse(
+                AutonomousContentQuality.strippingInlineFormatting(
+                    AutonomousContentQuality.strippingPromptArtifacts(response.text)))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard improved.wordCount >= max(100, Int(Double(currentText.wordCount) * 0.6)),
+                  !AutonomousContentQuality.containsMetaRequest(improved) else {
+                throw AIError.systemError("Cliffhanger-Fassung war unvollständig – Original behalten.")
+            }
+            chapter.finalText = improved
+            chapter.actualWordCount = improved.wordCount
+            chapter.status = .finalized
+            chapter.updatedAt = Date()
+            addReport(project: project, area: "Kapitel \(chapter.chapterNumber)", type: "Serie",
+                      result: "Cliffhanger + Teaser aufs nächste Buch eingebaut.", severity: .info,
+                      recommendation: "Read-Through: führt Leser zum Folgeband.")
+            completeJob(job, result: "Cliffhanger eingebaut", tokens: response.tokensUsed ?? 0)
+        } catch {
+            if job.status == .running { failJob(job, error: error) }
+            throw error
+        }
+    }
+
     // MARK: - Steuerung
 
     func startPipeline(project: Project, providerConfig: ProviderConfiguration) {

@@ -12,6 +12,9 @@ final class Project {
     var styleProfile: String
     /// Vom Autor gewählte/ gewünschte Tropes (kommagetrennt) – die Zielgruppe kauft nach Trope.
     var tropes: String = ""
+    /// Serien-Metadaten (Read-Through-Hebel): Reihenname + Bandnummer.
+    var seriesName: String = ""
+    var seriesNumber: Int = 0
     var targetPageCount: Int
     var targetWordCount: Int
     var outputFormats: [String]
