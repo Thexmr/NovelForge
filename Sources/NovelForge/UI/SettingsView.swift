@@ -390,7 +390,15 @@ struct CoverImageSettingsView: View {
             }
 
             Section("Bildmodell") {
-                TextField("Modell", text: binding(\.model))
+                if !modelChoices.isEmpty {
+                    Picker("Modell", selection: binding(\.model)) {
+                        ForEach(modelChoices, id: \.self) { model in
+                            Text(model).tag(model)
+                        }
+                    }
+                }
+
+                TextField("Eigenes Modell (optional)", text: binding(\.model))
                     .textFieldStyle(.roundedBorder)
 
                 Picker("Format", selection: binding(\.size)) {
@@ -451,6 +459,17 @@ struct CoverImageSettingsView: View {
 
     private var activePreset: ImageProviderPreset {
         CoverImageSettings.preset(store.settings.provider)
+    }
+
+    /// Kuratierte Modelle des aktiven Anbieters; das aktuell gewählte Modell ist
+    /// immer enthalten, damit der Picker einen gültigen Tag hat (sonst SwiftUI-Warnung).
+    private var modelChoices: [String] {
+        var choices = CoverImageSettings.modelChoices(for: store.settings.provider)
+        let current = store.settings.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !current.isEmpty, !choices.contains(current) {
+            choices.insert(current, at: 0)
+        }
+        return choices
     }
 
     /// Wählt einen Anbieter und übernimmt dessen Endpoint + Modell automatisch.

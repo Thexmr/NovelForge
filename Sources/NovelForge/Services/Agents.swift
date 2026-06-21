@@ -164,7 +164,7 @@ enum PromptFactory {
     static func concept(title: String, genre: String, subgenre: String?, language: String,
                         style: String, tonality: String, audience: String,
                         perspective: String, tense: String, pageCount: Int,
-                        ideaSeed: String, tropes: String = "") -> String {
+                        ideaSeed: String, tropes: String = "", bookSignature: String = "") -> String {
         var genreLine = genre
         if let subgenre, !subgenre.isEmpty {
             genreLine += " / \(subgenre)"
@@ -178,6 +178,8 @@ enum PromptFactory {
         if !trimmedTropes.isEmpty {
             tropeBlock = "\nTROPE-VERTRAG (VERBINDLICH – die Zielgruppe kauft genau diese Tropes; liefere sie deutlich und befriedigend über den ganzen Bogen, nicht nur angedeutet, und verankere sie in Prämisse, Hauptkonflikt und Wendepunkten):\n\(trimmedTropes)\n"
         }
+        let trimmedSignature = bookSignature.trimmingCharacters(in: .whitespacesAndNewlines)
+        let signatureBlock = trimmedSignature.isEmpty ? "" : "\n\(trimmedSignature)\n"
         return """
         Entwickle ein eigenständiges Buchkonzept (keine Nachahmung geschützter Werke).
         \(seedBlock)
@@ -189,7 +191,7 @@ enum PromptFactory {
         Zielgruppe: \(audience)
         Erzählperspektive: \(perspective), Zeitform: \(tense)
         Zielumfang: ca. \(pageCount) Seiten
-        \(tropeBlock)
+        \(tropeBlock)\(signatureBlock)
         VERBINDLICH: Titel und Genre sind fest vorgegeben. Entwickle das Konzept so, dass es \
         exakt zum Titel „\(title)" und zum Genre „\(genreLine)" passt und den Titel erzählerisch \
         einlöst – er soll nach der Lektüre sinnfällig und treffend wirken. Ändere oder ersetze den \
@@ -212,14 +214,21 @@ enum PromptFactory {
     }
 
     static func plot(title: String, genre: String, style: String, concept: String,
-                     pageCount: Int, chapterCount: Int) -> String {
+                     pageCount: Int, chapterCount: Int, bookSignature: String = "") -> String {
+        let trimmedSignature = bookSignature.trimmingCharacters(in: .whitespacesAndNewlines)
+        let signatureBlock = trimmedSignature.isEmpty ? "" : """
+
+        \(trimmedSignature)
+        Ordne die folgenden dramaturgischen Beats DIESER Erzählstruktur unter: Die Beats bleiben das kausale Gerüst, ihre Anordnung und Präsentation folgen der Stil-DNA (z.B. nichtlinear, Rahmenerzählung, parallele Stränge), niemals einer Standardschablone.
+
         """
+        return """
         Erstelle den vollständigen Plot für den Roman "\(title)".
         Genre: \(genre) | Stil: \(style) | Umfang: ca. \(pageCount) Seiten in \(chapterCount) Kapiteln.
 
         Konzept:
         \(concept)
-
+        \(signatureBlock)
         Baue den Plot nach bewährter Bestseller-Dramaturgie in drei Akten:
         - Eröffnungsbild und Alltag mit Riss (0–10%)
         - Auslösendes Ereignis, das die Normalität zerstört (ca. 10%)
@@ -260,14 +269,21 @@ enum PromptFactory {
 
     static func chapterPlan(title: String, genre: String, plot: String,
                             chapterCount: Int, wordsPerChapter: Int,
-                            scenesPerChapter: Int = 4) -> String {
+                            scenesPerChapter: Int = 4, bookSignature: String = "") -> String {
+        let trimmedSignature = bookSignature.trimmingCharacters(in: .whitespacesAndNewlines)
+        let signatureBlock = trimmedSignature.isEmpty ? "" : """
+
+        \(trimmedSignature)
+        Kapitelrhythmus, Abfolge und Architektur folgen dieser Stil-DNA – nicht einer wiederkehrenden Standardvorlage.
+
         """
+        return """
         Plane die Kapitelstruktur für den Roman "\(title)" (Genre: \(genre)).
         Es sollen GENAU \(chapterCount) Kapitel mit je ca. \(wordsPerChapter) Wörtern sein.
         Plane so, dass jedes Kapitel später in mindestens \(scenesPerChapter) eigenständige Szenen zerlegt werden kann.
         Langform-Pflicht: Der Konflikt muss groß genug für alle \(chapterCount) Kapitel sein; keine Abkürzungen,
         keine summarischen Sprünge, kein Kurzgeschichtenbogen mit künstlicher Streckung.
-
+        \(signatureBlock)
         Plot:
         \(plot.truncated(to: 6000))
 
@@ -431,7 +447,7 @@ enum PromptFactory {
                            charactersSummary: String, styleRules: String,
                            storySoFar: String, previousSceneEnding: String,
                            isFirstScene: Bool, isFinalScene: Bool,
-                           targetWords: Int) -> String {
+                           targetWords: Int, bookSignature: String = "") -> String {
         var positionNote = ""
         if isFirstScene {
             positionNote = """
@@ -460,13 +476,16 @@ enum PromptFactory {
             """
         }
 
+        let trimmedSignature = bookSignature.trimmingCharacters(in: .whitespacesAndNewlines)
+        let signatureBlock = trimmedSignature.isEmpty ? "" : "\n\(trimmedSignature)\n"
+
         return """
         Schreibe Szene \(sceneNumber) aus Kapitel \(chapterNumber) ("\(chapterTitle)") des Romans "\(bookTitle)".
 
         SPRACHE: Schreibe ausschließlich auf \(language).
         STIL: \(style); Tonalität: \(tonality); Erzählperspektive: \(scenePerspective.isEmpty ? perspective : scenePerspective); Zeitform: \(tense).
         STILREGELN: \(styleRules.truncated(to: 600))
-
+        \(signatureBlock)
         KAPITELZIEL: \(chapterGoal)
         SZENE:
         - Ort: \(sceneLocation)

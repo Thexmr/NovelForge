@@ -1129,13 +1129,21 @@ final class PipelineOrchestrator: ObservableObject {
             premise: idea?.premise ?? ""
         )
 
+        // Pro Buch einzigartige Stil-DNA würfeln (eindeutiger Seed je Projekt) – verhindert,
+        // dass alle autoproduzierten Bücher dieselbe Perspektive/Struktur/Stimme teilen
+        // (Amazon-KDP-„Programmatic Content"-Erkennung).
+        let signature = NarrativeSignature.make(
+            seed: NarrativeSignature.stableSeed("\(project.id.uuidString)|\(title)|\(genre)")
+        )
+        project.styleSignature = signature.directive
+
         let profile = BookProfile(
             premise: idea?.premise ?? "",
             theme: "",
             targetAudience: "",
             tonality: style,
-            narrativePerspective: "Personaler Erzähler (Er/Sie)",
-            tense: "Präteritum"
+            narrativePerspective: signature.pov,
+            tense: signature.tense
         )
         profile.project = project
 
@@ -1448,7 +1456,7 @@ final class PipelineOrchestrator: ObservableObject {
                     perspective: profile.narrativePerspective, tense: profile.tense,
                     pageCount: project.targetPageCount,
                     ideaSeed: profile.premise,
-                    tropes: project.tropes
+                    tropes: project.tropes, bookSignature: project.styleSignature
                 ) + retryHint
                 let response = try await generate(
                     prompt: prompt,
@@ -1521,7 +1529,8 @@ final class PipelineOrchestrator: ObservableObject {
                 title: project.title, genre: project.genre, style: project.styleProfile,
                 concept: profile.synopsis ?? profile.premise,
                 pageCount: project.targetPageCount,
-                chapterCount: estimatedChapterCount(for: project)
+                chapterCount: estimatedChapterCount(for: project),
+                bookSignature: project.styleSignature
             )
             var plot = ""
             var tokens = 0
@@ -1631,7 +1640,8 @@ final class PipelineOrchestrator: ObservableObject {
         let prompt = PromptFactory.chapterPlan(
             title: project.title, genre: project.genre, plot: bible.plotPoints,
             chapterCount: chapterCount, wordsPerChapter: wordsPerChapter,
-            scenesPerChapter: plan.scenesPerChapter
+            scenesPerChapter: plan.scenesPerChapter,
+            bookSignature: project.styleSignature
         )
         var planned: [PlannedChapter] = []
         var tokens = 0
@@ -2074,7 +2084,8 @@ final class PipelineOrchestrator: ObservableObject {
                         storySoFar: recentContext,
                         previousSceneEnding: previousEnding,
                         isFirstScene: isFirstScene, isFinalScene: isFinalScene,
-                        targetWords: scene.targetWordCount
+                        targetWords: scene.targetWordCount,
+                        bookSignature: project.styleSignature
                     )
                     let maxTokens = LongFormProductionPlan.draftMaxTokens(forTargetWords: scene.targetWordCount)
                     let minWords = Int(Double(scene.targetWordCount) * 0.75)

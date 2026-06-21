@@ -20,28 +20,64 @@ struct CoverImageSettings: Codable, Equatable, Sendable {
     static let qualityOptions = ["high", "medium", "low"]
 
     /// Beste & aktuellste Bild-Anbieter (verifizierte Endpunkte), nur API-Key nötig.
+    /// Jeder Anbieter bietet mehrere Modelle (siehe `modelChoices(for:)`), damit man
+    /// frei zwischen allen gängigen Cover-Bildmodellen wählen kann.
     static let providers: [ImageProviderPreset] = [
-        .init(id: "openai", name: "OpenAI · gpt-image-1",
-              note: "Beste Prompt-Treue – setzt Vorgaben am genauesten um.",
+        .init(id: "openai", name: "OpenAI · GPT-Image / DALL·E",
+              note: "Beste Prompt-Treue – setzt Vorgaben am genauesten um. Modelle: gpt-image-1, dall-e-3, dall-e-2.",
               keyHint: "platform.openai.com",
               baseURL: "https://api.openai.com/v1", model: "gpt-image-1"),
-        .init(id: "flux", name: "Black Forest Labs · FLUX 1.1 Pro",
-              note: "Spitzen-Fotorealismus für Cover-Artwork.",
+        .init(id: "flux", name: "Black Forest Labs · FLUX",
+              note: "Spitzen-Fotorealismus. Modelle: FLUX 1.1 Pro (Ultra), Pro, Dev, Kontext Pro/Max.",
               keyHint: "bfl.ai / docs.bfl.ai",
               baseURL: "https://api.bfl.ai", model: "flux-pro-1.1"),
-        .init(id: "fal", name: "fal.ai · FLUX",
-              note: "Schnell und günstig, sehr gute Qualität.",
+        .init(id: "fal", name: "fal.ai · alle Modelle (FLUX, Recraft, Ideogram, SD3.5 …)",
+              note: "Das größte Modell-Sortiment: FLUX-Familie, Recraft V3, Ideogram, Stable Diffusion 3.5, Sana, Qwen-Image u.v.m. – schnell und günstig.",
               keyHint: "fal.ai",
               baseURL: "https://fal.run", model: "fal-ai/flux/dev"),
-        .init(id: "stability", name: "Stability AI · Stable Diffusion 3.5 Large",
-              note: "Große Stilbandbreite.",
+        .init(id: "stability", name: "Stability AI · Stable Diffusion / Core / Ultra",
+              note: "Große Stilbandbreite. Modelle: SD 3.5 Large/Turbo/Medium, Stable Image Core, Stable Image Ultra.",
               keyHint: "platform.stability.ai",
               baseURL: "https://api.stability.ai", model: "sd3.5-large"),
+        .init(id: "ideogram", name: "Ideogram · V2 / V2 Turbo",
+              note: "Stark bei klarer Bildsprache und Komposition (Cover-Artwork).",
+              keyHint: "ideogram.ai / fal.ai-Key",
+              baseURL: "https://fal.run", model: "fal-ai/ideogram/v2"),
+        .init(id: "recraft", name: "Recraft · V3",
+              note: "Top für stilisierte, marktfähige Cover-Illustrationen.",
+              keyHint: "recraft.ai / fal.ai-Key",
+              baseURL: "https://fal.run", model: "fal-ai/recraft-v3"),
         .init(id: "custom", name: "Eigener (OpenAI-kompatibel)",
               note: "Eigene Basis-URL und Modell selbst eintragen.",
               keyHint: "Anbieter-spezifisch",
               baseURL: "https://api.openai.com/v1", model: "gpt-image-1"),
     ]
+
+    /// Auswählbare Modelle je Anbieter – damit der Nutzer aus allen gängigen
+    /// Cover-Bildmodellen wählen kann, statt sie tippen zu müssen.
+    static func modelChoices(for provider: String) -> [String] {
+        switch provider {
+        case "openai":
+            return ["gpt-image-1", "dall-e-3", "dall-e-2"]
+        case "flux":
+            return ["flux-pro-1.1", "flux-pro-1.1-ultra", "flux-pro", "flux-dev",
+                    "flux-kontext-pro", "flux-kontext-max"]
+        case "fal":
+            return ["fal-ai/flux-pro/v1.1-ultra", "fal-ai/flux-pro/v1.1", "fal-ai/flux/dev",
+                    "fal-ai/flux/schnell", "fal-ai/recraft-v3", "fal-ai/ideogram/v2",
+                    "fal-ai/ideogram/v2-turbo", "fal-ai/stable-diffusion-v35-large",
+                    "fal-ai/stable-diffusion-v3-medium", "fal-ai/aura-flow",
+                    "fal-ai/sana", "fal-ai/qwen-image"]
+        case "stability":
+            return ["sd3.5-large", "sd3.5-large-turbo", "sd3.5-medium", "core", "ultra"]
+        case "ideogram":
+            return ["fal-ai/ideogram/v2", "fal-ai/ideogram/v2-turbo"]
+        case "recraft":
+            return ["fal-ai/recraft-v3"]
+        default:
+            return []
+        }
+    }
 
     static func preset(_ id: String) -> ImageProviderPreset {
         providers.first { $0.id == id } ?? providers[0]
@@ -328,10 +364,10 @@ actor CoverImageGateway {
         }
         let imageData: Data
         switch settings.provider {
-        case "stability": imageData = try await generateStability(prompt: prompt, apiKey: apiKey, model: settings.model)
-        case "flux":      imageData = try await generateFlux(prompt: prompt, apiKey: apiKey)
-        case "fal":       imageData = try await generateFal(prompt: prompt, apiKey: apiKey, model: settings.model)
-        default:          imageData = try await generateOpenAICompatible(prompt: prompt, apiKey: apiKey, settings: settings)
+        case "stability":              imageData = try await generateStability(prompt: prompt, apiKey: apiKey, model: settings.model)
+        case "flux":                   imageData = try await generateFlux(prompt: prompt, apiKey: apiKey, model: settings.model)
+        case "fal", "ideogram", "recraft": imageData = try await generateFal(prompt: prompt, apiKey: apiKey, model: settings.model)
+        default:                       imageData = try await generateOpenAICompatible(prompt: prompt, apiKey: apiKey, settings: settings)
         }
         try imageData.write(to: destination, options: .atomic)
         return destination
@@ -368,9 +404,17 @@ actor CoverImageGateway {
         return try await decodeImageData(from: data)
     }
 
-    // Stability AI · SD 3.5 Large (multipart, liefert Bild-Bytes direkt).
+    // Stability AI (multipart, liefert Bild-Bytes direkt). Modellgesteuert:
+    // "core"/"ultra" haben eigene Endpunkte ohne model-Feld, die SD-3.5-Familie nutzt /sd3.
     private func generateStability(prompt: String, apiKey: String, model: String) async throws -> Data {
-        guard let url = URL(string: "https://api.stability.ai/v2beta/stable-image/generate/sd3") else {
+        let chosen = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let path: String
+        switch chosen {
+        case "core":  path = "core"
+        case "ultra": path = "ultra"
+        default:      path = "sd3"
+        }
+        guard let url = URL(string: "https://api.stability.ai/v2beta/stable-image/generate/\(path)") else {
             throw AIError.networkError
         }
         let boundary = "----nfcover\(UUID().uuidString)"
@@ -381,7 +425,10 @@ actor CoverImageGateway {
             body.append("\(value)\r\n".data(using: .utf8)!)
         }
         field("prompt", prompt)
-        field("model", model.isEmpty ? "sd3.5-large" : model)
+        // Nur der /sd3-Endpunkt akzeptiert ein model-Feld.
+        if path == "sd3" {
+            field("model", model.isEmpty ? "sd3.5-large" : model)
+        }
         field("aspect_ratio", "2:3")
         field("output_format", "jpeg")
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
@@ -396,16 +443,24 @@ actor CoverImageGateway {
         return data
     }
 
-    // Black Forest Labs · FLUX 1.1 Pro (asynchron: einreichen, dann pollen).
-    private func generateFlux(prompt: String, apiKey: String) async throws -> Data {
-        guard let url = URL(string: "https://api.bfl.ai/v1/flux-pro-1.1") else { throw AIError.networkError }
+    // Black Forest Labs · FLUX (asynchron: einreichen, dann pollen). Modellgesteuert:
+    // der Endpoint ergibt sich aus dem gewählten Modell (flux-pro-1.1, -ultra, -pro, -dev, kontext …).
+    private func generateFlux(prompt: String, apiKey: String, model: String) async throws -> Data {
+        let endpoint = model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "flux-pro-1.1" : model
+        guard let url = URL(string: "https://api.bfl.ai/v1/\(endpoint)") else { throw AIError.networkError }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue(apiKey, forHTTPHeaderField: "x-key")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "prompt": prompt, "width": 832, "height": 1216, "output_format": "jpeg"
-        ])
+        // Ultra-Endpunkte erwarten aspect_ratio statt width/height.
+        var fluxBody: [String: Any] = ["prompt": prompt, "output_format": "jpeg"]
+        if endpoint.contains("ultra") {
+            fluxBody["aspect_ratio"] = "2:3"
+        } else {
+            fluxBody["width"] = 832
+            fluxBody["height"] = 1216
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: fluxBody)
         let (data, response) = try await perform(request)
         try throwIfBadStatus(response, data)
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

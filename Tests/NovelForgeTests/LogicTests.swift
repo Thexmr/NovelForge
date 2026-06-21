@@ -632,6 +632,69 @@ final class LogicTests: XCTestCase {
         XCTAssertEqual(CoverImageSettings.preset("unbekannt").id, "openai")
     }
 
+    /// Jeder „echte" Anbieter bietet mehrere Bildmodelle zur Auswahl, damit man frei
+    /// zwischen allen gängigen Cover-Modellen wählen kann.
+    func testImageModelChoicesCoverMultipleModelsPerProvider() {
+        XCTAssertGreaterThanOrEqual(CoverImageSettings.modelChoices(for: "openai").count, 2)
+        XCTAssertGreaterThanOrEqual(CoverImageSettings.modelChoices(for: "flux").count, 4)
+        XCTAssertGreaterThanOrEqual(CoverImageSettings.modelChoices(for: "fal").count, 6)
+        XCTAssertTrue(CoverImageSettings.modelChoices(for: "flux").contains("flux-pro-1.1-ultra"))
+        XCTAssertTrue(CoverImageSettings.modelChoices(for: "stability").contains("ultra"))
+        XCTAssertTrue(CoverImageSettings.modelChoices(for: "custom").isEmpty)
+    }
+
+    /// Stil-DNA: reproduzierbar pro Seed, aber über verschiedene Seeds hinweg
+    /// unterschiedlich – das ist der Kern des Schutzes gegen Amazon-„Programmatic Content".
+    func testNarrativeSignatureIsDeterministicPerSeedAndVariesAcrossSeeds() {
+        let a1 = NarrativeSignature.make(seed: 12345)
+        let a2 = NarrativeSignature.make(seed: 12345)
+        XCTAssertEqual(a1, a2, "Gleicher Seed muss dieselbe Stil-DNA ergeben (stabil über den Lauf).")
+
+        // Über viele verschiedene Seeds entstehen klar unterschiedliche Signaturen.
+        var seen = Set<String>()
+        for seed in UInt64(1)...UInt64(40) {
+            seen.insert(NarrativeSignature.make(seed: seed).directive)
+        }
+        XCTAssertGreaterThan(seen.count, 20, "Die Stil-DNA muss über Bücher hinweg stark streuen.")
+    }
+
+    func testNarrativeSignatureStableSeedIsConsistent() {
+        XCTAssertEqual(NarrativeSignature.stableSeed("Buch A|Thriller"),
+                       NarrativeSignature.stableSeed("Buch A|Thriller"))
+        XCTAssertNotEqual(NarrativeSignature.stableSeed("Buch A|Thriller"),
+                          NarrativeSignature.stableSeed("Buch B|Thriller"))
+    }
+
+    /// Der Direktiv-Block trägt die Einzigartigkeits-Anweisung und respektiert
+    /// die im Wizard gewählte Perspektive/Zeitform als Override.
+    func testNarrativeSignatureDirectiveCarriesUniquenessAndHonorsOverride() {
+        let sig = NarrativeSignature.make(seed: 999)
+        XCTAssertTrue(sig.directive.contains("STIL-DNA"))
+        XCTAssertTrue(sig.directive.contains("Programmatic Content"))
+        let overridden = sig.directiveText(povOverride: "Ich-Erzählerin", tenseOverride: "Präsens")
+        XCTAssertTrue(overridden.contains("Ich-Erzählerin"))
+        XCTAssertTrue(overridden.contains("Präsens"))
+    }
+
+    /// Die Stil-DNA muss in die zentralen Generierungs-Prompts einfließen, damit
+    /// Struktur und Stimme pro Buch variieren (nicht nur Metadaten).
+    func testStyleSignatureFlowsIntoGenerationPrompts() {
+        let marker = "STIL-DNA DIESES BUCHES"
+        let signature = NarrativeSignature.make(seed: 7).directive
+        let concept = PromptFactory.concept(
+            title: "Titel", genre: "Liebesroman", subgenre: nil, language: "Deutsch",
+            style: "warm", tonality: "intim", audience: "Erwachsene",
+            perspective: "Ich", tense: "Präsens", pageCount: 300, ideaSeed: "Seed",
+            tropes: "", bookSignature: signature)
+        XCTAssertTrue(concept.contains(marker))
+        let plot = PromptFactory.plot(title: "Titel", genre: "Liebesroman", style: "warm",
+            concept: "Konzept", pageCount: 300, chapterCount: 30, bookSignature: signature)
+        XCTAssertTrue(plot.contains(marker))
+        let plan = PromptFactory.chapterPlan(title: "Titel", genre: "Liebesroman",
+            plot: "Plot", chapterCount: 30, wordsPerChapter: 2500, bookSignature: signature)
+        XCTAssertTrue(plan.contains(marker))
+    }
+
     func testCoverImageSettingsDecodesWithoutProviderKey() throws {
         // Ältere gespeicherte Einstellungen ohne "provider" dürfen nicht scheitern.
         let legacy = #"{"baseURL":"https://x/v1","model":"m","size":"1024x1536","quality":"high"}"#

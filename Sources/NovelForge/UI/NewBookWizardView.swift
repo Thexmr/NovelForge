@@ -699,6 +699,16 @@ struct NewBookWizardView: View {
         project.imprint = imprint.trimmingCharacters(in: .whitespacesAndNewlines)
         project.authorBio = authorBio.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        // Einzigartige Stil-DNA pro Buch (gegen Amazon-„Programmatic Content"-Erkennung).
+        // Die vom Autor gewählte Perspektive/Zeitform bleibt erhalten; die übrigen
+        // Dimensionen (Struktur, Eröffnung, Stimme, Leitmotiv …) variieren pro Buch.
+        let signature = NarrativeSignature.make(
+            seed: NarrativeSignature.stableSeed("\(project.id.uuidString)|\(project.title)|\(effectiveGenre)")
+        )
+        project.styleSignature = signature.directiveText(
+            povOverride: narrativePerspective, tenseOverride: tense
+        )
+
         let bookProfile = BookProfile(
             premise: seedPremise,
             theme: "",
