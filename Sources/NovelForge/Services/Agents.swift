@@ -164,7 +164,7 @@ enum PromptFactory {
     static func concept(title: String, genre: String, subgenre: String?, language: String,
                         style: String, tonality: String, audience: String,
                         perspective: String, tense: String, pageCount: Int,
-                        ideaSeed: String) -> String {
+                        ideaSeed: String, tropes: String = "") -> String {
         var genreLine = genre
         if let subgenre, !subgenre.isEmpty {
             genreLine += " / \(subgenre)"
@@ -172,6 +172,11 @@ enum PromptFactory {
         var seedBlock = ""
         if !ideaSeed.isEmpty {
             seedBlock = "\nIDEENKERN (verbindlicher Ausgangspunkt, weiterentwickeln statt ersetzen):\n\(ideaSeed)\n"
+        }
+        var tropeBlock = ""
+        let trimmedTropes = tropes.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedTropes.isEmpty {
+            tropeBlock = "\nTROPE-VERTRAG (VERBINDLICH – die Zielgruppe kauft genau diese Tropes; liefere sie deutlich und befriedigend über den ganzen Bogen, nicht nur angedeutet, und verankere sie in Prämisse, Hauptkonflikt und Wendepunkten):\n\(trimmedTropes)\n"
         }
         return """
         Entwickle ein eigenständiges Buchkonzept (keine Nachahmung geschützter Werke).
@@ -184,7 +189,7 @@ enum PromptFactory {
         Zielgruppe: \(audience)
         Erzählperspektive: \(perspective), Zeitform: \(tense)
         Zielumfang: ca. \(pageCount) Seiten
-
+        \(tropeBlock)
         VERBINDLICH: Titel und Genre sind fest vorgegeben. Entwickle das Konzept so, dass es \
         exakt zum Titel „\(title)" und zum Genre „\(genreLine)" passt und den Titel erzählerisch \
         einlöst – er soll nach der Lektüre sinnfällig und treffend wirken. Ändere oder ersetze den \
@@ -586,13 +591,16 @@ enum PromptFactory {
     }
 
     static func kdpMetadata(title: String, author: String, authorBio: String = "", genre: String,
-                            audience: String, synopsis: String, language: String) -> String {
+                            audience: String, synopsis: String, language: String, tropes: String = "") -> String {
         let authorBlock = authorBio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? ""
             : "\nAutorprofil für Tonalität/Markenstimme:\n\(authorBio.truncated(to: 800))\n"
+        let tropesLine = tropes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? ""
+            : "\nTropes (in KEYWORDS und VERKAUFSTEXT als gesuchte Begriffe natürlich aufgreifen): \(tropes)"
         return """
         Erstelle Amazon-KDP-Metadaten für das Buch "\(title)" von \(author).
-        Genre: \(genre) | Zielgruppe: \(audience) | Sprache: \(language)
+        Genre: \(genre) | Zielgruppe: \(audience) | Sprache: \(language)\(tropesLine)
         \(authorBlock)
 
         Inhalt:
@@ -674,6 +682,19 @@ enum PromptFactory {
           keine Erklärungen, keine zwei austauschbaren Allerweltstitel.
 
         Gib NUR die 8 Titel aus, je einen pro Zeile, jeweils beginnend mit "TITEL: ".
+        """
+    }
+
+    /// Schlägt bankfähige, auf Amazon KDP gesuchte Tropes für ein Genre vor.
+    static func tropeSuggestions(genre: String, premise: String) -> String {
+        let premiseLine = premise.trimmingCharacters(in: .whitespaces).isEmpty
+            ? "" : "Worum es geht: \(premise.truncated(to: 400))\n"
+        return """
+        Nenne 8 bankfähige, auf Amazon KDP aktiv gesuchte Tropes für das Genre \(genre.isEmpty ? "Roman" : genre),
+        die die Zielgruppe sucht und kauft.
+        \(premiseLine)
+        Je Trope 1-4 Wörter (z.B. Enemies to Lovers, Slow Burn, Grumpy Sunshine, unzuverlässige
+        Erzählerin, Found Family, zweite Chance). Keine Erklärungen, eine pro Zeile.
         """
     }
 
@@ -774,8 +795,11 @@ enum PromptFactory {
     }
 
     /// Manuskript-Audit nach dem Proofreading: findet nur echte Reparaturfälle.
-    static func repairAudit(bookTitle: String, summaries: String, characters: String, qualityReports: String) -> String {
-        """
+    static func repairAudit(bookTitle: String, summaries: String, characters: String,
+                            qualityReports: String, tropes: String = "") -> String {
+        let tropesBlock = tropes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" :
+            "\n        - TROPE-LIEFERUNG prüfen: Werden die zugesagten Tropes (\(tropes)) deutlich und befriedigend eingelöst? Fehlt oder verpufft ein Trope, ist das reparaturpflichtig (Fehlerquelle: Trope) – Anweisung: den betroffenen Moment so schärfen, dass der Trope spürbar geliefert wird."
+        return """
         Prüfe den Roman „\(bookTitle)" nach dem Proofreading auf echte reparaturpflichtige Stellen.
         Suche Widersprüche in Zeitlinie, Figurenwissen, Motivation, Schauplätzen, Kontinuität,
         Stilbrüche, Wiederholungen, Logiklöcher und unklare Kausalität.
@@ -791,7 +815,7 @@ enum PromptFactory {
         - Wenn ein Problem mehrere Kapitel betrifft, schreibe eine eigene REPAIR-Zeile pro
           betroffenem Kapitel, damit die App diese Kapitel automatisch korrigieren kann.
         - Nutze "Gesamtmanuskript" nur, wenn keine konkrete Textreparatur möglich ist.
-        - Stütze Befunde zu Wortlaut, Anschluss und Kontinuität auf die mitgelieferten Textauszüge.
+        - Stütze Befunde zu Wortlaut, Anschluss und Kontinuität auf die mitgelieferten Textauszüge.\(tropesBlock)
         - Prüfe AUCH die Lesesog-/Bestseller-Qualität: ein schwaches Kapitel-Ende ohne Haken/
           Cliffhanger, flache oder durchhängende Spannung, ein nicht eingelöstes Genre-Versprechen
           oder ein zäher Einstieg sind reparaturpflichtig (Fehlerquelle: Spannung). Reparaturanweisung

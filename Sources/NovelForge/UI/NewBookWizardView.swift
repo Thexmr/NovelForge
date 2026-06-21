@@ -65,6 +65,12 @@ struct NewBookWizardView: View {
     @State private var isGeneratingTitles = false
     @State private var titleError: String?
 
+    // Trope-Vertrag
+    @State private var tropes = ""
+    @State private var tropeSuggestions: [String] = []
+    @State private var isGeneratingTropes = false
+    @State private var tropeError: String?
+
     let languages = ["Deutsch", "Englisch", "Französisch", "Spanisch"]
     let genres = Self.availableGenres
     let styles = ["düster", "literarisch", "dialogstark", "humorvoll", "episch",
@@ -258,6 +264,39 @@ struct NewBookWizardView: View {
                 }
 
                 TextField("Subgenre (optional)", text: $subgenre)
+
+                TextField("Tropes (kommagetrennt – z.B. Enemies to Lovers, Slow Burn)", text: $tropes)
+                HStack {
+                    Button {
+                        generateTropes()
+                    } label: {
+                        if isGeneratingTropes {
+                            HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Tropes …") }
+                        } else {
+                            Label("Tropes vorschlagen", systemImage: "tag")
+                        }
+                    }
+                    .disabled(isGeneratingTropes)
+                    if let tropeError {
+                        Text(tropeError).font(.caption).foregroundStyle(.red)
+                    }
+                }
+                if !tropeSuggestions.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(tropeSuggestions, id: \.self) { t in
+                            Button { addTrope(t) } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: tropeIsSelected(t) ? "checkmark.circle.fill" : "plus.circle")
+                                        .font(.caption)
+                                        .foregroundStyle(tropeIsSelected(t) ? .green : .secondary)
+                                    Text(t).foregroundStyle(.primary)
+                                    Spacer()
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
             }
 
             Section("Inspiration") {
@@ -393,6 +432,44 @@ struct NewBookWizardView: View {
                 titleError = error.localizedDescription
             }
         }
+    }
+
+    @MainActor
+    private func generateTropes() {
+        guard let config = usableIdeaConfig() else {
+            tropeError = "Kein KI-Provider konfiguriert."
+            return
+        }
+        isGeneratingTropes = true
+        tropeError = nil
+        let request = GenerationRequest(
+            prompt: PromptFactory.tropeSuggestions(genre: effectiveGenre, premise: seedPremise),
+            systemPrompt: "Du kennst die meistgesuchten, bankfähigen Tropes pro Genre auf Amazon KDP.",
+            model: config.defaultModel ?? config.provider.suggestedModels.first ?? "",
+            provider: config.provider, maxTokens: 300, temperature: 0.8)
+        Task { @MainActor in
+            defer { isGeneratingTropes = false }
+            do {
+                let response = try await ProviderGateway.shared.generateText(request: request, configuration: config)
+                let list = StructureParser.parseTitleLines(response.text)
+                if list.isEmpty { tropeError = "Keine Tropes erkannt – bitte erneut." }
+                else { tropeSuggestions = list }
+            } catch let error as AIError {
+                tropeError = error.errorDescription
+            } catch {
+                tropeError = error.localizedDescription
+            }
+        }
+    }
+
+    private func tropeIsSelected(_ trope: String) -> Bool {
+        tropes.localizedCaseInsensitiveContains(trope)
+    }
+
+    private func addTrope(_ trope: String) {
+        guard !tropeIsSelected(trope) else { return }
+        let trimmed = tropes.trimmingCharacters(in: .whitespacesAndNewlines)
+        tropes = trimmed.isEmpty ? trope : trimmed + ", " + trope
     }
 
     @MainActor
@@ -601,6 +678,7 @@ struct NewBookWizardView: View {
             outputFormats: selectedFormats
         )
         project.subgenre = subgenre.isEmpty ? nil : subgenre
+        project.tropes = tropes.trimmingCharacters(in: .whitespacesAndNewlines)
         project.trimSizeRaw = trimSize.rawValue
         project.preferredProviderRaw = selectedProvider.rawValue
         project.preferredModel = effectiveModel

@@ -385,7 +385,7 @@ final class PipelineOrchestrator: ObservableObject {
                     authorBio: project.authorBio,
                     genre: project.genre, audience: profile.targetAudience,
                     synopsis: profile.synopsis ?? profile.premise,
-                    language: project.language
+                    language: project.language, tropes: project.tropes
                 ),
                 system: "Du bist ein erfahrener Buchmarketing-Texter für Amazon KDP. Deine Produktbeschreibungen verkaufen.",
                 maxTokens: 1200, temperature: 0.7, config: config
@@ -1398,7 +1398,8 @@ final class PipelineOrchestrator: ObservableObject {
                     tonality: profile.tonality, audience: profile.targetAudience,
                     perspective: profile.narrativePerspective, tense: profile.tense,
                     pageCount: project.targetPageCount,
-                    ideaSeed: profile.premise
+                    ideaSeed: profile.premise,
+                    tropes: project.tropes
                 ) + retryHint
                 let response = try await generate(
                     prompt: prompt,
@@ -2478,7 +2479,8 @@ final class PipelineOrchestrator: ObservableObject {
                 bookTitle: project.title,
                 summaries: summaries,
                 characters: characters,
-                qualityReports: reportBrief
+                qualityReports: reportBrief,
+                tropes: project.tropes
             ),
             system: "Du bist ein präziser Schlusslektor. Du findest nur echte Inkonsistenzen und formulierst konkrete Reparaturaufträge.",
             maxTokens: 3000,
@@ -2639,7 +2641,7 @@ final class PipelineOrchestrator: ObservableObject {
                         authorBio: project.authorBio,
                         genre: project.genre, audience: profile.targetAudience,
                         synopsis: profile.synopsis ?? profile.premise,
-                        language: project.language
+                        language: project.language, tropes: project.tropes
                     ),
                     system: "Du bist ein erfahrener Buchmarketing-Texter für Amazon KDP. Deine Produktbeschreibungen verkaufen.",
                     maxTokens: 1200, temperature: 0.7, config: config
