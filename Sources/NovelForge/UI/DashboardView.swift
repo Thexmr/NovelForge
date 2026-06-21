@@ -329,13 +329,13 @@ struct DashboardView: View {
     private func commandTile(title: String, value: String, detail: String, icon: String, color: Color) -> some View {
         HStack(spacing: 10) {
             Image(systemName: icon)
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(StudioTheme.glassInk)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(color)
                 .frame(width: 30, height: 30)
-                .background(
+                .background(color.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(color)
-                        .shadow(color: color.opacity(0.70), radius: 11, x: 0, y: 0)
+                        .strokeBorder(color.opacity(0.22), lineWidth: 1)
                 )
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -364,48 +364,30 @@ struct StatCard: View {
     let color: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Image(systemName: icon)
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(StudioTheme.glassInk)
-                .frame(width: 38, height: 38)
-                .background(
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .fill(color)
-                        .shadow(color: color.opacity(0.45), radius: 10, x: 0, y: 0)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(color)
+                .frame(width: 34, height: 34)
+                .background(color.opacity(0.14), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .strokeBorder(color.opacity(0.22), lineWidth: 1)
                 )
             StudioStatNumber(value: value, gradient: StudioTheme.accentGradient(color))
             Text(title.uppercased())
                 .font(.system(.caption2, design: .monospaced).weight(.semibold))
-                .foregroundStyle(StudioTheme.textMuted)
+                .foregroundStyle(StudioTheme.textFaint)
                 .tracking(0.8)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(
-                    LinearGradient(colors: [
-                        color.opacity(0.34),
-                        color.opacity(0.12),
-                        StudioTheme.glassInk.opacity(0.55)
-                    ], startPoint: .topLeading, endPoint: .bottomTrailing)
-                )
-                .overlay(alignment: .top) {
-                    LinearGradient(colors: [.white.opacity(0.34), .clear], startPoint: .top, endPoint: .bottom)
-                        .frame(height: 26)
-                        .mask(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
-        )
+        .background(StudioTheme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(
-                    LinearGradient(colors: [color.opacity(0.95), color.opacity(0.30)],
-                                   startPoint: .topLeading, endPoint: .bottomTrailing),
-                    lineWidth: 1.5
-                )
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(StudioTheme.hairline, lineWidth: 1)
         )
-        .shadow(color: color.opacity(0.26), radius: 14, x: 0, y: 7)
+        .shadow(color: .black.opacity(0.28), radius: 12, x: 0, y: 6)
     }
 }
 

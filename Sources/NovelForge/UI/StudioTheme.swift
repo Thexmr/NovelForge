@@ -1,31 +1,32 @@
 import SwiftUI
 
-/// Branding „Neon City": Cyberpunk-Look – tiefes blau-violettes Nacht-Schwarz als
-/// Bühne, darüber grelle Neon-Signatur (Cyan → Neon-Violett), Hot-Pink/Neon-Grün als
-/// Akzente, harte Glows. Hochkontrast, futuristisch. EIN Schema für die ganze App.
+/// Branding „Studio Noir": ein ruhiges, professionelles Schreibstudio (Linear/Craft-
+/// Register). Tiefes, kühl-neutrales Anthrazit mit feinem Indigo-Unterton; EINE gedämpfte
+/// Indigo/Blau-Signatur, Farbe sonst nur für Bedeutung. Tiefe entsteht durch Helligkeits-
+/// Stufen + feine Kanten, nicht durch Glow. Premium durch Zurückhaltung.
 enum StudioTheme {
-    // Tiefes Cyber-Nacht-Schwarz mit kühlem Blau-Violett-Unterton.
-    static let pageTop = Color(red: 0.035, green: 0.030, blue: 0.075)
-    static let pageMiddle = Color(red: 0.055, green: 0.040, blue: 0.115)
-    static let pageBottom = Color(red: 0.020, green: 0.016, blue: 0.050)
+    // Tiefes, kühl-neutrales Anthrazit mit feinem Indigo-Unterton (Helligkeits-Leiter).
+    static let pageTop = Color(red: 0.062, green: 0.062, blue: 0.084)
+    static let pageMiddle = Color(red: 0.082, green: 0.082, blue: 0.110)
+    static let pageBottom = Color(red: 0.044, green: 0.044, blue: 0.062)
 
-    static let surface = Color(red: 0.072, green: 0.056, blue: 0.135)
-    static let surfaceElevated = Color(red: 0.108, green: 0.082, blue: 0.195)
-    static let surfaceDeep = Color(red: 0.040, green: 0.030, blue: 0.088)
-    static let glassBase = Color(red: 0.056, green: 0.043, blue: 0.108)
-    static let glassInk = Color(red: 0.014, green: 0.011, blue: 0.040)
-    static let hairline = Color(red: 0.20, green: 0.95, blue: 1.00).opacity(0.16)    // Neon-Cyan-Hairline
-    static let hairlineBright = Color(red: 0.20, green: 0.95, blue: 1.00).opacity(0.34)
-    static let textMuted = Color.white.opacity(0.75)
-    static let textFaint = Color.white.opacity(0.50)
+    static let surface = Color(red: 0.104, green: 0.104, blue: 0.136)
+    static let surfaceElevated = Color(red: 0.142, green: 0.142, blue: 0.182)
+    static let surfaceDeep = Color(red: 0.072, green: 0.072, blue: 0.098)
+    static let glassBase = Color(red: 0.090, green: 0.090, blue: 0.120)
+    static let glassInk = Color(red: 0.040, green: 0.040, blue: 0.058)
+    static let hairline = Color.white.opacity(0.09)
+    static let hairlineBright = Color.white.opacity(0.18)
+    static let textMuted = Color.white.opacity(0.66)
+    static let textFaint = Color.white.opacity(0.42)
 
-    // Neon-Palette: Cyan + Neon-Violett Signatur, Hot-Pink/Neon-Grün als Akzente.
-    static let cyan = Color(red: 0.16, green: 0.92, blue: 1.00)    // Neon-Cyan (primär)
-    static let violet = Color(red: 0.64, green: 0.24, blue: 1.00)  // Neon-Violett (sekundär)
-    static let magenta = Color(red: 1.00, green: 0.18, blue: 0.78) // Hot-Pink
-    static let lime = Color(red: 0.24, green: 1.00, blue: 0.56)    // Neon-Grün (Erfolg)
-    static let amber = Color(red: 1.00, green: 0.78, blue: 0.16)   // Neon-Amber (Warnung)
-    static let danger = Color(red: 1.00, green: 0.20, blue: 0.42)  // Neon-Rot (Fehler)
+    // EINE gedämpfte Indigo/Blau-Signatur; Akzente nur für Bedeutung (gedämpft).
+    static let cyan = Color(red: 0.42, green: 0.60, blue: 0.95)    // gedämpftes Blau (sekundär)
+    static let violet = Color(red: 0.56, green: 0.50, blue: 0.92)  // Indigo (primär)
+    static let magenta = Color(red: 0.78, green: 0.52, blue: 0.74) // gedämpftes Mauve (selten)
+    static let lime = Color(red: 0.36, green: 0.72, blue: 0.56)    // gedämpftes Grün (Erfolg)
+    static let amber = Color(red: 0.85, green: 0.66, blue: 0.34)   // gedämpftes Amber (Warnung)
+    static let danger = Color(red: 0.86, green: 0.40, blue: 0.44)  // gedämpftes Rot (Fehler)
 
     /// Signatur-Verlauf: Neon-Blau → Neon-Lila (durchgängig in der ganzen App).
     static var brandGradient: LinearGradient {
@@ -178,7 +179,7 @@ private struct GlassSurface: ViewModifier {
                     .mask(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
             .shadow(color: Color.black.opacity(0.22), radius: isInteractiveGlass ? 9 : 5, x: 0, y: isInteractiveGlass ? 7 : 3)
-            .shadow(color: accent.opacity(0.15 * Double(bloom)), radius: (isInteractiveGlass ? 13 : 8) * bloom, x: 0, y: 4)
+            .shadow(color: accent.opacity(0.08 * Double(bloom)), radius: (isInteractiveGlass ? 11 : 7) * bloom, x: 0, y: 4)
     }
 }
 
@@ -258,8 +259,8 @@ struct StudioPrimaryButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(Color.white.opacity(isEnabled ? 0.24 : 0.08), lineWidth: 1)
             }
-            .shadow(color: StudioTheme.violet.opacity(isEnabled ? 0.55 : 0), radius: configuration.isPressed ? 8 : 18, x: 0, y: 6)
-            .shadow(color: StudioTheme.cyan.opacity(isEnabled ? 0.45 : 0), radius: configuration.isPressed ? 6 : 13, x: 0, y: 0)
+            .shadow(color: StudioTheme.violet.opacity(isEnabled ? 0.30 : 0), radius: configuration.isPressed ? 7 : 14, x: 0, y: 6)
+            .shadow(color: StudioTheme.cyan.opacity(isEnabled ? 0.18 : 0), radius: configuration.isPressed ? 5 : 9, x: 0, y: 0)
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
@@ -323,7 +324,7 @@ struct StudioStatNumber: View {
             .minimumScaleFactor(0.5)
             .contentTransition(.numericText())
             .animation(Motion.standard, value: value)
-            .shadow(color: StudioTheme.cyan.opacity(0.38), radius: 12, x: 0, y: 0)
+            .shadow(color: StudioTheme.violet.opacity(0.16), radius: 7, x: 0, y: 0)
     }
 }
 
@@ -377,9 +378,9 @@ struct StudioStatusPill: View {
         .foregroundStyle(color)
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background(color.opacity(0.13), in: Capsule())
-        .overlay(Capsule().strokeBorder(color.opacity(0.40), lineWidth: 1))
-        .shadow(color: color.opacity(0.28), radius: 6, x: 0, y: 0)
+        .background(color.opacity(0.12), in: Capsule())
+        .overlay(Capsule().strokeBorder(color.opacity(0.32), lineWidth: 1))
+        .shadow(color: color.opacity(0.14), radius: 4, x: 0, y: 0)
     }
 }
 
@@ -415,8 +416,8 @@ struct StudioGlassTile: ViewModifier {
                         lineWidth: 1
                     )
             )
-            .shadow(color: Color.black.opacity(0.12 * opacity), radius: 3, x: 0, y: 2)
-            .shadow(color: accent.opacity(0.22 * opacity), radius: 11, x: 0, y: 0)
+            .shadow(color: Color.black.opacity(0.20 * opacity), radius: 5, x: 0, y: 3)
+            .shadow(color: accent.opacity(0.10 * opacity), radius: 10, x: 0, y: 0)
     }
 }
 
