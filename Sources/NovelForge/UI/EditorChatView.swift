@@ -167,7 +167,8 @@ struct EditorChatView: View {
                     .background(Circle().fill(StudioTheme.brandGradient))
             }
             .buttonStyle(.plain)
-            .disabled(isProcessing || input.trimmingCharacters(in: .whitespaces).isEmpty)
+            .disabled(isProcessing || isRepairing || orchestrator.isRunning
+                      || input.trimmingCharacters(in: .whitespaces).isEmpty)
             .help("Senden")
             .accessibilityLabel("Nachricht senden")
         }
@@ -177,7 +178,7 @@ struct EditorChatView: View {
     private func send() {
         guard let project,
               !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !isProcessing else { return }
+              !isProcessing, !isRepairing, !orchestrator.isRunning else { return }
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         input = ""
         modelContext.insert(ChatMessage(projectID: project.id, role: .user, text: text))
