@@ -376,6 +376,19 @@ final class PipelineOrchestrator: ObservableObject {
 
     /// Baustein: erzeugt die KDP-Verkaufstexte (viraler Titel, Untertitel, Verkaufstext,
     /// Keywords, Kategorien) und schreibt sie ins BookProfile. Ohne Running-State-Verwaltung.
+    /// Verdichtet den TATSÄCHLICH geschriebenen Handlungsbogen aus den Kapitel-Zusammenfassungen,
+    /// damit Titel/Klappentext zum echten Inhalt passen – nicht nur zum geplanten Konzept (das oft
+    /// vom fertigen Buch abweicht). Fällt auf das Konzept zurück, solange noch keine Szenen existieren.
+    private func actualStorySynopsis(for project: Project, fallback: String) -> String {
+        let chapters = (project.chapters ?? []).sorted { $0.chapterNumber < $1.chapterNumber }
+        let lines = chapters.compactMap { chapter -> String? in
+            let scenes = (chapter.scenes ?? []).sorted { $0.sceneNumber < $1.sceneNumber }
+            let summary = scenes.compactMap { $0.summary }.filter { !$0.isEmpty }.joined(separator: " ")
+            return summary.isEmpty ? nil : "Kap. \(chapter.chapterNumber): \(summary)"
+        }
+        return lines.isEmpty ? fallback : lines.joined(separator: "\n")
+    }
+
     private func produceKDPMetadata(project: Project, config: ProviderConfiguration) async throws {
         guard let profile = project.bookProfile else { return }
         let job = beginJob(agent: AgentName.kdpFormatter, phase: .kdpFormatting, project: project)
@@ -385,7 +398,7 @@ final class PipelineOrchestrator: ObservableObject {
                     title: project.title, author: project.authorName,
                     authorBio: project.authorBio,
                     genre: project.genre, audience: profile.targetAudience,
-                    synopsis: profile.synopsis ?? profile.premise,
+                    synopsis: actualStorySynopsis(for: project, fallback: profile.synopsis ?? profile.premise),
                     language: project.language, tropes: project.tropes,
                     spiceLevel: project.spiceLevel
                 ),
@@ -1168,6 +1181,62 @@ final class PipelineOrchestrator: ObservableObject {
         return project
     }
 
+    /// Legt den nächsten Band einer Reihe an: erbt Autor/Genre/Format/Stil-DNA und
+    /// einen Fortsetzungs-Kontext (Figuren, Welt, Ausgang, offene Fäden) vom Vorband.
+    /// Das neue Projekt wird gespeichert und zurückgegeben; die Produktion startet der
+    /// Nutzer wie gewohnt (es durchläuft die Pipeline als FOLGEBAND, kein Neustart).
+    @discardableResult
+    func createNextVolume(from previous: Project) -> Project {
+        let seriesLabel = previous.seriesName.isEmpty ? previous.title : previous.seriesName
+        let nextNumber = (previous.seriesNumber > 0 ? previous.seriesNumber : 1) + 1
+
+        let next = Project(
+            title: SeriesContinuation.nextVolumeTitle(from: previous),
+            authorName: previous.authorName,
+            language: previous.language,
+            genre: previous.genre,
+            styleProfile: previous.styleProfile,
+            targetPageCount: previous.targetPageCount,
+            outputFormats: previous.outputFormats
+        )
+        next.subgenre = previous.subgenre
+        next.tropes = previous.tropes
+        next.spiceLevel = previous.spiceLevel
+        next.seriesName = seriesLabel
+        next.seriesNumber = nextNumber
+        // Gleiche Stil-DNA → einheitlicher Reihen-Ton (Serien dürfen sich ähneln).
+        next.styleSignature = previous.styleSignature
+        next.sequelContext = SeriesContinuation.brief(from: previous)
+        next.trimSizeRaw = previous.trimSizeRaw
+        next.imprint = previous.imprint
+        next.authorBio = previous.authorBio
+        next.preferredProviderRaw = previous.preferredProviderRaw
+        next.preferredModel = previous.preferredModel
+        next.costLimitUSD = previous.costLimitUSD
+
+        // Buchprofil mit geerbter Perspektive/Tonalität/Zeitform (Reihen-Konsistenz);
+        // Prämisse bleibt leer und wird vom Fortsetzungs-Konzept gefüllt.
+        let profile = BookProfile(
+            premise: "",
+            theme: previous.bookProfile?.theme ?? "",
+            targetAudience: previous.bookProfile?.targetAudience ?? "",
+            tonality: previous.bookProfile?.tonality ?? "",
+            narrativePerspective: previous.bookProfile?.narrativePerspective ?? "",
+            tense: previous.bookProfile?.tense ?? ""
+        )
+        profile.project = next
+        let bible = StoryBible()
+        bible.project = next
+        next.bookProfile = profile
+        next.storyBible = bible
+
+        modelContext?.insert(next)
+        modelContext?.insert(profile)
+        modelContext?.insert(bible)
+        try? modelContext?.save()
+        return next
+    }
+
     private func existingProjects() -> [Project] {
         guard let modelContext else { return [] }
         return (try? modelContext.fetch(FetchDescriptor<Project>())) ?? []
@@ -1462,7 +1531,8 @@ final class PipelineOrchestrator: ObservableObject {
                     perspective: profile.narrativePerspective, tense: profile.tense,
                     pageCount: project.targetPageCount,
                     ideaSeed: profile.premise,
-                    tropes: project.tropes, bookSignature: project.styleSignature
+                    tropes: project.tropes, bookSignature: project.styleSignature,
+                    sequelContext: project.sequelContext
                 ) + retryHint
                 let response = try await generate(
                     prompt: prompt,
@@ -1536,7 +1606,8 @@ final class PipelineOrchestrator: ObservableObject {
                 concept: profile.synopsis ?? profile.premise,
                 pageCount: project.targetPageCount,
                 chapterCount: estimatedChapterCount(for: project),
-                bookSignature: project.styleSignature
+                bookSignature: project.styleSignature,
+                sequelContext: project.sequelContext
             )
             var plot = ""
             var tokens = 0
@@ -1575,7 +1646,8 @@ final class PipelineOrchestrator: ObservableObject {
         if (bible.characters ?? []).isEmpty {
             let job = beginJob(agent: AgentName.character, phase: .structurePlanning, project: project)
             let prompt = PromptFactory.characters(
-                title: project.title, genre: project.genre, plot: bible.plotPoints
+                title: project.title, genre: project.genre, plot: bible.plotPoints,
+                sequelContext: project.sequelContext
             )
             var parsed: [ParsedCharacter] = []
             var tokens = 0
@@ -2725,7 +2797,7 @@ final class PipelineOrchestrator: ObservableObject {
                         title: project.title, author: project.authorName,
                         authorBio: project.authorBio,
                         genre: project.genre, audience: profile.targetAudience,
-                        synopsis: profile.synopsis ?? profile.premise,
+                        synopsis: actualStorySynopsis(for: project, fallback: profile.synopsis ?? profile.premise),
                         language: project.language, tropes: project.tropes,
                         spiceLevel: project.spiceLevel
                     ),

@@ -164,7 +164,8 @@ enum PromptFactory {
     static func concept(title: String, genre: String, subgenre: String?, language: String,
                         style: String, tonality: String, audience: String,
                         perspective: String, tense: String, pageCount: Int,
-                        ideaSeed: String, tropes: String = "", bookSignature: String = "") -> String {
+                        ideaSeed: String, tropes: String = "", bookSignature: String = "",
+                        sequelContext: String = "") -> String {
         var genreLine = genre
         if let subgenre, !subgenre.isEmpty {
             genreLine += " / \(subgenre)"
@@ -180,8 +181,14 @@ enum PromptFactory {
         }
         let trimmedSignature = bookSignature.trimmingCharacters(in: .whitespacesAndNewlines)
         let signatureBlock = trimmedSignature.isEmpty ? "" : "\n\(trimmedSignature)\n"
+        let trimmedSequel = sequelContext.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isSequel = !trimmedSequel.isEmpty
+        let openingLine = isSequel
+            ? "Entwickle das Konzept für den NÄCHSTEN BAND dieser Reihe (Fortsetzung, kein eigenständiger Neustart)."
+            : "Entwickle ein eigenständiges Buchkonzept (keine Nachahmung geschützter Werke)."
+        let sequelBlock = isSequel ? "\nSERIE / FOLGEBAND (VERBINDLICH): Führe die bestehende Reihe konsequent weiter. Behalte die wiederkehrenden Figuren (gleiche Namen, Eigenschaften, Beziehungen) und die etablierte Welt bei, entwickle sie weiter, greife offene Fäden auf und erhöhe den Einsatz. Eröffne einen neuen, in sich abgeschlossenen Hauptkonflikt für GENAU DIESEN Band – kein Wiedererzählen des Vorbands. Bisheriger Verlauf der Reihe:\n\(trimmedSequel)\n" : ""
         return """
-        Entwickle ein eigenständiges Buchkonzept (keine Nachahmung geschützter Werke).
+        \(openingLine)\(sequelBlock)
         \(seedBlock)
         Titel: \(title)
         Genre: \(genreLine)
@@ -203,6 +210,13 @@ enum PromptFactory {
         das Genre verlangt), nicht ein nebenbei erzähltes Alltagsleben.
         \(romanceGenreContract(genre))
 
+        BESTSELLER-KERN (verbindlich):
+        - HIGH CONCEPT: Die Prämisse ist zugespitzt und einzigartig, in EINEM Satz fassbar und sofort neugierig machend – NICHT generisch („Frau kehrt heim und findet Geheimnisse" ist verboten). Was ist das Besondere an genau DIESER Figur, DIESEM Konflikt, DIESEM Einsatz?
+        - TITEL EINLÖSEN: Die Prämisse macht das Versprechen des Titels „\(title)" zur TREIBENDEN Kraft der Handlung, nicht nur zur Stimmung. Verspricht der Titel eine Liebes-/Beziehungsfrage, ist genau diese der Motor des Plots und wird am Ende konkret beantwortet.
+        - GENRE LIEFERN, nicht nur behaupten: Die Kern-Dynamik des Genres steht konkret in Szenen. Bei (Dark) Romance / Slow Burn: spürbare, von Kapitel zu Kapitel eskalierende Anziehung mit klaren Teasern, Beinahe-Momenten und einer Auszahlung – kein „No Burn". Bei „dark": ein gefährlicher, fordernder, ambivalenter Gegenpart und ein spürbares Machtgefälle, keine bloße Melancholie.
+        - AKTIVE HAUPTFIGUR (Agency): Die Hauptfigur TREIBT die Handlung durch eigene Entscheidungen mit Konsequenzen; sie reagiert nicht nur passiv, sondern riskiert etwas, macht Fehler und verändert sich sichtbar.
+        - STARKER GEGENPART: Antagonist bzw. Love Interest ist scharf gezeichnet, präsent und erzeugt echte, spürbare Chemie und Reibung – kein vager „Nebel".
+
         Antworte ausschließlich in diesem Format (Labels exakt so verwenden):
         PRÄMISSE: [1-2 Sätze]
         LOGLINE: [Ein Satz]
@@ -214,7 +228,8 @@ enum PromptFactory {
     }
 
     static func plot(title: String, genre: String, style: String, concept: String,
-                     pageCount: Int, chapterCount: Int, bookSignature: String = "") -> String {
+                     pageCount: Int, chapterCount: Int, bookSignature: String = "",
+                     sequelContext: String = "") -> String {
         let trimmedSignature = bookSignature.trimmingCharacters(in: .whitespacesAndNewlines)
         let signatureBlock = trimmedSignature.isEmpty ? "" : """
 
@@ -222,13 +237,15 @@ enum PromptFactory {
         Ordne die folgenden dramaturgischen Beats DIESER Erzählstruktur unter: Die Beats bleiben das kausale Gerüst, ihre Anordnung und Präsentation folgen der Stil-DNA (z.B. nichtlinear, Rahmenerzählung, parallele Stränge), niemals einer Standardschablone.
 
         """
+        let trimmedSequel = sequelContext.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sequelLine = trimmedSequel.isEmpty ? "" : "\nSERIE / FOLGEBAND: Dies ist eine FORTSETZUNG. Dieselben Figuren und dieselbe Welt wie im Vorband; knüpfe an dessen Ausgang an und führe offene Fäden weiter. Baue dennoch einen eigenen, in sich abgeschlossenen Spannungsbogen für DIESEN Band.\n"
         return """
         Erstelle den vollständigen Plot für den Roman "\(title)".
         Genre: \(genre) | Stil: \(style) | Umfang: ca. \(pageCount) Seiten in \(chapterCount) Kapiteln.
 
         Konzept:
         \(concept)
-        \(signatureBlock)
+        \(signatureBlock)\(sequelLine)
         Baue den Plot nach bewährter Bestseller-Dramaturgie in drei Akten:
         - Eröffnungsbild und Alltag mit Riss (0–10%)
         - Auslösendes Ereignis, das die Normalität zerstört (ca. 10%)
@@ -246,16 +263,19 @@ enum PromptFactory {
         - Platziere offene Fragen (Open Loops), die erst spät beantwortet werden – sie halten den Leser im Buch.
         - Jede Figur trifft Entscheidungen unter Druck; keine passiven Zufälle als Plotmotor.
         - Plane Kapitelenden so, dass Neugier, Sorge oder Erwartung offen bleiben.
+        - HANDLUNGSDICHTE & TEMPO: In regelmäßigen Abständen (etwa alle 1-2 Kapitel) eine echte Wendung, Enthüllung oder Eskalation – keine langen Strecken ohne Fortschritt. Das Erzähltempo wechselt mit dem Geschehen (treibend in Zuspitzungen, ruhiger in Wendepausen). Atmosphäre dient der Handlung, ersetzt sie nie.
         - Der Umfang muss tragfähig für den Zielumfang sein: keine Kurzgeschichten-Struktur für lange KDP-Romane.
 
         Schreibe als zusammenhängenden, klar gegliederten Text.
         """
     }
 
-    static func characters(title: String, genre: String, plot: String) -> String {
-        """
+    static func characters(title: String, genre: String, plot: String, sequelContext: String = "") -> String {
+        let trimmedSequel = sequelContext.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sequelBlock = trimmedSequel.isEmpty ? "" : "\nSERIE / FOLGEBAND (VERBINDLICH): Übernimm die wiederkehrenden Figuren der Reihe UNVERÄNDERT (gleiche Namen, Rollen, Eigenschaften) und führe sie als erste Einträge auf; ergänze nur neue Figuren, die DIESER Band zusätzlich braucht. Wiederkehrende Figuren der Reihe:\n\(trimmedSequel)\n"
+        return """
         Entwickle das Figurenensemble für den Roman "\(title)" (Genre: \(genre)).
-
+        \(sequelBlock)
         Plot:
         \(plot.truncated(to: 4000))
 
@@ -338,6 +358,7 @@ enum PromptFactory {
         MENSCHLICH SCHREIBEN – DAMIT ES NICHT NACH KI KLINGT (diese Regeln stehen über dem reinen Glattschreiben; erzähl die Szene trotzdem vollständig zu Ende und kommentiere sie nie):
         - ZEITGEMÄSSE, PROFESSIONELLE SPRACHE (KEIN historischer/mittelalterlicher Klang): Schreibe wie ein aktueller deutschsprachiger Bestseller von heute – klar, natürlich, gegenwärtig, sofort verständlich. STRENG VERBOTEN sind altertümliche oder geschwollene Wörter/Wendungen wie „alsbald", „ward", „fürwahr", „sodann", „dünkte", „Antlitz", „Gemach", „Maid", „Jüngling", „Weib" (für Frau), „holde/edle", „auf dass", „es begab sich", „harrte", „allerorten", „weilte", „sann", „vermochte" sowie pathetische Inversionen und feierlich-erhabener Ton. Moderne Wortwahl, normale Wortstellung, heutige Begriffe (es sei denn, das Genre ist ausdrücklich historisch).
         - INHALTLICH STIMMIG (muss Sinn ergeben): Jeder Satz schließt logisch an den vorigen an; keine schön klingenden, aber leeren, widersprüchlichen oder unverständlichen Sätze. Lieber klar und konkret als kunstvoll und vage. Handlung, Zeit und Ort müssen nachvollziehbar bleiben.
+        - ERZÄHLTEMPO VARIIEREN (passend zum Geschehen, NIE durchgehend langsam): Spannung, Action, Konfrontation, Gefahr und Wendepunkte schnell und treibend erzählen – kurze Sätze, harte Schnitte, wenig Innenschau, Fokus auf Handlung und Dialog. Ruhige, emotionale oder verbindende Momente dürfen kurz atmen, bleiben aber zielgerichtet. Steigere das Tempo zum Szenen- und Kapitelende. Lange Wetter-, Stimmungs- oder Reflexionspassagen, die die Handlung nicht vorantreiben, sind verboten (höchstens wenige Sätze, dann weiter).
         - SATZLÄNGE BRUTAL STREUEN: Niemals drei Sätze in Folge mit ähnlicher Länge. Nach einem langen Schachtelsatz (25+ Wörter) folgt ein Satz mit drei bis fünf Wörtern oder ein verbloses Fragment („Kein Licht. Nirgends."). Pro Szene mindestens zwei sehr kurze Sätze unter vier Wörtern.
         - ABSATZLÄNGE VARIIEREN: Keine zwei gleich langen Absätze hintereinander. Setze mindestens einen Ein-Satz-Absatz als Akzent.
         - ABSATZ-ENDEN (das wichtigste Verbot): Kein Absatz endet mit einem zusammenfassenden, deutenden oder moralisierenden Satz („Und so begriff sie …", „Es war ein Moment, der alles veränderte", „Nichts würde mehr sein wie zuvor"). Brich auf einer konkreten Handlung, einem Gegenstand oder einem halben Gedanken ab. Auch der Schlusssatz der Szene bleibt nüchtern, nicht feierlich, nicht aphoristisch – hör auf, bevor die Bedeutung sauber ist.
@@ -639,10 +660,12 @@ enum PromptFactory {
         bei den gesuchten Begriffen möglichst weit oben rankt – ohne Keyword-Spam, ohne unleserliche Titel.
 
         Antworte exakt in diesem Format:
-        VERKAUFSTITEL: [klickstarker, verkaufender Verkaufstitel für Amazon KDP, 2-6 Wörter, als \
-        Thumbnail im Suchergebnis sofort lesbar, neugierig machend (offene Frage/Spannung), emotional. \
-        Wenn es natürlich passt, ein gesuchtes Genre-/Trope-Wort enthalten, damit der Titel auch über \
-        die Suche gefunden wird. Darf vom Originaltitel "\(title)" abweichen, wenn er stärker verkauft. \
+        VERKAUFSTITEL: [klickstarker Verkaufstitel für Amazon KDP, 2-6 Wörter, als Thumbnail im \
+        Suchergebnis sofort lesbar, neugierig machend (offene Frage/Spannung), emotional. PFLICHT: Der \
+        Titel muss zum TATSÄCHLICHEN Inhalt oben und zum Genre „\(genre)" passen – er verspricht genau \
+        das, was das Buch liefert (KEIN irreführender Clickbait, der eine andere Geschichte oder ein \
+        anderes Genre vorgaukelt). Wenn es natürlich passt, ein gesuchtes Genre-/Trope-Wort enthalten. \
+        Darf vom Originaltitel "\(title)" abweichen, wenn er stärker verkauft UND besser zum Inhalt passt. \
         Keine Anführungszeichen.]
         UNTERTITEL: [SEO-Untertitel – das wichtigste Such-Feld bei KDP. Trage die 1-2 stärksten \
         Suchbegriffe, die echte Leser tippen, VORN (Genre + Trope + Lesernutzen), 5-12 Wörter, \

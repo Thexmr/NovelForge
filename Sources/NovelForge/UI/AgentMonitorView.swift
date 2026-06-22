@@ -210,6 +210,7 @@ struct ExportDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var isRepairing = false
     @State private var repairNote: String?
+    @State private var seriesNote: String?
 
     private var scores: QualityScores {
         // Defensive: gelöschtes Projekt liefert Null-Scores statt auf tote Relationen zuzugreifen.
@@ -273,6 +274,27 @@ struct ExportDetailView: View {
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Reihe / Serie")
+                        .font(.headline)
+                    Text("Erzeugt einen Folgeband, der dieselben Figuren und die Welt übernimmt und die Geschichte fortsetzt – mit derselben Stil-DNA für einen einheitlichen Reihen-Ton. Der neue Band erscheint im Dashboard und wird dort produziert.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button {
+                        let next = orchestrator.createNextVolume(from: project)
+                        seriesNote = "„\(next.title)“ angelegt (Band \(next.seriesNumber)) – im Dashboard auswählen und Produktion starten."
+                    } label: {
+                        Label("Nächsten Band erzeugen", systemImage: "books.vertical")
+                    }
+                    .disabled(orchestrator.isRunning || project.modelContext == nil)
+                    if let seriesNote {
+                        Text(seriesNote)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 

@@ -19,6 +19,10 @@ final class Project {
     /// Serien-Metadaten (Read-Through-Hebel): Reihenname + Bandnummer.
     var seriesName: String = ""
     var seriesNumber: Int = 0
+    /// Fortsetzungs-Kontext: wenn gesetzt, ist dies ein FOLGEBAND, der die Geschichte
+    /// des Vorbands fortsetzt (Figuren/Welt erben, Handlung weiterführen). Leer =
+    /// eigenständiges Buch (das sich bewusst vom Vorgänger unterscheidet).
+    var sequelContext: String = ""
     /// Pro Buch einzigartige „Stil-DNA" (Perspektive, Struktur, Stimme …). Wird einmal
     /// beim Anlegen gewürfelt und über den ganzen Produktionslauf konstant gehalten –
     /// verhindert die Template-Signatur, die Amazon KDP als „Programmatic Content" erkennt.
