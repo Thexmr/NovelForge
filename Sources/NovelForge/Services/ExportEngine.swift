@@ -772,7 +772,16 @@ struct ExportEngine {
     // MARK: - Utility
 
     private static func escapeXML(_ text: String) -> String {
-        var result = text
+        // XML 1.0 verbietet Steuerzeichen außer Tab/LF/CR. Liefert ein LLM (z. B. via
+        // JSON-Escape U+0000 oder U+000C) ein solches Zeichen, entstünde sonst eine
+        // ungültige, nicht öffenbare EPUB/OPF/NCX. Daher XML-1.0-illegale Scalars entfernen.
+        var result = String(String.UnicodeScalarView(text.unicodeScalars.filter { scalar in
+            let v = scalar.value
+            return v == 0x09 || v == 0x0A || v == 0x0D
+                || (v >= 0x20 && v <= 0xD7FF)
+                || (v >= 0xE000 && v <= 0xFFFD)
+                || (v >= 0x10000 && v <= 0x10FFFF)
+        }))
         result = result.replacingOccurrences(of: "&", with: "&amp;")
         result = result.replacingOccurrences(of: "<", with: "&lt;")
         result = result.replacingOccurrences(of: ">", with: "&gt;")

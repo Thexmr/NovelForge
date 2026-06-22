@@ -31,6 +31,12 @@ struct KDPSalesSheet {
             .filter { !$0.isEmpty }
     }
 
+    /// Leeres Blatt – für gelöschte Projekte (kein Zugriff auf tote @Model-Relationen).
+    static let empty = KDPSalesSheet(
+        title: "", author: "", language: "", trimSize: "", series: "",
+        hook: "", salesDescription: "", keywords: "", categories: "", authorProfile: ""
+    )
+
     static func make(for project: Project) -> KDPSalesSheet {
         let profile = project.bookProfile
         // Bevorzugt den eigens generierten viralen KDP-Verkaufstitel; sonst der Buchtitel.

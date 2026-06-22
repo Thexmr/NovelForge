@@ -792,6 +792,8 @@ final class PipelineOrchestrator: ObservableObject {
             progress = 0
             currentChapter = 0
             currentScene = 0
+            totalScenes = 0
+            completedScenes = 0
             estimatedTimeRemaining = ""
             currentBookElapsed = ""
             currentBookEstimatedTotal = ""

@@ -125,7 +125,7 @@ actor ProviderGateway {
                 throw AIError.systemError("Leere Antwort vom Provider")
             }
             return GenerationResponse(
-                text: choice.message.content,
+                text: choice.message.content ?? "",
                 tokensUsed: result.usage?.total_tokens,
                 finishReason: choice.finish_reason
             )
@@ -414,11 +414,17 @@ struct OpenAIChoice: Codable {
 }
 
 struct OpenAIMessage: Codable {
-    let content: String
+    // Optional: einige Provider liefern content: null (Filter-/Refusal-/abgebrochene
+    // Antworten). Nicht-optional ließe das JSON-Decoding einer erfolgreichen
+    // HTTP-200-Antwort scheitern (roher DecodingError statt nutzbarem Text).
+    let content: String?
 }
 
 struct OpenAIUsage: Codable {
-    let total_tokens: Int
+    // Optional: manche OpenAI-kompatiblen/Custom-Provider liefern ein usage-Objekt
+    // ohne total_tokens (nur prompt_/completion_tokens). Nicht-optional würde eine
+    // gültige 200-Antwort am Decoding scheitern lassen.
+    let total_tokens: Int?
 }
 
 struct AnthropicResponse: Codable {

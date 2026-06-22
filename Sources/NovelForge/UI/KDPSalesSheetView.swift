@@ -11,7 +11,10 @@ struct KDPSalesSheetView: View {
     @State private var statusNote: String?
 
     private var sheet: KDPSalesSheet {
-        KDPSalesSheet.make(for: project)
+        // Defensive: gelöschtes Projekt (modelContext == nil) → keine toten
+        // @Model-Relationen lesen (sonst EXC_BREAKPOINT wie bei früherem Export-Crash).
+        guard project.modelContext != nil else { return .empty }
+        return KDPSalesSheet.make(for: project)
     }
 
     private var canGenerate: Bool {
