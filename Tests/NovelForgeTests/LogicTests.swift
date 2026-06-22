@@ -492,11 +492,12 @@ final class LogicTests: XCTestCase {
         XCTAssertTrue(rules.contains("VERZÖGERUNG"))
     }
 
-    func testBookTitleRulesDemandBoldnessAndBanWeakPatterns() {
+    func testBookTitleRulesDemandViralYetClearAndBanWeird() {
         let p = PromptFactory.bookIdeas(genre: "Liebesroman", language: "Deutsch")
-        XCTAssertTrue(p.contains("HARTE VERBOTE"))
+        XCTAssertTrue(p.contains("EXTREM stark und viral"))  // maximale Sogkraft gefordert
+        XCTAssertTrue(p.contains("sofort verständlich"))      // aber klar, nicht kryptisch
+        XCTAssertTrue(p.contains("STRENG VERBOTEN"))          // komische/kryptische Titel verboten
         XCTAssertTrue(p.contains("BAUARTEN"))
-        XCTAssertTrue(p.contains("im Zweifel das Mutigere"))
         XCTAssertTrue(p.contains("NUR MUSTER")) // Beispieltitel dürfen nicht kopiert werden
     }
 
