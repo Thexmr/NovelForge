@@ -20,6 +20,17 @@ final class ChatMessage {
     }
 
     var role: ChatRole { ChatRole(rawValue: roleRaw) ?? .assistant }
+
+    /// Löscht alle Chat-Nachrichten eines Projekts. ChatMessage ist über projectID
+    /// lose verknüpft (keine SwiftData-Relation), daher gibt es kein automatisches
+    /// Cascade-Delete – beim Projekt-Löschen aufrufen, damit keine verwaisten
+    /// Nachrichten zurückbleiben.
+    static func deleteMessages(forProjectID id: UUID, in context: ModelContext) {
+        let all = (try? context.fetch(FetchDescriptor<ChatMessage>())) ?? []
+        for message in all where message.projectID == id {
+            context.delete(message)
+        }
+    }
 }
 
 enum ChatRole: String, Codable {

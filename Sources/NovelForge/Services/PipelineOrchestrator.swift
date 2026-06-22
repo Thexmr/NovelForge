@@ -296,7 +296,8 @@ final class PipelineOrchestrator: ObservableObject {
                     AutonomousContentQuality.strippingInlineFormatting(
                         AutonomousContentQuality.strippingPromptArtifacts(response.text)))
                 guard revised.wordCount >= max(50, current.wordCount / 3),
-                      !AutonomousContentQuality.containsMetaRequest(revised) else {
+                      !AutonomousContentQuality.containsMetaRequest(revised),
+                      ContentSafetyFilter.isSafe(revised) else {
                     return "Die Überarbeitung kam unvollständig zurück. Formuliere den Wunsch gern konkreter oder versuch es noch einmal."
                 }
                 chapter.finalText = revised
@@ -621,7 +622,8 @@ final class PipelineOrchestrator: ObservableObject {
                     AutonomousContentQuality.strippingPromptArtifacts(response.text)))
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard improved.wordCount >= max(100, Int(Double(currentText.wordCount) * 0.6)),
-                  !AutonomousContentQuality.containsMetaRequest(improved) else {
+                  !AutonomousContentQuality.containsMetaRequest(improved),
+                  ContentSafetyFilter.isSafe(improved) else {
                 throw AIError.systemError("Optimierter Anfang war unvollständig – Original behalten.")
             }
             chapter.finalText = improved
@@ -670,7 +672,8 @@ final class PipelineOrchestrator: ObservableObject {
                     AutonomousContentQuality.strippingPromptArtifacts(response.text)))
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard improved.wordCount >= max(100, Int(Double(currentText.wordCount) * 0.6)),
-                  !AutonomousContentQuality.containsMetaRequest(improved) else {
+                  !AutonomousContentQuality.containsMetaRequest(improved),
+                  ContentSafetyFilter.isSafe(improved) else {
                 throw AIError.systemError("Cliffhanger-Fassung war unvollständig – Original behalten.")
             }
             chapter.finalText = improved
@@ -2377,7 +2380,8 @@ final class PipelineOrchestrator: ObservableObject {
             switch results[index] {
             case .success(let response)?:
                 // Schutz vor abgeschnittenen/leeren Antworten: nie Text verlieren.
-                if response.text.wordCount >= draft.wordCount / 2 {
+                if response.text.wordCount >= draft.wordCount / 2,
+                   ContentSafetyFilter.isSafe(response.text) {
                     chapter.revisedText = response.text
                 } else {
                     chapter.revisedText = draft
@@ -2495,7 +2499,8 @@ final class PipelineOrchestrator: ObservableObject {
             let source = chapter.revisedText ?? chapter.draftText ?? ""
             switch results[index] {
             case .success(let response)?:
-                if response.text.wordCount >= source.wordCount / 2 {
+                if response.text.wordCount >= source.wordCount / 2,
+                   ContentSafetyFilter.isSafe(response.text) {
                     chapter.finalText = response.text
                 } else {
                     chapter.finalText = source
@@ -2636,7 +2641,8 @@ final class PipelineOrchestrator: ObservableObject {
 
                 let minimumWords = max(100, Int(Double(currentText.wordCount) * 0.65))
                 if repaired.wordCount >= minimumWords,
-                   !AutonomousContentQuality.containsMetaRequest(repaired) {
+                   !AutonomousContentQuality.containsMetaRequest(repaired),
+                   ContentSafetyFilter.isSafe(repaired) {
                     chapter.finalText = repaired
                     chapter.actualWordCount = repaired.wordCount
                     chapter.status = .finalized

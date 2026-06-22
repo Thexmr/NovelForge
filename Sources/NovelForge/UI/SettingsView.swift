@@ -534,6 +534,7 @@ struct PrivacySettingsView: View {
         .confirmationDialog("Wirklich ALLE Projekte löschen?", isPresented: $confirmDeleteProjects) {
             Button("\(projects.count) Projekte endgültig löschen", role: .destructive) {
                 for project in projects where !orchestrator.activeProjectIDs.contains(project.id) && orchestrator.currentProject?.id != project.id {
+                    ChatMessage.deleteMessages(forProjectID: project.id, in: modelContext)
                     modelContext.delete(project)
                 }
                 try? modelContext.save()

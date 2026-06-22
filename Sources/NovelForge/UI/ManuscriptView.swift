@@ -277,6 +277,7 @@ struct ChapterDetailView: View {
     @Binding var viewMode: ManuscriptView.ViewMode
     @State private var editedText: String = ""
     @State private var hasUnsavedChanges = false
+    @State private var editingChapter: Chapter?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -311,9 +312,28 @@ struct ChapterDetailView: View {
                 scenesView
             }
         }
-        .onAppear {
-            editedText = chapter.rawBestText ?? ""
-        }
+        .onAppear { loadEditor(for: chapter) }
+        .onChange(of: chapter.chapterNumber) { _, _ in loadEditor(for: chapter) }
+        .onDisappear { saveEdits() }
+    }
+
+    /// Lädt den Editor-Text für ein Kapitel und sichert vorher ungespeicherte
+    /// Änderungen am zuvor bearbeiteten Kapitel – verhindert stillen Datenverlust
+    /// beim Kapitelwechsel.
+    private func loadEditor(for newChapter: Chapter) {
+        saveEdits()
+        editingChapter = newChapter
+        editedText = newChapter.rawBestText ?? ""
+        hasUnsavedChanges = false
+    }
+
+    /// Schreibt ungespeicherte Editor-Änderungen ins zugehörige Kapitel zurück.
+    private func saveEdits() {
+        guard hasUnsavedChanges, let target = editingChapter, target.modelContext != nil else { return }
+        target.finalText = editedText
+        target.actualWordCount = editedText.wordCount
+        target.updatedAt = Date()
+        hasUnsavedChanges = false
     }
 
     private var readView: some View {

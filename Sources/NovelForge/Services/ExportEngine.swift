@@ -658,17 +658,29 @@ struct ExportEngine {
     /// Einseitige, vertikal zentrierte Seite (Titel, Copyright).
     private static func appendCenteredPage(_ attributed: NSAttributedString, to document: PDFDocument,
                                            layout: PrintLayout, state: inout PrintState) {
+        let inset: CGFloat = 44
+        let rect = CGRect(x: inset, y: layout.pageHeight * 0.32,
+                          width: layout.pageWidth - 2 * inset,
+                          height: layout.pageHeight * 0.42)
+        let framesetter = CTFramesetterCreateWithAttributedString(attributed as CFAttributedString)
+
+        // Passt der Text nicht in den zentrierten Bereich (z.B. langer Impressum-/
+        // Copyright-Text), fließend und paginiert setzen, statt ihn stillschweigend
+        // abzuschneiden.
+        let suggested = CTFramesetterSuggestFrameSizeWithConstraints(
+            framesetter, CFRangeMake(0, 0), nil,
+            CGSize(width: rect.width, height: .greatestFiniteMagnitude), nil)
+        if suggested.height > rect.height {
+            appendFlowedText(attributed, to: document, layout: layout, state: &state, numbered: false)
+            return
+        }
+
         let pageData = NSMutableData()
         guard let consumer = CGDataConsumer(data: pageData as CFMutableData) else { return }
         var mediaBox = CGRect(x: 0, y: 0, width: layout.pageWidth, height: layout.pageHeight)
         guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else { return }
 
         context.beginPDFPage(nil)
-        let inset: CGFloat = 44
-        let rect = CGRect(x: inset, y: layout.pageHeight * 0.32,
-                          width: layout.pageWidth - 2 * inset,
-                          height: layout.pageHeight * 0.42)
-        let framesetter = CTFramesetterCreateWithAttributedString(attributed as CFAttributedString)
         let frame = CTFramesetterCreateFrame(framesetter, CFRangeMake(0, 0),
                                              CGPath(rect: rect, transform: nil), nil)
         CTFrameDraw(frame, context)

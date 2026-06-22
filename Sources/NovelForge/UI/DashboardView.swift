@@ -597,6 +597,7 @@ struct ProjectsListView: View {
                         if AppState.shared.selectedProject?.id == project.id {
                             AppState.shared.selectedProject = nil
                         }
+                        ChatMessage.deleteMessages(forProjectID: project.id, in: modelContext)
                         modelContext.delete(project)
                         try? modelContext.save()
                     }
@@ -831,6 +832,7 @@ struct ProjectDetailView: View {
                 if AppState.shared.selectedProject?.id == project.id {
                     AppState.shared.selectedProject = nil
                 }
+                ChatMessage.deleteMessages(forProjectID: project.id, in: modelContext)
                 modelContext.delete(project)
                 try? modelContext.save()
                 dismiss()
