@@ -488,6 +488,7 @@ enum PromptFactory {
         STIL: \(style); Tonalität: \(tonality); Erzählperspektive: \(scenePerspective.isEmpty ? perspective : scenePerspective); Zeitform: \(tense).
         STILREGELN: \(styleRules.truncated(to: 600))
         \(signatureBlock)\(spiceBlock)
+        \(ContentSafetyFilter.promptDirective)
         KAPITELZIEL: \(chapterGoal)
         SZENE:
         - Ort: \(sceneLocation)

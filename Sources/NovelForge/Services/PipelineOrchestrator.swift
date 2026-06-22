@@ -2112,9 +2112,11 @@ final class PipelineOrchestrator: ObservableObject {
                             // Eine schwächere Fassung führt zu einem neuen Versuch (statt sie zu behalten).
                             let candidateGood = !AutonomousContentQuality.containsPromptArtifacts(response.text)
                                 && !AutonomousContentQuality.soundsLikeAI(response.text)
+                                && ContentSafetyFilter.isSafe(response.text)
                             let currentGood = !sceneText.isEmpty
                                 && !AutonomousContentQuality.containsPromptArtifacts(sceneText)
                                 && !AutonomousContentQuality.soundsLikeAI(sceneText)
+                                && ContentSafetyFilter.isSafe(sceneText)
                             if sceneText.isEmpty
                                 || (candidateGood && !currentGood)
                                 || (candidateGood == currentGood && response.text.wordCount > sceneText.wordCount) {
@@ -2122,7 +2124,8 @@ final class PipelineOrchestrator: ObservableObject {
                             }
                             if AutonomousContentQuality.acceptsDraftScene(sceneText, targetWords: scene.targetWordCount),
                                !AutonomousContentQuality.containsPromptArtifacts(sceneText),
-                               !AutonomousContentQuality.soundsLikeAI(sceneText) {
+                               !AutonomousContentQuality.soundsLikeAI(sceneText),
+                               ContentSafetyFilter.isSafe(sceneText) {
                                 lastProviderError = nil
                                 break
                             }
@@ -2158,6 +2161,18 @@ final class PipelineOrchestrator: ObservableObject {
                     sceneText = AutonomousContentQuality.strippingPromptArtifacts(sceneText)
                     sceneText = AutonomousContentQuality.strippingInlineFormatting(sceneText)
                     sceneText = AutonomousContentQuality.humanizeProse(sceneText)
+
+                    // HARTE SICHERHEITSSPERRE: sexuelle Inhalte mit Kindern/Minderjährigen
+                    // werden NIE gespeichert – unabhängig von Genre oder Sinnlichkeitsgrad.
+                    if let safetyViolation = ContentSafetyFilter.violation(in: sceneText) {
+                        addReport(project: project,
+                                  area: "Kapitel \(chapter.chapterNumber), Szene \(scene.sceneNumber)",
+                                  type: "Sicherheit",
+                                  result: "Szene vom Schutzfilter blockiert (\(safetyViolation)) – Platzhalter eingefügt",
+                                  severity: .critical,
+                                  recommendation: "Szene neu erzeugen; an intimen Szenen dürfen ausschließlich erwachsene Figuren beteiligt sein.")
+                        sceneText = fallbackSceneText(chapter: chapter, scene: scene)
+                    }
 
                     // Robustheit: Inhaltsschwäche beendet NIE das Buch.
                     let cleaned = sceneText.trimmingCharacters(in: .whitespacesAndNewlines)
