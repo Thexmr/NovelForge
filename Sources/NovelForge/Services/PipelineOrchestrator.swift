@@ -629,7 +629,7 @@ final class PipelineOrchestrator: ObservableObject {
                     genre: project.genre, chapterText: currentText.truncated(to: 36_000)),
                 system: "Du bist ein Bestseller-Lektor und optimierst den Buchanfang (Amazon-Leseprobe) auf maximalen Lesesog. Gib nur den vollständigen Kapiteltext zurück.",
                 maxTokens: min(12000, max(4000, currentText.wordCount * 3)),
-                temperature: 0.5, config: config)
+                temperature: 0.5, config: config, creative: true)
             let improved = AutonomousContentQuality.humanizeProse(
                 AutonomousContentQuality.strippingInlineFormatting(
                     AutonomousContentQuality.strippingPromptArtifacts(response.text)))
@@ -679,7 +679,7 @@ final class PipelineOrchestrator: ObservableObject {
                     chapterText: currentText.truncated(to: 36_000)),
                 system: "Du bist ein Bestseller-Lektor für Serien und baust einen starken Cliffhanger + Teaser ein, ohne den Abschluss des Buches zu zerstören. Gib nur den vollständigen Kapiteltext zurück.",
                 maxTokens: min(12000, max(4000, currentText.wordCount * 3)),
-                temperature: 0.5, config: config)
+                temperature: 0.5, config: config, creative: true)
             let improved = AutonomousContentQuality.humanizeProse(
                 AutonomousContentQuality.strippingInlineFormatting(
                     AutonomousContentQuality.strippingPromptArtifacts(response.text)))
@@ -1398,24 +1398,46 @@ final class PipelineOrchestrator: ObservableObject {
     // MARK: - LLM-Aufruf mit Nutzungsanzeige
 
     private func generate(prompt: String, system: String, maxTokens: Int,
-                          temperature: Double, config: ProviderConfiguration) async throws -> GenerationResponse {
+                          temperature: Double, config: ProviderConfiguration,
+                          creative: Bool = false) async throws -> GenerationResponse {
         try Task.checkCancellation()
 
-        let model = config.defaultModel ?? config.provider.suggestedModels.first ?? ""
-        let request = GenerationRequest(
-            prompt: prompt,
-            systemPrompt: system,
-            model: model,
-            provider: config.provider,
-            maxTokens: maxTokens,
-            temperature: temperature
-        )
-        let response = try await gateway.generateText(request: request, configuration: config)
+        let fallbackModel = config.defaultModel ?? config.provider.suggestedModels.first ?? ""
+        // Kreative Prosa-Schritte nutzen das (stärkere) Autoren-Modell; Hilfsschritte
+        // bleiben auf dem schnellen Standardmodell.
+        let model = creative ? resolveWritingModel(for: config, fallback: fallbackModel) : fallbackModel
 
-        if let tokens = response.tokensUsed {
-            recordTokenUsage(tokens, model: model)
+        func run(_ chosen: String) async throws -> GenerationResponse {
+            let request = GenerationRequest(
+                prompt: prompt, systemPrompt: system, model: chosen,
+                provider: config.provider, maxTokens: maxTokens, temperature: temperature
+            )
+            let response = try await gateway.generateText(request: request, configuration: config)
+            if let tokens = response.tokensUsed {
+                recordTokenUsage(tokens, model: chosen)
+            }
+            return response
         }
-        return response
+
+        do {
+            return try await run(model)
+        } catch AIError.modelUnavailable where model != fallbackModel {
+            // Starkes Autoren-Modell nicht verfügbar → sicher auf Standardmodell ausweichen,
+            // damit die Produktion nie an der Modellwahl scheitert.
+            return try await run(fallbackModel)
+        }
+    }
+
+    /// Wählt das (stärkere) Autoren-Modell für kreative Prosa-Schritte. Nur für
+    /// Ollama Cloud; sonst das Standardmodell. „__standard__" = bewusst Standardmodell;
+    /// leer = empfohlenes Autoren-Modell. Untaugliche Wahl fällt auf den Default zurück.
+    private func resolveWritingModel(for config: ProviderConfiguration, fallback: String) -> String {
+        guard config.provider == .ollamaCloud else { return fallback }
+        let stored = UserDefaults.standard.string(forKey: OllamaCloudModelCatalog.writingModelDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if stored == "__standard__" { return fallback }
+        let chosen = stored.isEmpty ? OllamaCloudModelCatalog.recommendedWritingModel : stored
+        return OllamaCloudModelCatalog.isUsefulForLongFormCloudModel(chosen) ? chosen : fallback
     }
 
     /// Bucht Token-/Kostenverbrauch und meldet ihn im Parallelmodus zusätzlich an
@@ -1537,7 +1559,7 @@ final class PipelineOrchestrator: ObservableObject {
                 let response = try await generate(
                     prompt: prompt,
                     system: "Du bist ein erfahrener Verlagslektor und entwickelst originelle, tragfähige Buchkonzepte. Antworte direkt mit Buchkonzept, niemals mit Rückfragen.",
-                    maxTokens: 2200, temperature: 0.8, config: config
+                    maxTokens: 2200, temperature: 0.8, config: config, creative: true
                 )
                 lastResponse = response
 
@@ -1618,7 +1640,7 @@ final class PipelineOrchestrator: ObservableObject {
                     let response = try await generate(
                         prompt: prompt + hint,
                         system: "Du bist ein Plot-Architekt für Romane. Du baust schlüssige, spannende Handlungsbögen.",
-                        maxTokens: 3500, temperature: 0.7, config: config
+                        maxTokens: 3500, temperature: 0.7, config: config, creative: true
                     )
                     tokens += response.tokensUsed ?? 0
                     let p = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2180,7 +2202,7 @@ final class PipelineOrchestrator: ObservableObject {
                             let response = try await generate(
                                 prompt: basePrompt + hint,
                                 system: "Du bist ein professioneller Romanautor. Du schreibst lebendige, atmosphärische Prosa mit natürlichen Dialogen.",
-                                maxTokens: maxTokens, temperature: 0.85, config: config
+                                maxTokens: maxTokens, temperature: 0.85, config: config, creative: true
                             )
                             sceneTokens += response.tokensUsed ?? 0
                             // „Gut" = keine durchgesickerte Anweisung UND nicht maschinell klingend.
@@ -2219,7 +2241,7 @@ final class PipelineOrchestrator: ObservableObject {
                                     text: sceneText, targetWords: scene.targetWordCount
                                 ),
                                 system: "Du bist ein professioneller Romanautor. Du vertiefst Szenen, ohne die Handlung zu verändern.",
-                                maxTokens: maxTokens, temperature: 0.7, config: config
+                                maxTokens: maxTokens, temperature: 0.7, config: config, creative: true
                             )
                             if expanded.text.wordCount > sceneText.wordCount {
                                 sceneText = expanded.text
@@ -2704,7 +2726,7 @@ final class PipelineOrchestrator: ObservableObject {
                     system: "Du bist ein chirurgisch arbeitender Romanlektor. Du reparierst exakt den Befund und gibst nur den vollständigen Kapiteltext zurück.",
                     maxTokens: min(12000, max(4000, currentText.wordCount * 3)),
                     temperature: 0.25,
-                    config: config
+                    config: config, creative: true
                 )
                 let repaired = AutonomousContentQuality.humanizeProse(
                     AutonomousContentQuality.strippingInlineFormatting(

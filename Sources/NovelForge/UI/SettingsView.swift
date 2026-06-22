@@ -33,6 +33,7 @@ struct GeneralSettingsView: View {
     @AppStorage("defaultImprint") private var defaultImprint = DefaultBookSettings.imprint
     @AppStorage("defaultAuthorBio") private var defaultAuthorBio = DefaultBookSettings.authorBio
     @AppStorage("kdpCoverStudioPath") private var kdpCoverStudioPath = "/Users/dave/AMZ KDP KI"
+    @AppStorage("novelforge.writingModel") private var writingModel = ""
 
     var body: some View {
         Form {
@@ -74,6 +75,19 @@ struct GeneralSettingsView: View {
                         Text($0).tag($0)
                     }
                 }
+            }
+
+            Section("Schreibqualität · Autoren-Modell (Prosa)") {
+                Picker("Autoren-Modell", selection: $writingModel) {
+                    Text("Empfohlen: stärkstes Modell").tag("")
+                    Text("Standard (schnell, wie Hilfsmodell)").tag("__standard__")
+                    ForEach(OllamaCloudModelCatalog.fallbackModels, id: \.self) {
+                        Text($0).tag($0)
+                    }
+                }
+                Text("Wird nur für die eigentliche Prosa genutzt (Szenen, Konzept, Plot, Repair) – für mehr Tiefe und Ton. Hilfsschritte (Zusammenfassungen, Parsing, KDP) bleiben auf dem schnellen Modell. „Empfohlen“ nutzt mistral-large-3:675b (deutlich stärker, aber langsamer); „Standard“ entspricht dem schnellen Modell. Gilt für Ollama Cloud; ist das Modell nicht verfügbar, wird automatisch auf das Standardmodell ausgewichen.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("KDP Cover Studio") {

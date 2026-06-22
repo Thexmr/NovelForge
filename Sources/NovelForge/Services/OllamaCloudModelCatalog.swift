@@ -30,6 +30,16 @@ enum OllamaCloudModelCatalog {
     // entfernt, weil es leeren Text liefert (reines Thinking-Modell).
     static let defaultModel = "kimi-k2.6"
 
+    /// Stärkeres „Autoren-Modell" für die eigentliche Prosa (mehr Tiefe/Ton, aber
+    /// langsamer als der Default). Wird NUR für die kreativen Schritte (Szenen,
+    /// Opening, Cliffhanger, Repair, Konzept, Plot) genutzt; Hilfsschritte
+    /// (Zusammenfassungen, Parsing, KDP) bleiben auf dem schnellen Default-Modell.
+    static let recommendedWritingModel = "mistral-large-3:675b"
+
+    /// UserDefaults-Schlüssel für ein vom Nutzer gewähltes Autoren-Modell.
+    /// Leer ⇒ `recommendedWritingModel`; "__standard__" ⇒ wie Standardmodell.
+    static let writingModelDefaultsKey = "novelforge.writingModel"
+
     static func decodeModelNames(from data: Data) throws -> [String] {
         let response = try JSONDecoder().decode(OllamaTagsResponse.self, from: data)
         return response.models
