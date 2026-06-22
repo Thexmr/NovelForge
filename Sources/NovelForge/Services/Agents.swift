@@ -64,13 +64,13 @@ enum PromptFactory {
         – eine konkrete Kernwunde der Hauptfigur und einen Einsatz, bei dem viel zu verlieren ist,
         – eine Eskalation mit Wendung, die man nicht kommen sieht.
 
-        TITEL-PFLICHT – klingt wie ein echter, professionell verlegter Bestseller des Genres (KEINE komischen, gewollten oder kryptischen Titel):
-        – NATÜRLICH & VERSTÄNDLICH: idiomatisches Deutsch, beim ersten Lesen sofort klar, emotional und genre-richtig. 2–6 Wörter bevorzugt (aktive Sätze dürfen länger), kein erklärender Nebensatz, kein Gedankenstrich. Der Titel verspricht das GEFÜHL und das Genre des Buches.
-        – AMAZON-KDP-MARKTFIT: im Suchergebnis und als Thumbnail sofort lesbar, klickbar, zur Zielgruppe passend – ansprechend, aber nie billig oder irreführend.
+        TITEL-PFLICHT – EXTREM stark und viral, aber NIE komisch oder kryptisch (die besten Bestseller-Titel sind BEIDES zugleich: magnetisch UND sofort verständlich):
+        – VIRAL & DAUMEN-STOPPEND: Der Titel stoppt beim Scrollen sofort, macht augenblicklich süchtig auf die Geschichte und ist BookTok-würdig (man will ihn aussprechen und weiterempfehlen). Starkes emotionales Versprechen, hohe Aufladung, sofortiger Klick-Sog – ziel auf die Wucht echter Verkaufsschlager. Brave, schwache, austauschbare Titel sind verboten.
+        – ZUGLEICH KLAR & NATÜRLICH: idiomatisches Deutsch, beim ersten Lesen sofort verständlich, genre-richtig. „Viral" heißt NICHT rätselhaft, sondern ein echtes Gefühl/Versprechen in klare, einprägsame Worte fassen. 2–6 Wörter bevorzugt (aktive Sätze dürfen länger), kein erklärender Nebensatz, kein Gedankenstrich.
         – STRENG VERBOTEN, weil es „komisch"/künstlich klingt: kryptische, prätentiöse oder rätselhafte Titel; synästhetische oder paradoxe Wort-Collagen („Salz im Stromnetz", „Die Farbe deiner Stimme"); Wörter, die zusammen keinen Sinn ergeben; gewollt „literarische" Bilder, die kein echter Leser als Buchtitel sucht oder beim ersten Lesen versteht.
-        – EBENFALLS VERBOTEN: Berufs-Ort-Klischee („Die Kassiererin von X"), Berufs-Genitiv („Das Schweigen der Imkerin", „Die Tochter des …"), blasse Einzelwörter („Feuerprobe", „Schicksal", „Neuanfang"), generisch-romantische Allerwelts-Sätze.
-        – BEWÄHRTE, NATÜRLICHE BAUARTEN (je Idee eine andere, ALLE eingängig und konkret): ein aktiver Satz mitten im Gefühl/Konflikt; eine Du-/Ich-Anrede mit echtem Einsatz; eine klare Frage oder ein Versprechen; ein konkretes, verständliches Bild aus der Welt der Geschichte; eine prägnante Zeit- oder Ortsstimmung. Bleib konkret und klar – nicht abstrakt verrätselt.
-        – HÄRTETEST: Würde ein echter Verlag diesen Titel so aufs Cover drucken UND versteht ihn ein Leser sofort? Wenn nein, verwirf ihn. Er darf auch nicht austauschbar auf zehn anderen Büchern des Genres stehen können. Jeder der 5 Titel klingt anders, aber alle natürlich und professionell.
+        – EBENFALLS VERBOTEN: Berufs-Ort-Klischee („Die Kassiererin von X"), Berufs-Genitiv („Das Schweigen der Imkerin", „Die Tochter des …"), blasse Einzelwörter („Feuerprobe", „Schicksal", „Neuanfang"), brave Allerwelts-Sätze ohne Sog.
+        – STÄRKSTE, NATÜRLICHE BAUARTEN (je Idee eine andere, ALLE eingängig UND magnetisch): eine provokante Aussage/Drohung/ein Versprechen mit echtem Einsatz; eine Du-/Ich-Anrede, die den Leser direkt trifft; eine zugespitzte Frage; ein konkretes, aufgeladenes Bild aus der Welt der Geschichte; eine emotional gespannte Situation, die man sofort versteht. Konkret und klar – nicht abstrakt verrätselt.
+        – HÄRTETEST (BEIDES muss stimmen): 1) Würde ein Leser beim Scrollen sofort klicken? 2) Versteht er den Titel beim ersten Lesen, und würde ein echter Verlag ihn so aufs Cover drucken? Nur wenn BEIDES ja ist, behalten. Kein Titel darf austauschbar auf zehn anderen Büchern des Genres stehen. Jeder der 5 Titel klingt anders – alle natürlich UND extrem zugkräftig.
         – NUR MUSTER, NICHT KOPIEREN: Übernimm KEINEN der Beispieltitel oben und keines ihrer markanten Wörter. Jeder Titel entsteht FRISCH aus DEINER eigenen Prämisse.
 
         Gib für JEDE Idee GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
@@ -186,10 +186,13 @@ enum PromptFactory {
         Erzählperspektive: \(perspective), Zeitform: \(tense)
         Zielumfang: ca. \(pageCount) Seiten
         \(tropeBlock)\(signatureBlock)
-        VERBINDLICH: Titel und Genre sind fest vorgegeben. Entwickle das Konzept so, dass es \
-        exakt zum Titel „\(title)" und zum Genre „\(genreLine)" passt und den Titel erzählerisch \
+        VERBINDLICH: Titel und Genre sind fest vorgegeben (vom Autor gewählt). Entwickle das Konzept so, \
+        dass es exakt zum Titel „\(title)" und zum Genre „\(genreLine)" passt und den Titel erzählerisch \
         einlöst – er soll nach der Lektüre sinnfällig und treffend wirken. Ändere oder ersetze den \
-        Titel NICHT und weiche nicht ins Genre-Fremde ab.
+        Titel NICHT und weiche nicht ins Genre-Fremde ab. Diese Bindung gilt für das GANZE Buch: jede \
+        Hauptfigur, der zentrale Konflikt und jede Szene erfüllen das Genre „\(genreLine)" und zahlen auf \
+        das Titel-Versprechen ein – der fertige Roman liefert genau das, was Titel und Genre versprechen, \
+        sonst fühlt sich der Leser betrogen.
         \(genreCraft(genre))
         Nimm das Genre ernst: Die Kernerwartung des Genres steht im Zentrum der Handlung. Die \
         Geschichte kreist NICHT um einen Beruf/Arbeitsplatz als Hauptthema; ein Beruf ist höchstens \
@@ -711,7 +714,7 @@ enum PromptFactory {
         spannend sind und gelesen werden wollen.
         \(genreLine)\(premiseLine)
         PFLICHT je Titel:
-        - Klingt wie ein echter, professionell verlegter Bestseller des Genres: natürliches, idiomatisches Deutsch, beim ersten Lesen sofort verständlich.
+        - EXTREM stark und viral: stoppt den Daumen beim Scrollen, macht sofort süchtig, BookTok-würdig – keine braven, schwachen Titel. ZUGLEICH wie ein echter, professionell verlegter Bestseller: idiomatisches Deutsch, beim ersten Lesen sofort verständlich (viral heißt NICHT kryptisch).
         - 2-6 Wörter, als Amazon-KDP-Thumbnail sofort lesbar.
         - Offene Frage / Spannung / starkes Versprechen — ein Sog, der zum Klicken zwingt, aber NIE gewollt, kryptisch oder rätselhaft.
         - Emotional aufgeladen, konkretes und verständliches Bild; BookTok-tauglich.
