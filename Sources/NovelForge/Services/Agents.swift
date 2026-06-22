@@ -64,27 +64,14 @@ enum PromptFactory {
         – eine konkrete Kernwunde der Hauptfigur und einen Einsatz, bei dem viel zu verlieren ist,
         – eine Eskalation mit Wendung, die man nicht kommen sieht.
 
-        TITEL-PFLICHT – kühn, bildstark, unverwechselbar (NICHT der sichere, sondern der mutigste Titel):
-        – Der Titel verspricht das GEFÜHL des Buches, nicht den Schauplatz. 2–6 Wörter bevorzugt
-          (aktive Verb-Sätze dürfen länger, wenn sie ziehen), kein erklärender Nebensatz, kein Gedankenstrich.
-        – AMAZON-KDP-MARKTFIT: Der Titel muss im Amazon-KDP-Suchergebnis und als kleines Thumbnail sofort
-          verständlich, klickbar und genre-richtig wirken. Er braucht ein klares emotionales Klickversprechen,
-          BookTok-Gesprächswert und muss zur Zielgruppe passen – viral, aber nicht billig oder irreführend.
-        – HARTE VERBOTE: Berufs-Ort-Klischee ("Die Kassiererin von X"), Berufs-Genitiv
-          ("Das Schweigen der Imkerin", "Die Tochter des …"), blasse Einzelwörter
-          ("Feuerprobe", "Schicksal", "Neuanfang"), generisch-romantische Allerwelts-Sätze, Abstrakta-Ketten ohne Bild.
-        – BAUARTEN (je Idee eine andere wählen): A) konkretes Bild plus Bruch/Paradox ("Honig auf der Klinge");
-          B) aktiver Verb-Satz mitten im Konflikt ("Zähl die Narben, nicht die Jahre");
-          C) Du/Ich-Anrede mit echtem Einsatz ("Was du im Dunkeln versprochen hast");
-          D) unmögliche/synästhetische Verbindung ("Salz im Stromnetz", "Die Farbe deiner Stimme");
-          E) paradoxe Zeit/Zahl ("Drei Winter, die es nie gab"); F) Symbol-Objekt mit Geheimnis
-          ("Das Summen, das er mir verschwieg"); G) direkte Frage/Drohung ("Wer hat das Licht gelöscht?").
-        – HÄRTETEST: Könnte der Titel auf zehn anderen Büchern dieses Genres stehen? Dann verwirf ihn.
-          Wähle den bildstärksten, am wenigsten erwartbaren – im Zweifel das Mutigere. Jeder der 5 Titel klingt anders.
-        – NUR MUSTER, NICHT KOPIEREN: Alle Beispieltitel oben (auch die im VIRALEN THEMA) zeigen
-          AUSSCHLIESSLICH die Machart. Übernimm KEINEN dieser Titel und KEINES ihrer markanten Wörter
-          (also kein „Honig", „Klinge", „Narben", „Winter", „Summen", „Salz", „Stromnetz" usw.). Jeder
-          Titel entsteht FRISCH und ausschließlich aus DEINER eigenen Prämisse.
+        TITEL-PFLICHT – klingt wie ein echter, professionell verlegter Bestseller des Genres (KEINE komischen, gewollten oder kryptischen Titel):
+        – NATÜRLICH & VERSTÄNDLICH: idiomatisches Deutsch, beim ersten Lesen sofort klar, emotional und genre-richtig. 2–6 Wörter bevorzugt (aktive Sätze dürfen länger), kein erklärender Nebensatz, kein Gedankenstrich. Der Titel verspricht das GEFÜHL und das Genre des Buches.
+        – AMAZON-KDP-MARKTFIT: im Suchergebnis und als Thumbnail sofort lesbar, klickbar, zur Zielgruppe passend – ansprechend, aber nie billig oder irreführend.
+        – STRENG VERBOTEN, weil es „komisch"/künstlich klingt: kryptische, prätentiöse oder rätselhafte Titel; synästhetische oder paradoxe Wort-Collagen („Salz im Stromnetz", „Die Farbe deiner Stimme"); Wörter, die zusammen keinen Sinn ergeben; gewollt „literarische" Bilder, die kein echter Leser als Buchtitel sucht oder beim ersten Lesen versteht.
+        – EBENFALLS VERBOTEN: Berufs-Ort-Klischee („Die Kassiererin von X"), Berufs-Genitiv („Das Schweigen der Imkerin", „Die Tochter des …"), blasse Einzelwörter („Feuerprobe", „Schicksal", „Neuanfang"), generisch-romantische Allerwelts-Sätze.
+        – BEWÄHRTE, NATÜRLICHE BAUARTEN (je Idee eine andere, ALLE eingängig und konkret): ein aktiver Satz mitten im Gefühl/Konflikt; eine Du-/Ich-Anrede mit echtem Einsatz; eine klare Frage oder ein Versprechen; ein konkretes, verständliches Bild aus der Welt der Geschichte; eine prägnante Zeit- oder Ortsstimmung. Bleib konkret und klar – nicht abstrakt verrätselt.
+        – HÄRTETEST: Würde ein echter Verlag diesen Titel so aufs Cover drucken UND versteht ihn ein Leser sofort? Wenn nein, verwirf ihn. Er darf auch nicht austauschbar auf zehn anderen Büchern des Genres stehen können. Jeder der 5 Titel klingt anders, aber alle natürlich und professionell.
+        – NUR MUSTER, NICHT KOPIEREN: Übernimm KEINEN der Beispieltitel oben und keines ihrer markanten Wörter. Jeder Titel entsteht FRISCH aus DEINER eigenen Prämisse.
 
         Gib für JEDE Idee GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
         IDEE|Titel|Genre|Prämisse in 2 Sätzen – Satz 1 ist der High-Concept-Hook, Satz 2 nennt Konflikt und Einsatz
@@ -724,9 +711,11 @@ enum PromptFactory {
         spannend sind und gelesen werden wollen.
         \(genreLine)\(premiseLine)
         PFLICHT je Titel:
+        - Klingt wie ein echter, professionell verlegter Bestseller des Genres: natürliches, idiomatisches Deutsch, beim ersten Lesen sofort verständlich.
         - 2-6 Wörter, als Amazon-KDP-Thumbnail sofort lesbar.
-        - Offene Frage / Spannung / starkes Versprechen — ein Sog, der zum Klicken zwingt.
-        - Emotional aufgeladen, konkretes Bild; BookTok-tauglich.
+        - Offene Frage / Spannung / starkes Versprechen — ein Sog, der zum Klicken zwingt, aber NIE gewollt, kryptisch oder rätselhaft.
+        - Emotional aufgeladen, konkretes und verständliches Bild; BookTok-tauglich.
+        - STRENG VERBOTEN (klingt „komisch"/künstlich): kryptische oder prätentiöse Titel, synästhetische oder paradoxe Wort-Collagen, Wörter, die zusammen keinen Sinn ergeben.
         - KEINE Berufs-/Ort-Klischees ("Die Bäckerin von …"), keine Anführungszeichen,
           keine Erklärungen, keine zwei austauschbaren Allerweltstitel.
 
