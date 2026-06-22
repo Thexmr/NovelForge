@@ -438,7 +438,13 @@ enum AutonomousContentQuality {
         "sagte sie. keine frage", "sagte er. keine frage",
         "etwas, das sie nicht sehen konnte", "etwas, das sie nicht deuten konnte",
         "etwas, das sie nicht lesen konnte",
-        "unweigerlich", "zweifellos", "gleichsam", "nichtsdestotrotz"
+        "unweigerlich", "zweifellos", "gleichsam", "nichtsdestotrotz",
+        // Weitere überstrapazierte Cliché-/KI-Wendungen (aus Lesproben echter KI-Romane)
+        "ihr atem stockte", "sein atem stockte", "der atem stockte", "sie hielt den atem an",
+        "ihr herz raste", "ihr herz hämmerte", "ihr herz pochte", "ein kloß im hals",
+        "jede faser ihres körpers", "mit jeder faser", "die zeit stand still",
+        "die zeit schien stillzustehen", "alles in ihr schrie", "eine welle der",
+        "wie ein offenes buch", "achterbahn der gefühle", "ein wirbelsturm der gefühle"
     ]
 
     /// Zählt die Treffer aus `aiTellPhrases` im Text (Gesamtvorkommen).
@@ -456,12 +462,39 @@ enum AutonomousContentQuality {
         return count
     }
 
-    /// Weiches Gate: Klingt die Szene maschinell (zu viele KI-Floskeln für ihre Länge)?
+    /// Altertümliche/„mittelalterliche“, geschwollene Wörter, die moderne Profi-Prosa
+    /// NICHT verwendet. Schon wenige Treffer lassen einen Text antiquiert klingen.
+    static let archaicTellPhrases: [String] = [
+        "alsbald", "fürwahr", "sintemal", "weiland", "dünkte", "dünkt ", "wohlan",
+        "antlitz", "jüngling", "die maid", "junge maid", "das weib", "ein weib",
+        "holde ", "holder ", "es begab sich", "begab sich", "allerorten", "allzumal",
+        "ingleichen", "sodann", "auf dass", "des nachts", "ein jeglich", "geziemt",
+        "gewahrte", "hub an", "sann nach", "zur stund"
+    ]
+
+    /// Zählt altertümliche Marker (Gesamtvorkommen).
+    static func archaicTellCount(_ text: String) -> Int {
+        let lower = text.lowercased()
+        guard !lower.isEmpty else { return 0 }
+        var count = 0
+        for phrase in archaicTellPhrases {
+            var range = lower.startIndex..<lower.endIndex
+            while let hit = lower.range(of: phrase, range: range) {
+                count += 1
+                range = hit.upperBound..<lower.endIndex
+            }
+        }
+        return count
+    }
+
+    /// Weiches Gate: Klingt die Szene maschinell ODER altertümlich (für ihre Länge)?
     /// Löst beim Schreiben höchstens EINE Neufassung aus; verwirft nie Inhalt.
     static func soundsLikeAI(_ text: String) -> Bool {
         let words = text.wordCount
         guard words >= 150 else { return false }
-        let threshold = max(3, words / 300)
+        // Schon zwei altertümliche Marker lassen den Text sofort antiquiert wirken.
+        if archaicTellCount(text) >= 2 { return true }
+        let threshold = max(2, words / 300)
         return aiTellCount(text) >= threshold
     }
 }
