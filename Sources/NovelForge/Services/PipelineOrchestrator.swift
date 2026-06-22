@@ -1435,9 +1435,10 @@ final class PipelineOrchestrator: ObservableObject {
         guard config.provider == .ollamaCloud else { return fallback }
         let stored = UserDefaults.standard.string(forKey: OllamaCloudModelCatalog.writingModelDefaultsKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if stored == "__standard__" { return fallback }
-        let chosen = stored.isEmpty ? OllamaCloudModelCatalog.recommendedWritingModel : stored
-        return OllamaCloudModelCatalog.isUsefulForLongFormCloudModel(chosen) ? chosen : fallback
+        // Leer oder "__standard__" ⇒ Standardmodell (kimi, wie bisher). Ein stärkeres
+        // Autoren-Modell wird NUR genutzt, wenn der Nutzer es in den Einstellungen bewusst wählt.
+        guard !stored.isEmpty, stored != "__standard__" else { return fallback }
+        return OllamaCloudModelCatalog.isUsefulForLongFormCloudModel(stored) ? stored : fallback
     }
 
     /// Bucht Token-/Kostenverbrauch und meldet ihn im Parallelmodus zusätzlich an

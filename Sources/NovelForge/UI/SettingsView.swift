@@ -79,13 +79,12 @@ struct GeneralSettingsView: View {
 
             Section("Schreibqualität · Autoren-Modell (Prosa)") {
                 Picker("Autoren-Modell", selection: $writingModel) {
-                    Text("Empfohlen: stärkstes Modell").tag("")
-                    Text("Standard (schnell, wie Hilfsmodell)").tag("__standard__")
+                    Text("Standard – kimi-k2.6 (schnell, empfohlen)").tag("")
                     ForEach(OllamaCloudModelCatalog.fallbackModels, id: \.self) {
                         Text($0).tag($0)
                     }
                 }
-                Text("Wird nur für die eigentliche Prosa genutzt (Szenen, Konzept, Plot, Repair) – für mehr Tiefe und Ton. Hilfsschritte (Zusammenfassungen, Parsing, KDP) bleiben auf dem schnellen Modell. „Empfohlen“ nutzt mistral-large-3:675b (deutlich stärker, aber langsamer); „Standard“ entspricht dem schnellen Modell. Gilt für Ollama Cloud; ist das Modell nicht verfügbar, wird automatisch auf das Standardmodell ausgewichen.")
+                Text("Steuert NUR die eigentliche Prosa (Szenen, Konzept, Plot, Repair); Hilfsschritte bleiben immer auf kimi-k2.6. Standard = kimi-k2.6 (schnell, wie bisher). Für mehr Tiefe/Ton bei viel mehr Rechenzeit ein stärkeres Modell wählen (z.B. mistral-large-3:675b oder deepseek-v4-pro). Gilt für Ollama Cloud; ein nicht verfügbares Modell weicht automatisch auf kimi aus.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
