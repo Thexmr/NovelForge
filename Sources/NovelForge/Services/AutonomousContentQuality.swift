@@ -83,6 +83,7 @@ enum AutonomousContentQuality {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         if normalized.isEmpty { return true }
+        if normalized == "titel" || normalized == "neues buch" || normalized == "unbenannt" { return true }
         if normalized.range(of: #"^kapitel\s+\d+$"#, options: .regularExpression) != nil {
             return true
         }
@@ -343,7 +344,60 @@ enum AutonomousContentQuality {
         t = t.replacingOccurrences(of: ",\\s*,", with: ",", options: .regularExpression)
         t = t.replacingOccurrences(of: "(?m)^\\s*,\\s*", with: "", options: .regularExpression)
         t = t.replacingOccurrences(of: " {2,}", with: " ", options: .regularExpression)
+        // Modell-Echo entfernen: am Kapitelanfang verdreifacht sich oft der erste Satz.
+        t = collapsingImmediateRepeats(t)
         return t
+    }
+
+    /// Entfernt unmittelbar wiederholte identische Absätze/Zeilen (häufiges Modell-Artefakt:
+    /// der erste Satz eines Kapitels steht 2–3× hintereinander) sowie einen sofort doppelten
+    /// Satz innerhalb einer Zeile. Durch anderen Text GETRENNTE Wiederholungen (stilistische
+    /// Anaphern) bleiben unangetastet – nur direkte Dubletten werden eingeklappt.
+    static func collapsingImmediateRepeats(_ text: String) -> String {
+        // 1) Aufeinanderfolgende identische, nicht-leere Zeilen → eine.
+        var deduped: [String] = []
+        for line in text.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty,
+               let last = deduped.last,
+               last.trimmingCharacters(in: .whitespaces) == trimmed {
+                continue
+            }
+            deduped.append(line)
+        }
+        var result = deduped.joined(separator: "\n")
+        // 2) Unmittelbar wiederholten Satz (>=12 Zeichen) innerhalb einer Zeile einklappen.
+        //    Zweimal angewandt: Tripel → Dublette → Einzel.
+        let pattern = "([^\\n]{12,}?[.!?…\"”])\\s+\\1"
+        for _ in 0..<2 {
+            result = result.replacingOccurrences(of: pattern, with: "$1", options: .regularExpression)
+        }
+        return result
+    }
+
+    /// Entfernt eine erste Textzeile/einen ersten Satz, der die Kapitelüberschrift wörtlich
+    /// wiederholt (Modell-Artefakt: der Titel erscheint sonst doppelt – als Überschrift UND
+    /// als erster Satz des Kapitels). Greift auch bei bereits erzeugten Büchern beim Re-Export.
+    static func strippingLeadingTitleEcho(_ text: String, title: String) -> String {
+        let normTitle = normalizedTitleKey(title)
+        guard normTitle.count >= 8 else { return text }
+        var lines = text.components(separatedBy: "\n")
+        guard let idx = lines.firstIndex(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) else { return text }
+        let line = lines[idx].trimmingCharacters(in: .whitespaces)
+        let sentenceEnd = line.firstIndex(where: { ".!?…".contains($0) })
+        let firstSentence = sentenceEnd.map { String(line[...$0]) } ?? line
+        guard normalizedTitleKey(firstSentence) == normTitle else { return text }
+        var rest = ""
+        if let e = sentenceEnd, line.index(after: e) < line.endIndex {
+            rest = String(line[line.index(after: e)...]).trimmingCharacters(in: .whitespaces)
+        }
+        if rest.isEmpty { lines.remove(at: idx) } else { lines[idx] = rest }
+        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func normalizedTitleKey(_ s: String) -> String {
+        let trimChars = CharacterSet(charactersIn: " \n\t.!?:;-\u{2014}\u{2013}\u{201E}\u{201C}\u{201D}\"'\u{00BB}\u{00AB}")
+        return s.lowercased().trimmingCharacters(in: trimChars)
     }
 
     private static func removingInstructionSentences(from line: String) -> String {

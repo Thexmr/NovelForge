@@ -2833,6 +2833,10 @@ final class PipelineOrchestrator: ObservableObject {
                 profile.kdpCategories = parsed.categories
                 profile.kdpTitle = parsed.salesTitle
                 profile.kdpSubtitle = parsed.subtitle
+                // Platzhalter-Buchtitel (z. B. „Titel") durch den echten Verkaufstitel ersetzen.
+                if !parsed.salesTitle.isEmpty, AutonomousContentQuality.isGenericPlaceholder(project.title) {
+                    project.title = parsed.salesTitle
+                }
                 completeJob(metaJob, result: response.text, tokens: response.tokensUsed ?? 0)
             } catch {
                 failJob(metaJob, error: error)

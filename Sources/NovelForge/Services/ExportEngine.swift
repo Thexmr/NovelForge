@@ -36,7 +36,18 @@ struct ExportEngine {
 
     /// Exportiert das Buch als EPUB 3. Mit `sampleChapterCount` entsteht eine
     /// Leseprobe (erste N Kapitel + Abschlussseite) für Marketing und Testleser.
+    /// Stoppt den Export, wenn (noch) kein Manuskripttext vorhanden ist – verhindert leere Bücher.
+    private static func ensureExportable(_ project: Project) throws {
+        let hasText = (project.chapters ?? []).contains {
+            !(($0.bestText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)).isEmpty
+        }
+        guard hasText else {
+            throw AIError.systemError("Kein Manuskripttext vorhanden – das Buch wurde nicht (vollständig) erzeugt. Export abgebrochen.")
+        }
+    }
+
     static func exportToEPUB(project: Project, sampleChapterCount: Int? = nil) throws -> URL {
+        try ensureExportable(project)
         let isSample = sampleChapterCount != nil
         let suffix = isSample ? "_Leseprobe" : "_ebook"
         let epubURL = try exportDirectory(for: project)
@@ -145,6 +156,7 @@ struct ExportEngine {
     }
 
     static func exportToPDF(project: Project) throws -> URL {
+        try ensureExportable(project)
         let url = try exportDirectory(for: project)
             .appendingPathComponent("\(sanitizeFileName(project.title))_print.pdf")
 
@@ -186,6 +198,7 @@ struct ExportEngine {
     // MARK: - DOCX
 
     static func exportToDOCX(project: Project) throws -> URL {
+        try ensureExportable(project)
         let docxURL = try exportDirectory(for: project)
             .appendingPathComponent("\(sanitizeFileName(project.title)).docx")
 
