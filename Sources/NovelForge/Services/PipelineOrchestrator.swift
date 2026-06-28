@@ -1541,6 +1541,17 @@ final class PipelineOrchestrator: ObservableObject {
         if let logline = profile.logline, !logline.isEmpty { return }
 
         project.status = .conceptDevelopment
+        // Romance-Genres ohne gewählten Sinnlichkeitsgrad nicht „clean" erzeugen – sinnvollen
+        // Standard setzen, damit Dark Romance/Liebesroman die Genre-Erwartung (Wärme) einlöst.
+        if project.spiceLevel == 0 {
+            let g = project.genre.lowercased()
+            if g.contains("dark romance") || g.contains("erotik") || g.contains("erotic") || g.contains("spicy") {
+                project.spiceLevel = 4
+            } else if g.contains("liebes") || g.contains("romance") || g.contains("romantik")
+                        || g.contains("new adult") || g.contains("romantasy") {
+                project.spiceLevel = 2
+            }
+        }
         let job = beginJob(agent: AgentName.concept, phase: .conceptDevelopment, project: project)
         do {
             var lastResponse: GenerationResponse?
