@@ -149,11 +149,56 @@ enum PromptFactory {
         """
     }
 
+    /// Analysiert den vom Autor gewählten Titel UND das Genre und leitet eine verbindliche,
+    /// auf genau dieses Buch zugeschnittene Genre-Direktive ab. Diese steuert anschließend
+    /// Konzept, Plot, Kapitelplan und jede Szene – damit das Buch zweifelsfrei im Genre landet.
+    static func genreBrief(title: String, genre: String, subgenre: String?,
+                           tropes: String = "", spiceLevel: Int = 0, language: String) -> String {
+        var genreLine = genre
+        if let subgenre, !subgenre.isEmpty { genreLine += " / \(subgenre)" }
+        let t = tropes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tropesLine = t.isEmpty ? "" : "\nVom Autor gewünschte Tropes: \(t)"
+        let spiceLine = spiceLevel > 0 ? "\nSinnlichkeitsgrad: \(spiceLevel)/5 (\(SpiceLevel.label(spiceLevel)))" : ""
+        return """
+        Der Autor hat Titel und Genre fest vorgegeben – beides ist UNVERÄNDERLICH:
+        TITEL: „\(title)"
+        GENRE: \(genreLine)
+        Sprache: \(language)\(tropesLine)\(spiceLine)
+
+        Analysiere TITEL und GENRE gemeinsam und leite die VERBINDLICHEN, auf genau dieses Buch
+        zugeschnittenen Schreibvorgaben ab, damit der Roman zweifelsfrei im Genre „\(genreLine)" landet
+        und das Versprechen des Titels „\(title)" einlöst. Sei konkret und spezifisch für diesen Titel,
+        nicht allgemein. Jede Zeile knapp.
+
+        Gib AUSSCHLIESSLICH diese Direktive aus (Labels exakt so):
+        KERNVERSPRECHEN: [die eine Erwartung, die ein Leser dieses Genres bei diesem Titel garantiert erfüllt sehen will]
+        TON & STIMMUNG: [3-5 Stichworte]
+        PFLICHT-TROPES: [3-5 konkrete, genre-typische Tropes, die wirklich geliefert werden müssen]
+        PFLICHT-SZENEN: [3-5 genre-typische Schlüsselmomente, die im Buch vorkommen müssen]
+        TEMPO & STRUKTUR: [wie sich dieses Genre erzählt – Tempo, Kapitelenden, Eskalation]
+        SINNLICHKEIT: [bei Liebes-/Romance-Genres konkret: wie Anziehung und Begehren über das Buch eskalieren und welche Nähe-/Spice-Stufe gelebt wird; sonst kurz]
+        TITEL-EINLÖSUNG: [wie genau der Titel „\(title)" in der Handlung erzählerisch eingelöst und am Ende beantwortet wird]
+        GENRE-ABDRIFT VERBOTEN: [die 2-3 typischsten Wege, dieses Genre zu verfehlen – hier konkret untersagen; z. B. bei Romance: kein Ermittlungs-/Psychothriller-Plot als Hauptlinie, keine kühle Beziehung ohne spürbare Anziehung]
+        VERGLEICHSTITEL: [2-3 „Für Fans von …"]
+        """
+    }
+
+    /// Formatiert die Genre-Direktive als verbindlichen Block für die nachgelagerten Prompts.
+    static func genreDirectiveBlock(_ brief: String) -> String {
+        let t = brief.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? "" : """
+
+        GENRE-DIREKTIVE (verbindlich, aus Titel + Genre abgeleitet – das GANZE Buch hält sich strikt daran, Figuren, Konflikt und jede Szene erfüllen sie):
+        \(t)
+
+        """
+    }
+
     static func concept(title: String, genre: String, subgenre: String?, language: String,
                         style: String, tonality: String, audience: String,
                         perspective: String, tense: String, pageCount: Int,
                         ideaSeed: String, tropes: String = "", bookSignature: String = "",
-                        sequelContext: String = "") -> String {
+                        sequelContext: String = "", genreBrief: String = "") -> String {
         var genreLine = genre
         if let subgenre, !subgenre.isEmpty {
             genreLine += " / \(subgenre)"
@@ -194,6 +239,7 @@ enum PromptFactory {
         Hauptfigur, der zentrale Konflikt und jede Szene erfüllen das Genre „\(genreLine)" und zahlen auf \
         das Titel-Versprechen ein – der fertige Roman liefert genau das, was Titel und Genre versprechen, \
         sonst fühlt sich der Leser betrogen.
+        \(genreDirectiveBlock(genreBrief))
         \(genreCraft(genre))
         Nimm das Genre ernst: Die Kernerwartung des Genres steht im Zentrum der Handlung. Die \
         Geschichte kreist NICHT um einen Beruf/Arbeitsplatz als Hauptthema; ein Beruf ist höchstens \
@@ -220,7 +266,7 @@ enum PromptFactory {
 
     static func plot(title: String, genre: String, style: String, concept: String,
                      pageCount: Int, chapterCount: Int, bookSignature: String = "",
-                     sequelContext: String = "") -> String {
+                     sequelContext: String = "", genreBrief: String = "") -> String {
         let trimmedSignature = bookSignature.trimmingCharacters(in: .whitespacesAndNewlines)
         let signatureBlock = trimmedSignature.isEmpty ? "" : """
 
@@ -237,6 +283,7 @@ enum PromptFactory {
         Konzept:
         \(concept)
         \(signatureBlock)\(sequelLine)
+        \(genreDirectiveBlock(genreBrief))
         Baue den Plot nach bewährter Bestseller-Dramaturgie in drei Akten:
         - Eröffnungsbild und Alltag mit Riss (0–10%)
         - Auslösendes Ereignis, das die Normalität zerstört (ca. 10%)
@@ -280,7 +327,8 @@ enum PromptFactory {
 
     static func chapterPlan(title: String, genre: String, plot: String,
                             chapterCount: Int, wordsPerChapter: Int,
-                            scenesPerChapter: Int = 4, bookSignature: String = "") -> String {
+                            scenesPerChapter: Int = 4, bookSignature: String = "",
+                            genreBrief: String = "") -> String {
         let trimmedSignature = bookSignature.trimmingCharacters(in: .whitespacesAndNewlines)
         let signatureBlock = trimmedSignature.isEmpty ? "" : """
 
@@ -295,6 +343,7 @@ enum PromptFactory {
         Langform-Pflicht: Der Konflikt muss groß genug für alle \(chapterCount) Kapitel sein; keine Abkürzungen,
         keine summarischen Sprünge, kein Kurzgeschichtenbogen mit künstlicher Streckung.
         \(signatureBlock)
+        \(genreDirectiveBlock(genreBrief))
         Plot:
         \(plot.truncated(to: 6000))
 
@@ -461,7 +510,8 @@ enum PromptFactory {
                            charactersSummary: String, styleRules: String,
                            storySoFar: String, previousSceneEnding: String,
                            isFirstScene: Bool, isFinalScene: Bool,
-                           targetWords: Int, bookSignature: String = "", spiceLevel: Int = 0) -> String {
+                           targetWords: Int, bookSignature: String = "", spiceLevel: Int = 0,
+                           genreBrief: String = "") -> String {
         var positionNote = ""
         if isFirstScene {
             positionNote = """
@@ -502,6 +552,7 @@ enum PromptFactory {
         STIL: \(style); Tonalität: \(tonality); Erzählperspektive: \(scenePerspective.isEmpty ? perspective : scenePerspective); Zeitform: \(tense).
         STILREGELN: \(styleRules.truncated(to: 600))
         \(signatureBlock)\(spiceBlock)
+        \(genreDirectiveBlock(genreBrief))
         \(ContentSafetyFilter.promptDirective)
         KAPITELZIEL: \(chapterGoal)
         SZENE:

@@ -1552,6 +1552,27 @@ final class PipelineOrchestrator: ObservableObject {
                 project.spiceLevel = 2
             }
         }
+        // GENRE-DIREKTIVE: Titel + Genre vorab analysieren und verbindliche, maßgeschneiderte
+        // Vorgaben ableiten, die Konzept, Plot, Kapitelplan und jede Szene steuern.
+        if profile.genreRules.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let briefJob = beginJob(agent: AgentName.concept, phase: .conceptDevelopment, project: project)
+            do {
+                let briefResponse = try await generate(
+                    prompt: PromptFactory.genreBrief(
+                        title: project.title, genre: project.genre, subgenre: project.subgenre,
+                        tropes: project.tropes, spiceLevel: project.spiceLevel, language: project.language),
+                    system: "Du bist ein Verlagslektor und Genre-Stratege. Du leitest aus Titel und Genre präzise, verbindliche Schreibvorgaben ab, damit ein Roman zweifelsfrei in seinem Genre landet. Antworte nur mit der Direktive.",
+                    maxTokens: 900, temperature: 0.5, config: config, creative: false)
+                let brief = briefResponse.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if brief.wordCount >= 20, !AutonomousContentQuality.containsMetaRequest(brief) {
+                    profile.genreRules = brief
+                }
+                completeJob(briefJob, result: "Genre-Direktive aus Titel + Genre abgeleitet", tokens: briefResponse.tokensUsed ?? 0)
+            } catch {
+                if briefJob.status == .running { failJob(briefJob, error: error) }
+                // Nicht produktionskritisch – ohne Direktive weiter mit den Standard-Genre-Regeln.
+            }
+        }
         let job = beginJob(agent: AgentName.concept, phase: .conceptDevelopment, project: project)
         do {
             var lastResponse: GenerationResponse?
@@ -1566,7 +1587,7 @@ final class PipelineOrchestrator: ObservableObject {
                     pageCount: project.targetPageCount,
                     ideaSeed: profile.premise,
                     tropes: project.tropes, bookSignature: project.styleSignature,
-                    sequelContext: project.sequelContext
+                    sequelContext: project.sequelContext, genreBrief: profile.genreRules
                 ) + retryHint
                 let response = try await generate(
                     prompt: prompt,
@@ -1641,7 +1662,7 @@ final class PipelineOrchestrator: ObservableObject {
                 pageCount: project.targetPageCount,
                 chapterCount: estimatedChapterCount(for: project),
                 bookSignature: project.styleSignature,
-                sequelContext: project.sequelContext
+                sequelContext: project.sequelContext, genreBrief: profile.genreRules
             )
             var plot = ""
             var tokens = 0
@@ -1753,7 +1774,8 @@ final class PipelineOrchestrator: ObservableObject {
             title: project.title, genre: project.genre, plot: bible.plotPoints,
             chapterCount: chapterCount, wordsPerChapter: wordsPerChapter,
             scenesPerChapter: plan.scenesPerChapter,
-            bookSignature: project.styleSignature
+            bookSignature: project.styleSignature,
+            genreBrief: project.bookProfile?.genreRules ?? ""
         )
         var planned: [PlannedChapter] = []
         var tokens = 0
@@ -2198,7 +2220,8 @@ final class PipelineOrchestrator: ObservableObject {
                         isFirstScene: isFirstScene, isFinalScene: isFinalScene,
                         targetWords: scene.targetWordCount,
                         bookSignature: project.styleSignature,
-                        spiceLevel: project.spiceLevel
+                        spiceLevel: project.spiceLevel,
+                        genreBrief: profile.genreRules
                     )
                     let maxTokens = LongFormProductionPlan.draftMaxTokens(forTargetWords: scene.targetWordCount)
                     let minWords = Int(Double(scene.targetWordCount) * 0.75)
