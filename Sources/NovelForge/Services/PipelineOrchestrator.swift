@@ -2867,9 +2867,25 @@ final class PipelineOrchestrator: ObservableObject {
                 profile.kdpCategories = parsed.categories
                 profile.kdpTitle = parsed.salesTitle
                 profile.kdpSubtitle = parsed.subtitle
-                // Platzhalter-Buchtitel (z. B. „Titel") durch den echten Verkaufstitel ersetzen.
-                if !parsed.salesTitle.isEmpty, AutonomousContentQuality.isGenericPlaceholder(project.title) {
-                    project.title = parsed.salesTitle
+                // VIRALER VERKAUFSTITEL: 10 Kandidaten (grounded in der Story) generieren und den
+                // mit dem stärksten Kauf-Sog wählen – klare, neugierig machende Titel statt schwacher.
+                let synopsisForTitle = actualStorySynopsis(for: project, fallback: profile.synopsis ?? profile.premise)
+                if let titleResp = try? await generate(
+                    prompt: PromptFactory.viralTitles(genre: project.genre, premise: synopsisForTitle, language: project.language),
+                    system: "Du bist Profi für virale Buchtitel im deutschsprachigen Amazon-KDP-Markt. Antworte nur im geforderten Format.",
+                    maxTokens: 600, temperature: 0.85, config: config, creative: true) {
+                    let viral = AutonomousContentQuality.chooseViralTitle(from: titleResp.text, genre: project.genre)
+                    if AutonomousContentQuality.isUsableTitle(viral, genre: project.genre) {
+                        profile.kdpTitle = viral
+                        // Schwachen/Platzhalter-Buchtitel durch den viralen Titel ersetzen.
+                        if AutonomousContentQuality.isWeakTitle(project.title, genre: project.genre) {
+                            project.title = viral
+                        }
+                    }
+                }
+                // Falls noch ein Platzhalter steht, den Verkaufstitel übernehmen.
+                if AutonomousContentQuality.isGenericPlaceholder(project.title), !profile.kdpTitle.isEmpty {
+                    project.title = profile.kdpTitle
                 }
                 completeJob(metaJob, result: response.text, tokens: response.tokensUsed ?? 0)
             } catch {

@@ -50,6 +50,47 @@ enum AutonomousContentQuality {
         return max(0, score)
     }
 
+    /// Wählt aus der Antwort des viralen Titel-Prompts (KANDIDATEN + BESTER) den stärksten
+    /// brauchbaren Titel. Bevorzugt die Modell-Wahl, fällt sonst auf den höchstbewerteten Kandidaten.
+    static func chooseViralTitle(from response: String, genre: String) -> String {
+        var best = ""
+        var candidates: [String] = []
+        for raw in response.components(separatedBy: .newlines) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.lowercased().hasPrefix("bester"), let colon = line.firstIndex(of: ":") {
+                best = cleanTitleLine(String(line[line.index(after: colon)...]))
+            } else if line.range(of: #"^\d+[\)\.\-:]"#, options: .regularExpression) != nil {
+                let t = cleanTitleLine(line.replacingOccurrences(of: #"^\d+[\)\.\-:]\s*"#, with: "", options: .regularExpression))
+                if !t.isEmpty { candidates.append(t) }
+            }
+        }
+        if isUsableTitle(best, genre: genre) { return best }
+        let usable = candidates.filter { isUsableTitle($0, genre: genre) }
+        if let top = usable.max(by: { titleViralityScore($0) < titleViralityScore($1) }) { return top }
+        return best.isEmpty ? (candidates.first ?? "") : best
+    }
+
+    private static func cleanTitleLine(_ s: String) -> String {
+        s.trimmingCharacters(in: CharacterSet(charactersIn: " \t\"'„“”»«*-–—_.").union(.whitespacesAndNewlines))
+    }
+
+    /// Brauchbar als gewählter Titel (Länge ok, kein Platzhalter/Berufsklischee/Genre-Label).
+    static func isUsableTitle(_ title: String, genre: String) -> Bool {
+        let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let words = t.split(separator: " ").count
+        return t.count >= 4 && words >= 1 && words <= 7 && !isWeakTitle(t, genre: genre)
+    }
+
+    /// Schwacher Titel, der ersetzt werden soll: Platzhalter, Berufsklischee oder reines Genre-Label.
+    static func isWeakTitle(_ title: String, genre: String) -> Bool {
+        let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isGenericPlaceholder(t) || isOccupationalTitleCliche(t) { return true }
+        let low = t.lowercased()
+        let genreLabels = ["liebesroman", "erotik-roman", "erotikroman", "erotik", "thriller", "krimi",
+                           "roman", "dark romance", "romance", "fantasy", "new adult", "romantasy"]
+        return genreLabels.contains(low) || low == genre.lowercased()
+    }
+
     static func hasUsableChapterPlan(_ chapters: [PlannedChapter]) -> Bool {
         guard chapters.count >= 3 else { return false }
         return chapters.allSatisfy { chapter in

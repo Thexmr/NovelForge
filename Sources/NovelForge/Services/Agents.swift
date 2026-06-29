@@ -29,6 +29,33 @@ enum PromptFactory {
 
     /// Kommerziell vielversprechende Buchideen. `authorSeed` ist eine optionale
     /// eigene Idee des Autors, die zu einer vollwertigen Buchidee ausgebaut wird.
+    /// Generiert 10 virale Titel-Kandidaten (grounded in der Story) + die stärkste Wahl.
+    /// Liefert klare, neugierig machende Kauf-Titel statt schwacher oder kryptischer.
+    static func viralTitles(genre: String, premise: String, language: String, count: Int = 10) -> String {
+        return """
+        Erfinde \(count) extrem starke, klickstarke Titel für diesen Roman (Genre: \(genre), Sprache: \(language)) – Titel, die im Amazon-Suchergebnis sofort Neugier wecken und zum Kauf treiben.
+
+        Worum es geht:
+        \(premise.truncated(to: 1500))
+
+        WAS EINEN VIRALEN TITEL AUSMACHT:
+        - Neugier-Lücke: ein angedeutetes Geheimnis, eine Drohung, eine Frage, ein Tabu – der Leser MUSS wissen, was dahintersteckt.
+        - Emotion und Einsatz sofort spürbar (Verrat, verbotene Liebe, Gefahr, Verlust, Rache).
+        - Konkret und bildhaft, nicht abstrakt oder verkopft. Kurz: 2-6 Wörter, im Thumbnail sofort lesbar.
+        - Genre-Signal: der Titel fühlt sich nach \(genre) an.
+        - Direkte Ansprache (du/dich/mein/dein) erzeugt Nähe und Sofort-Spannung.
+        Starke Bauarten (mischen): Bevor/Wenn/Warum/Was ...; Das Mädchen, das ...; eine Drohung oder ein Versprechen als Satz; ein aufgeladenes konkretes Objekt; eine Negation (Niemand ..., Kein ...); ein Name plus Einsatz.
+
+        STRENG VERBOTEN: Genre-Wörter als Titel (Liebesroman, Erotik-Roman, Thriller); Platzhalter (Titel); kryptische Wort-Collagen oder Nonsens (z. B. Schluckauf im Erdboden); Berufs-/Ort-Klischees (Die [Beruf] von [Ort]); mehr als 6 Wörter; Tippfehler; alles, was auf zehn anderen Büchern stehen könnte.
+
+        Antworte exakt in diesem Format:
+        KANDIDATEN:
+        1) ...
+        \(count)) ...
+        BESTER: [exakt einer der Kandidaten oben – der mit dem stärksten Kauf-Sog]
+        """
+    }
+
     static func bookIdeas(genre: String, language: String, avoidanceBrief: String = "",
                           authorSeed: String = "") -> String {
         let memoryBlock = avoidanceBrief.isEmpty ? "" : "\n\(avoidanceBrief)\n"
