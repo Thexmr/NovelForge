@@ -85,6 +85,8 @@ enum AutonomousContentQuality {
     static func isWeakTitle(_ title: String, genre: String) -> Bool {
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
         if isGenericPlaceholder(t) || isOccupationalTitleCliche(t) { return true }
+        if CopyrightChecker.isInfringingTitle(t) { return true } // kein geschützter Werk-/Reihentitel
+
         let low = t.lowercased()
         let genreLabels = ["liebesroman", "erotik-roman", "erotikroman", "erotik", "thriller", "krimi",
                            "roman", "dark romance", "romance", "fantasy", "new adult", "romantasy"]

@@ -239,30 +239,60 @@ struct FormattingHelpers {
 // MARK: - Copyright-Schutz (lokale Heuristik)
 
 struct CopyrightChecker {
-    private static let forbiddenTerms = [
-        "bestsellerautor", "kopiere", "fortsetzung von", "wie j.k. rowling",
-        "wie stephen king", "wie george r.r. martin", "wie dan brown",
-        "harry potter", "herr der ringe", "game of thrones",
-        "star wars", "star trek", "marvel", "dc comics", "hogwarts",
-        "mittelerde", "westeros"
+    /// Namen/Begriffe aus geschützten Werken (Figuren, Orte, Welten, Reihen) + Plagiat-/Meta-Marker.
+    /// Bewusst breit für die meistproduzierten Genres (Romance/Thriller/Fantasy), damit kein
+    /// fremdes Werk übernommen wird.
+    static let forbiddenTerms = [
+        // Meta / direkte Nachahmung
+        "bestsellerautor", "kopiere", "fortsetzung von", "schreibe wie", "wie j.k. rowling",
+        "wie stephen king", "wie george r.r. martin", "wie dan brown", "wie colleen hoover",
+        "wie e.l. james", "wie sarah j. maas",
+        // Fantasy / SciFi – Welten & Figuren
+        "harry potter", "hermine granger", "hermione granger", "dumbledore", "voldemort",
+        "hogwarts", "gryffindor", "slytherin", "herr der ringe", "mittelerde", "auenland",
+        "frodo", "gandalf", "sauron", "game of thrones", "westeros", "daenerys", "jon snow",
+        "khaleesi", "lannister", "targaryen", "star wars", "darth vader", "jedi", "skywalker",
+        "star trek", "marvel", "dc comics", "spider-man", "batman", "hunger games", "katniss",
+        "tribute von panem", "percy jackson", "narnia",
+        // Romance-Bestseller (Hauptgenre)
+        "fifty shades", "shades of grey", "christian grey", "anastasia steele", "bridgerton",
+        "outlander", "twilight", "bella swan", "edward cullen", "jacob black", "it ends with us",
+        "a court of thorns", "feyre", "rhysand", "throne of glass",
+        // Thriller / Krimi
+        "sherlock holmes", "james bond", "jack reacher", "hannibal lecter", "lisbeth salander",
+        "kommissar wallander", "harry hole", "robert langdon", "da vinci code"
     ]
 
     static func checkInput(title: String, style: String) -> (isValid: Bool, warnings: [String]) {
-        var warnings: [String] = []
         let input = "\(title) \(style)".lowercased()
-        for term in forbiddenTerms where input.contains(term) {
-            warnings.append("Copyright-Risiko erkannt: \"\(term)\"")
-        }
+        let warnings = forbiddenTerms.filter { input.contains($0) }.map { "Copyright-Risiko erkannt: \"\($0)\"" }
         return (warnings.isEmpty, warnings)
     }
 
     static func checkPlot(_ text: String) -> [String] {
+        let lowered = text.lowercased()
+        return forbiddenTerms.filter { lowered.contains($0) }.map { "Mögliche Nähe zu geschütztem Werk/Begriff: \"\($0)\"" }
+    }
+
+    /// Scannt das GESAMTE Manuskript auf Namen/Begriffe aus geschützten Werken und auf mögliche
+    /// wörtliche Songtext-/Gedicht-Zitate (strikt geschützt, keine Fair-Use-Annahme).
+    static func checkManuscript(_ text: String) -> [String] {
         var issues: [String] = []
         let lowered = text.lowercased()
         for term in forbiddenTerms where lowered.contains(term) {
-            issues.append("Mögliche Nähe zu geschütztem Werk/Begriff: \"\(term)\"")
+            issues.append("Geschützter Name/Begriff im Text: \"\(term)\"")
+        }
+        if lowered.contains("songtext") || lowered.contains("liedtext")
+            || text.range(of: #"[♪🎵]"#, options: .regularExpression) != nil {
+            issues.append("Mögliches Songtext-Zitat – reale Liedtexte NICHT abdrucken (strikt urheberrechtlich geschützt).")
         }
         return issues
+    }
+
+    /// Liegt der Titel zu nah an einem geschützten Werk/Reihentitel?
+    static func isInfringingTitle(_ title: String) -> Bool {
+        let low = title.lowercased()
+        return forbiddenTerms.contains { low.contains($0) }
     }
 }
 

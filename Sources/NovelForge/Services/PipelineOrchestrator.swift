@@ -2824,12 +2824,20 @@ final class PipelineOrchestrator: ObservableObject {
         }
         for chapter in sortedChapters(project) {
             findings.append(contentsOf: CopyrightChecker.checkPlot(chapter.title))
+            if let text = chapter.bestText {
+                findings.append(contentsOf: CopyrightChecker.checkManuscript(text))
+            }
         }
+        // Auch die Verkaufstexte prüfen – sie gehen mit nach Amazon.
+        if let kdp = project.bookProfile?.kdpDescription, !kdp.isEmpty {
+            findings.append(contentsOf: CopyrightChecker.checkManuscript(kdp))
+        }
+        findings = Array(Set(findings)) // Dubletten zusammenfassen
 
         if findings.isEmpty {
-            addReport(project: project, area: "Copyright", type: "Risikoanalyse",
-                      result: "Keine offensichtlichen Risiken erkannt", severity: .info,
-                      recommendation: "Interne Prüfung – keine juristische Garantie.")
+            addReport(project: project, area: "Copyright", type: "Originalitäts-Check",
+                      result: "Originalitäts-Check bestanden – keine geschützten Werke, Figuren, Welten oder Songtexte in Titel, Text oder Verkaufstexten erkannt.", severity: .info,
+                      recommendation: "Interne Prüfung, keine juristische Garantie. KI-Unterstützung beim Upload bei Amazon offenlegen.")
         } else {
             for finding in findings {
                 addReport(project: project, area: "Copyright", type: "Risikoanalyse",

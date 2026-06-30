@@ -221,6 +221,11 @@ enum PromptFactory {
         """
     }
 
+    /// Verbindliche Urheberrechts-Direktive: stellt Eigenständigkeit sicher (kein fremdes Werk).
+    static let copyrightDirective = """
+    EIGENSTÄNDIGKEIT (verbindlich, Urheberrecht): Erfinde ALLE Figuren, Namen, Orte, Welten, Organisationen und Titel selbst. Übernimm KEINE Figuren, Schauplätze, Magie-/Weltensysteme oder Handlungsstränge aus existierenden Werken (z. B. Harry Potter/Hogwarts, Herr der Ringe, Game of Thrones, Twilight, Fifty Shades, Bridgerton). Zitiere NIEMALS reale Songtexte, Gedichte oder geschützte Passagen. Keine realen, identifizierbaren Personen in erfundenen ehrenrührigen Handlungen. Markennamen höchstens beiläufig, keine Slogans/Logos/Werbetexte.
+    """
+
     static func concept(title: String, genre: String, subgenre: String?, language: String,
                         style: String, tonality: String, audience: String,
                         perspective: String, tense: String, pageCount: Int,
@@ -267,6 +272,7 @@ enum PromptFactory {
         das Titel-Versprechen ein – der fertige Roman liefert genau das, was Titel und Genre versprechen, \
         sonst fühlt sich der Leser betrogen.
         \(genreDirectiveBlock(genreBrief))
+        \(copyrightDirective)
         \(genreCraft(genre))
         Nimm das Genre ernst: Die Kernerwartung des Genres steht im Zentrum der Handlung. Die \
         Geschichte kreist NICHT um einen Beruf/Arbeitsplatz als Hauptthema; ein Beruf ist höchstens \
@@ -340,6 +346,7 @@ enum PromptFactory {
         let sequelBlock = trimmedSequel.isEmpty ? "" : "\nSERIE / FOLGEBAND (VERBINDLICH): Übernimm die wiederkehrenden Figuren der Reihe UNVERÄNDERT (gleiche Namen, Rollen, Eigenschaften) und führe sie als erste Einträge auf; ergänze nur neue Figuren, die DIESER Band zusätzlich braucht. Wiederkehrende Figuren der Reihe:\n\(trimmedSequel)\n"
         return """
         Entwickle das Figurenensemble für den Roman "\(title)" (Genre: \(genre)).
+        \(copyrightDirective)
         \(sequelBlock)
         Plot:
         \(plot.truncated(to: 4000))
