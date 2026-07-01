@@ -877,6 +877,36 @@ enum PromptFactory {
     }
 
     /// Einmalige Nachbesserung deutlich zu kurzer Szenen (Qualitäts-Gate).
+    /// Erweitert ein KOMPLETTES Kapitel auf mehr Umfang, OHNE die Handlung zu verändern –
+    /// Kontext (bisherige Handlung, Figuren/Welt, Genre) hält alles konsistent und sinnvoll.
+    static func expandChapter(language: String, style: String, genre: String, bookTitle: String,
+                              chapterNumber: Int, chapterTitle: String, currentText: String,
+                              targetWords: Int, charactersSummary: String, storySoFar: String,
+                              genreBrief: String = "") -> String {
+        return """
+        Erweitere Kapitel \(chapterNumber) ("\(chapterTitle)") des Romans "\(bookTitle)" auf ca. \(targetWords) Wörter, OHNE die Handlung zu verändern.
+        Sprache: \(language). Stil: \(style). Genre: \(genre).
+        \(genreDirectiveBlock(genreBrief))
+        ABSOLUT VERBINDLICH (sonst ergibt das Buch keinen Sinn mehr):
+        - Alle Ereignisse, Entscheidungen, Enthüllungen und der Ausgang des Kapitels bleiben EXAKT gleich. Erfinde NICHTS hinzu, was der bisherigen oder folgenden Handlung widerspricht.
+        - Figuren, Namen, Beziehungen, Orte, Tageszeit und der Zeitablauf bleiben konsistent mit den Vorgaben.
+        - Der erste und der letzte Beat des Kapitels bleiben inhaltlich erhalten (sauberer Anschluss an die Nachbarkapitel).
+        - Erweitere durch TIEFE, nicht durch Wiederholung: Szenen voll ausspielen statt zusammenfassen; mehr konkrete Sinnesdetails, Dialog mit Subtext, sparsame innere Reaktion, kleine zum Beat passende Zwischenmomente, Atmosphäre und Tempo-Wechsel. KEINE Füllsätze, nichts doppelt erzählen, das Thema nie ausbuchstabieren.
+        - Reiner deutscher Fließtext, keine Markdown-Symbole, keine Überschriften, keine Meta-Kommentare.
+
+        FIGUREN/WELT (konsistent halten):
+        \(charactersSummary.truncated(to: 1500))
+
+        BISHERIGE HANDLUNG (für Kontinuität, nicht wiederholen):
+        \(storySoFar.isEmpty ? "Dies ist das erste Kapitel." : storySoFar.truncated(to: 6000))
+
+        AKTUELLER KAPITELTEXT (erweitern, Handlung bewahren):
+        \(currentText.truncated(to: 30000))
+
+        Gib NUR den vollständigen erweiterten Kapiteltext aus.
+        """
+    }
+
     static func expandScene(language: String, style: String, text: String, targetWords: Int) -> String {
         """
         Die folgende Romanszene ist zu kurz. Erweitere sie auf ca. \(targetWords) Wörter, \

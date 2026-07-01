@@ -653,6 +653,79 @@ final class PipelineOrchestrator: ObservableObject {
         }
     }
 
+    /// Buch erweitern: bringt ein bestehendes Buch coherent auf einen größeren Zielumfang,
+    /// indem jedes Kapitel vertieft wird (mehr Szene, Dialog, Sinnesdetails) – Handlung,
+    /// Figuren und Reihenfolge bleiben exakt gleich, der Anschluss zwischen Kapiteln bleibt erhalten.
+    func expandBook(project: Project, targetPageCount: Int) async -> String {
+        await runMarketingStep(project: project, agent: AgentName.repairEditor, phase: .manuscriptRevision,
+                               okMessage: "Buch auf ~\(targetPageCount) Seiten erweitert (Handlung bewahrt).",
+                               errPrefix: "Fehler beim Erweitern des Buches") { config in
+            try await self.produceBookExpansion(project: project, targetPageCount: targetPageCount, config: config)
+        }
+    }
+
+    private func produceBookExpansion(project: Project, targetPageCount: Int, config: ProviderConfiguration) async throws {
+        let chapters = sortedChapters(project)
+        guard !chapters.isEmpty else { throw AIError.systemError("Keine Kapitel zum Erweitern vorhanden.") }
+        let currentWords = max(1, project.totalWordCount)
+        let targetWords = max(targetPageCount, 1) * AppConstants.wordsPerPage
+        guard targetWords > Int(Double(currentWords) * 1.1) else {
+            throw AIError.systemError("Der Zielumfang muss deutlich größer sein als der aktuelle Umfang.")
+        }
+        let scale = Double(targetWords) / Double(currentWords)
+        let charactersSummary = project.storyBible.map { compactCharacterSummary($0) } ?? ""
+        let genreBrief = project.bookProfile?.genreRules ?? ""
+        var storySoFar = ""
+        var expandedCount = 0
+
+        for chapter in chapters {
+            guard let text = chapter.bestText, text.wordCount >= 50 else {
+                if let t = chapter.bestText { storySoFar = String((storySoFar + "\n\n" + t).suffix(8000)) }
+                continue
+            }
+            let chapterTarget = max(text.wordCount + 150, Int(Double(text.wordCount) * scale))
+            let job = beginJob(agent: AgentName.repairEditor, phase: .manuscriptRevision, project: project)
+            do {
+                let response = try await generate(
+                    prompt: PromptFactory.expandChapter(
+                        language: project.language, style: project.styleProfile, genre: project.genre,
+                        bookTitle: project.title, chapterNumber: chapter.chapterNumber,
+                        chapterTitle: chapter.title, currentText: text, targetWords: chapterTarget,
+                        charactersSummary: charactersSummary, storySoFar: storySoFar, genreBrief: genreBrief),
+                    system: "Du bist ein Romanlektor, der ein Kapitel auf mehr Umfang erweitert, ohne die Handlung zu verändern. Gib nur den vollständigen erweiterten Kapiteltext zurück.",
+                    maxTokens: min(16000, max(4000, chapterTarget * 2)),
+                    temperature: 0.7, config: config, creative: true)
+                var expanded = AutonomousContentQuality.humanizeProse(
+                    AutonomousContentQuality.strippingInlineFormatting(
+                        AutonomousContentQuality.strippingPromptArtifacts(response.text)))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                expanded = AutonomousContentQuality.strippingLeadingTitleEcho(expanded, title: chapter.title)
+                if expanded.wordCount >= text.wordCount,
+                   !AutonomousContentQuality.containsMetaRequest(expanded),
+                   ContentSafetyFilter.isSafe(expanded) {
+                    chapter.finalText = expanded
+                    chapter.actualWordCount = expanded.wordCount
+                    chapter.status = .finalized
+                    chapter.updatedAt = Date()
+                    expandedCount += 1
+                    completeJob(job, result: "Kapitel \(chapter.chapterNumber) erweitert", tokens: response.tokensUsed ?? 0)
+                } else {
+                    completeJob(job, result: "Kapitel \(chapter.chapterNumber) unverändert (Erweiterung unbrauchbar)", tokens: response.tokensUsed ?? 0)
+                }
+            } catch {
+                if job.status == .running { failJob(job, error: error) }
+                // Ein fehlgeschlagenes Kapitel stoppt die Erweiterung nicht.
+            }
+            storySoFar = String((storySoFar + "\n\n" + (chapter.bestText ?? "")).suffix(8000))
+        }
+
+        project.targetPageCount = targetPageCount
+        project.updatedAt = Date()
+        addReport(project: project, area: "Umfang", type: "Erweiterung",
+                  result: "Buch auf Zielumfang ~\(targetPageCount) Seiten erweitert (\(expandedCount) Kapitel vertieft, Handlung bewahrt).",
+                  severity: .info, recommendation: "Kohärenz beim Lesen prüfen.")
+    }
+
     /// Serie/Read-Through: baut am Ende des letzten Kapitels einen Cliffhanger + Teaser auf
     /// den nächsten Band ein – damit Leser die Reihe weiterkaufen.
     func addSeriesCliffhanger(project: Project) async -> String {

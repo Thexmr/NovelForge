@@ -267,8 +267,11 @@ struct PublishingDetailView: View {
     @State private var openingNote: String?
     @State private var isAddingCliffhanger = false
     @State private var cliffhangerNote: String?
+    @State private var isExpanding = false
+    @State private var expandNote: String?
+    @State private var expandTargetPages = 0
 
-    private var busy: Bool { isRunningPackage || isRepairing || isOptimizingOpening || isAddingCliffhanger || orchestrator.isRunning }
+    private var busy: Bool { isRunningPackage || isRepairing || isOptimizingOpening || isAddingCliffhanger || isExpanding || orchestrator.isRunning }
 
     var body: some View {
         ScrollView {
@@ -331,6 +334,37 @@ struct PublishingDetailView: View {
                             Text(repairNote).font(.caption).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
+                    }
+                }
+
+                // Buch erweitern (Umfang vergrößern, Handlung bewahren)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Buch erweitern").font(.headline)
+                    Text("Bringt das Buch coherent auf mehr Umfang: jedes Kapitel wird vertieft (mehr Szene, Dialog, Sinnesdetails) – Handlung, Figuren und Reihenfolge bleiben exakt gleich.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    HStack(spacing: 10) {
+                        Stepper("Zielumfang: \(expandTargetPages) Seiten", value: $expandTargetPages, in: 100...1000, step: 50)
+                            .frame(maxWidth: 280)
+                        Button {
+                            expandBook()
+                        } label: {
+                            if isExpanding {
+                                HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Wird erweitert …") }
+                            } else {
+                                Label("Buch erweitern", systemImage: "book")
+                            }
+                        }
+                        .disabled(busy || expandTargetPages <= project.targetPageCount)
+                    }
+                    if let expandNote {
+                        Text(expandNote).font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .onAppear {
+                    if expandTargetPages == 0 {
+                        let currentPages = max(project.totalWordCount / 250, project.targetPageCount)
+                        expandTargetPages = min(1000, max(currentPages + 50, currentPages * 2))
                     }
                 }
 
@@ -411,6 +445,18 @@ struct PublishingDetailView: View {
             let reply = await orchestrator.repairBookAfterProofreading(project: project)
             repairNote = reply
             isRepairing = false
+        }
+    }
+
+    private func expandBook() {
+        guard project.modelContext != nil, !busy, expandTargetPages > project.targetPageCount else { return }
+        isExpanding = true
+        expandNote = nil
+        Task { @MainActor in
+            let reply = await orchestrator.expandBook(project: project, targetPageCount: expandTargetPages)
+            try? modelContext.save()
+            expandNote = reply
+            isExpanding = false
         }
     }
 
