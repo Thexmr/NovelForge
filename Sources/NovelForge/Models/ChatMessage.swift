@@ -26,9 +26,13 @@ final class ChatMessage {
     /// Cascade-Delete – beim Projekt-Löschen aufrufen, damit keine verwaisten
     /// Nachrichten zurückbleiben.
     static func deleteMessages(forProjectID id: UUID, in context: ModelContext) {
-        let all = (try? context.fetch(FetchDescriptor<ChatMessage>())) ?? []
-        for message in all where message.projectID == id {
-            context.delete(message)
+        // Gezielt nur die Nachrichten DIESES Projekts laden (indiziertes Prädikat statt
+        // Gesamt-Tabellen-Scan) – skaliert auch bei vielen Büchern/Chats.
+        let predicate = #Predicate<ChatMessage> { $0.projectID == id }
+        if let matches = try? context.fetch(FetchDescriptor<ChatMessage>(predicate: predicate)) {
+            for message in matches {
+                context.delete(message)
+            }
         }
     }
 }

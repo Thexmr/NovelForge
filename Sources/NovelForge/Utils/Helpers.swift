@@ -1,5 +1,25 @@
 import Foundation
 import SwiftUI
+import SwiftData
+import OSLog
+
+// MARK: - Persistenz-Logging
+
+extension ModelContext {
+    /// Speichert den Kontext und PROTOKOLLIERT Fehler, statt sie stillschweigend zu
+    /// verschlucken (`try? save()`). Das Verhalten bleibt bewusst nicht-fatal – ein
+    /// fehlgeschlagener Save unterbricht die App nicht –, aber Disk-voll-/Constraint-
+    /// Fehler landen jetzt im Log statt spurlos zu verschwinden (In-Memory- und Disk-
+    /// Zustand konnten so unbemerkt divergieren).
+    func saveOrLog(_ label: String = "", file: String = #fileID, line: Int = #line) {
+        do {
+            try save()
+        } catch {
+            Logger(subsystem: "com.novelforge.app", category: "persistence")
+                .error("SwiftData-Speicherfehler [\(label, privacy: .public)] \(file):\(line) – \(error.localizedDescription, privacy: .public)")
+        }
+    }
+}
 
 struct AppConstants {
     static let appName = "NovelForge"

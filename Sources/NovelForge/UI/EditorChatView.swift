@@ -182,7 +182,7 @@ struct EditorChatView: View {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         input = ""
         modelContext.insert(ChatMessage(projectID: project.id, role: .user, text: text))
-        try? modelContext.save()
+        modelContext.saveOrLog()
         isProcessing = true
         let chapter = selectedChapter
         Task { @MainActor in
@@ -190,7 +190,7 @@ struct EditorChatView: View {
             // Projekt könnte während des Aufrufs gelöscht worden sein → nicht darauf zugreifen.
             if project.modelContext != nil {
                 modelContext.insert(ChatMessage(projectID: project.id, role: .assistant, text: reply))
-                try? modelContext.save()
+                modelContext.saveOrLog()
             }
             isProcessing = false
         }
@@ -202,13 +202,13 @@ struct EditorChatView: View {
         modelContext.insert(ChatMessage(projectID: project.id,
                                         role: .user,
                                         text: "Buch prüfen & reparieren"))
-        try? modelContext.save()
+        modelContext.saveOrLog()
 
         Task { @MainActor in
             let reply = await orchestrator.repairBookAfterProofreading(project: project)
             if project.modelContext != nil {
                 modelContext.insert(ChatMessage(projectID: project.id, role: .assistant, text: reply))
-                try? modelContext.save()
+                modelContext.saveOrLog()
             }
             isRepairing = false
         }

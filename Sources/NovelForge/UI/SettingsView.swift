@@ -550,7 +550,7 @@ struct PrivacySettingsView: View {
                     ChatMessage.deleteMessages(forProjectID: project.id, in: modelContext)
                     modelContext.delete(project)
                 }
-                try? modelContext.save()
+                modelContext.saveOrLog()
             }
             Button("Abbrechen", role: .cancel) {}
         } message: {

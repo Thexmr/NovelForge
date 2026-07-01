@@ -354,7 +354,7 @@ final class PipelineOrchestrator: ObservableObject {
             let result = try await runRepairWorkflow(project: project, config: config)
             project.status = previousStatus
             project.updatedAt = Date()
-            try? modelContext?.save()
+            modelContext?.saveOrLog()
             finish()
             return result
         } catch is CancellationError {
@@ -511,7 +511,7 @@ final class PipelineOrchestrator: ObservableObject {
             try await work(config)
             project.status = previousStatus
             project.updatedAt = Date()
-            try? modelContext?.save()
+            modelContext?.saveOrLog()
             finish()
             return okMessage
         } catch is CancellationError {
@@ -588,7 +588,7 @@ final class PipelineOrchestrator: ObservableObject {
 
             project.status = previousStatus
             project.updatedAt = Date()
-            try? modelContext?.save()
+            modelContext?.saveOrLog()
             finish()
             return "Veröffentlichungs-Paket fertig:\n• " + done.joined(separator: "\n• ")
         } catch is CancellationError {
@@ -903,7 +903,7 @@ final class PipelineOrchestrator: ObservableObject {
                 unlimitedConsecutiveFailures = 0
                 markProjectInactive(project)
                 currentAgent = "Buch \(unlimitedBooksCompleted) abgeschlossen – nächstes Buch wird geplant …"
-                try? modelContext?.save()
+                modelContext?.saveOrLog()
 
                 if settings.maxBooks > 0 && unlimitedBooksCompleted >= settings.maxBooks {
                     break
@@ -927,7 +927,7 @@ final class PipelineOrchestrator: ObservableObject {
                 let aiError = error as? AIError
                 lastError = aiError?.errorDescription ?? error.localizedDescription
                 unlimitedConsecutiveFailures += 1
-                try? modelContext?.save()
+                modelContext?.saveOrLog()
 
                 // Dauerhaft unbehebbare Fehler beenden die Schleife,
                 // statt alle paar Sekunden erneut zu scheitern.
@@ -1082,7 +1082,7 @@ final class PipelineOrchestrator: ObservableObject {
             progress = 1.0
             let duration = Date().timeIntervalSince(startedAt)
             markProjectInactive(project)
-            try? modelContext?.save()
+            modelContext?.saveOrLog()
             retireWorkerStatus()
             return UnlimitedBookOutcome(
                 completed: true,
@@ -1114,7 +1114,7 @@ final class PipelineOrchestrator: ObservableObject {
             currentProject?.status = .failed
             markProjectInactive(currentProject)
             let message = (error as? AIError)?.errorDescription ?? error.localizedDescription
-            try? modelContext?.save()
+            modelContext?.saveOrLog()
             retireWorkerStatus()
             return UnlimitedBookOutcome(
                 completed: false,
@@ -1248,7 +1248,7 @@ final class PipelineOrchestrator: ObservableObject {
         modelContext?.insert(project)
         modelContext?.insert(profile)
         modelContext?.insert(bible)
-        try? modelContext?.save()
+        modelContext?.saveOrLog()
         markProjectActive(project)
         publishWorkerStatus()
         return project
@@ -1306,7 +1306,7 @@ final class PipelineOrchestrator: ObservableObject {
         modelContext?.insert(next)
         modelContext?.insert(profile)
         modelContext?.insert(bible)
-        try? modelContext?.save()
+        modelContext?.saveOrLog()
         return next
     }
 
@@ -1354,7 +1354,7 @@ final class PipelineOrchestrator: ObservableObject {
             }
 
             project.updatedAt = Date()
-            try? modelContext?.save()
+            modelContext?.saveOrLog()
         }
     }
 
@@ -1419,7 +1419,7 @@ final class PipelineOrchestrator: ObservableObject {
             activeProjectIDs = []
             workerStatuses = []
         }
-        try? modelContext?.save()
+        modelContext?.saveOrLog()
     }
 
     private func startHeartbeat() {
@@ -1999,7 +1999,7 @@ final class PipelineOrchestrator: ObservableObject {
         }
         // Schauplätze aus den Szenenplänen in die Story Bible übernehmen.
         aggregateLocations(into: bible, chapters: chapters)
-        try? modelContext?.save()
+        modelContext?.saveOrLog()
 
         try Task.checkCancellation()
     }
@@ -2420,7 +2420,7 @@ final class PipelineOrchestrator: ObservableObject {
                                    subProgress: totalScenes > 0 ? Double(completedScenes) / Double(totalScenes) : 1)
                     updateEstimatedTime()
                     updateProductionTiming()
-                    try? modelContext?.save()
+                    modelContext?.saveOrLog()
                 } catch {
                     scene.status = .needsRevision
                     failJob(job, error: error)
@@ -2441,7 +2441,7 @@ final class PipelineOrchestrator: ObservableObject {
             // Echten, inhaltsbezogenen Kapiteltitel sicherstellen (verhindert „Aufbruch N").
             await ensureRealChapterTitle(chapter, project: project,
                                          summary: chapter.summary ?? "", config: config)
-            try? modelContext?.save()
+            modelContext?.saveOrLog()
         }
         estimatedTimeRemaining = ""
     }
@@ -2608,7 +2608,7 @@ final class PipelineOrchestrator: ObservableObject {
                 jobs[index].endTime = Date()
             }
         }
-        try? modelContext?.save()
+        modelContext?.saveOrLog()
 
         if let error = firstError { throw error }
         try Task.checkCancellation()
@@ -2728,7 +2728,7 @@ final class PipelineOrchestrator: ObservableObject {
                 jobs[index].endTime = Date()
             }
         }
-        try? modelContext?.save()
+        modelContext?.saveOrLog()
 
         if let error = firstError { throw error }
         try Task.checkCancellation()
@@ -2783,7 +2783,7 @@ final class PipelineOrchestrator: ObservableObject {
                       result: "Keine reparaturpflichtigen Inkonsistenzen gefunden.",
                       severity: .info,
                       recommendation: "")
-            try? modelContext?.save()
+            modelContext?.saveOrLog()
             return "Prüfung abgeschlossen: keine reparaturpflichtigen Inkonsistenzen gefunden."
         }
 
@@ -2872,7 +2872,7 @@ final class PipelineOrchestrator: ObservableObject {
             }
         }
 
-        try? modelContext?.save()
+        modelContext?.saveOrLog()
         if repairedCount == 0 {
             return "Prüfung abgeschlossen: \(issues.count) Befund(e) gespeichert, aber keine kapitelgenaue automatische Reparatur ausgeführt."
         }
@@ -3079,7 +3079,7 @@ final class PipelineOrchestrator: ObservableObject {
         }
         project.chapters = []
         project.updatedAt = Date()
-        try? modelContext?.save()
+        modelContext?.saveOrLog()
     }
 
     private func resetScenePlan(for chapter: Chapter) {
@@ -3094,7 +3094,7 @@ final class PipelineOrchestrator: ObservableObject {
         chapter.actualWordCount = 0
         chapter.status = .planned
         chapter.updatedAt = Date()
-        try? modelContext?.save()
+        modelContext?.saveOrLog()
     }
 
     private func repairAuditSummaries(for chapters: [Chapter]) -> String {

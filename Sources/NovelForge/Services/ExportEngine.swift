@@ -768,11 +768,21 @@ struct ExportEngine {
     // MARK: - ZIP
 
     private static func runZip(arguments: [String], workingDirectory: URL) throws {
+        // Absichern gegen fehlendes/sandbox-blockiertes System-Binary: klare Fehlermeldung
+        // statt eines undurchsichtigen Absturzes beim Prozessstart.
+        let zipPath = "/usr/bin/zip"
+        guard FileManager.default.isExecutableFile(atPath: zipPath) else {
+            throw AIError.systemError("ZIP-Werkzeug nicht verfügbar (\(zipPath) fehlt oder ist nicht ausführbar). Export als EPUB/ZIP nicht möglich.")
+        }
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        process.executableURL = URL(fileURLWithPath: zipPath)
         process.arguments = arguments
         process.currentDirectoryURL = workingDirectory
-        try process.run()
+        do {
+            try process.run()
+        } catch {
+            throw AIError.systemError("ZIP-Prozess konnte nicht gestartet werden: \(error.localizedDescription)")
+        }
         process.waitUntilExit()
         if process.terminationStatus != 0 {
             throw AIError.systemError("ZIP-Erstellung fehlgeschlagen (Status \(process.terminationStatus))")

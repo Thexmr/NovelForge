@@ -752,7 +752,7 @@ struct NewBookWizardView: View {
         modelContext.insert(project)
         modelContext.insert(bookProfile)
         modelContext.insert(storyBible)
-        try? modelContext.save()
+        modelContext.saveOrLog()
 
         // API-Key in der Keychain hinterlegen und Provider-Konfiguration aktualisieren.
         if !apiKey.isEmpty {

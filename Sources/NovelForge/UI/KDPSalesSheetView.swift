@@ -59,7 +59,7 @@ struct KDPSalesSheetView: View {
                     Button {
                         project.title = sheet.title
                         project.updatedAt = Date()
-                        try? modelContext.save()
+                        modelContext.saveOrLog()
                     } label: {
                         Label("Als Buchtitel übernehmen", systemImage: "arrow.up.doc")
                             .font(.caption)
@@ -168,7 +168,7 @@ struct KDPSalesSheetView: View {
         statusNote = nil
         Task { @MainActor in
             let result = await orchestrator.generateKDPSalesSheet(project: project)
-            try? modelContext.save()
+            modelContext.saveOrLog()
             statusNote = result
             isGenerating = false
         }
@@ -431,7 +431,7 @@ struct PublishingDetailView: View {
         packageNote = nil
         Task { @MainActor in
             let result = await orchestrator.runPublishingPackage(project: project)
-            try? modelContext.save()
+            modelContext.saveOrLog()
             packageNote = result
             isRunningPackage = false
         }
@@ -454,7 +454,7 @@ struct PublishingDetailView: View {
         expandNote = nil
         Task { @MainActor in
             let reply = await orchestrator.expandBook(project: project, targetPageCount: expandTargetPages)
-            try? modelContext.save()
+            modelContext.saveOrLog()
             expandNote = reply
             isExpanding = false
         }
@@ -466,7 +466,7 @@ struct PublishingDetailView: View {
         openingNote = nil
         Task { @MainActor in
             let reply = await orchestrator.optimizeOpening(project: project)
-            try? modelContext.save()
+            modelContext.saveOrLog()
             openingNote = reply
             isOptimizingOpening = false
         }
@@ -478,7 +478,7 @@ struct PublishingDetailView: View {
         cliffhangerNote = nil
         Task { @MainActor in
             let reply = await orchestrator.addSeriesCliffhanger(project: project)
-            try? modelContext.save()
+            modelContext.saveOrLog()
             cliffhangerNote = reply
             isAddingCliffhanger = false
         }
@@ -671,7 +671,7 @@ struct CoverPromptsView: View {
         statusNote = nil
         Task { @MainActor in
             let result = await orchestrator.generateCoverPrompts(project: project)
-            try? modelContext.save()
+            modelContext.saveOrLog()
             statusNote = result
             isGenerating = false
         }

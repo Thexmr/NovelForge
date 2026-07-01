@@ -599,7 +599,7 @@ struct ProjectsListView: View {
                         }
                         ChatMessage.deleteMessages(forProjectID: project.id, in: modelContext)
                         modelContext.delete(project)
-                        try? modelContext.save()
+                        modelContext.saveOrLog()
                     }
                     projectToDelete = nil
                 }
@@ -834,7 +834,7 @@ struct ProjectDetailView: View {
                 }
                 ChatMessage.deleteMessages(forProjectID: project.id, in: modelContext)
                 modelContext.delete(project)
-                try? modelContext.save()
+                modelContext.saveOrLog()
                 dismiss()
             }
             Button("Abbrechen", role: .cancel) {}
