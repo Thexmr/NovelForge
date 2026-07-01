@@ -105,9 +105,13 @@ struct ExportEngine {
         manifest += "    <item id=\"toc\" href=\"toc.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\" />\n"
         spine += "    <itemref idref=\"toc\" />\n"
 
-        for chapter in chapters {
-            let chapterId = "chapter\(chapter.chapterNumber)"
-            let chapterFile = "chapter\(chapter.chapterNumber).xhtml"
+        // WICHTIG: ID/Dateiname aus der Position (index) ableiten, NICHT aus chapterNumber.
+        // chapterNumber ist nicht garantiert eindeutig (Plan-Reparaturen/„Buch erweitern")
+        // – doppelte Nummern würden sonst die XHTML-Datei des ersten Kapitels überschreiben
+        // und doppelte Manifest-/Spine-/NCX-IDs erzeugen (ungültiges, von KDP abgelehntes EPUB).
+        for (index, chapter) in chapters.enumerated() {
+            let chapterId = "chapter\(index + 1)"
+            let chapterFile = "chapter\(index + 1).xhtml"
             let chapterContent = generateChapterHTML(chapter: chapter)
             try chapterContent.write(to: oebpsDir.appendingPathComponent(chapterFile), atomically: true, encoding: .utf8)
             manifest += "    <item id=\"\(chapterId)\" href=\"\(chapterFile)\" media-type=\"application/xhtml+xml\" />\n"
@@ -324,8 +328,9 @@ struct ExportEngine {
     /// EPUB-3-Navigationsdokument (nav epub:type="toc").
     private static func generateNavHTML(chapters: [Chapter]) -> String {
         var items = ""
-        for chapter in chapters {
-            items += "            <li><a href=\"chapter\(chapter.chapterNumber).xhtml\">\(escapeXML(chapter.displayTitle))</a></li>\n"
+        // Index-basierte Dateinamen – muss exakt zur Vergabe in exportToEPUB passen (siehe dort).
+        for (index, chapter) in chapters.enumerated() {
+            items += "            <li><a href=\"chapter\(index + 1).xhtml\">\(escapeXML(chapter.displayTitle))</a></li>\n"
         }
         return xhtmlHeader(title: "Inhaltsverzeichnis") + """
 

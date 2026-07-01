@@ -3083,6 +3083,17 @@ final class PipelineOrchestrator: ObservableObject {
     }
 
     private func resetScenePlan(for chapter: Chapter) {
+        // SCHUTZ vor Datenverlust beim Fortsetzen: Enthält das Kapitel bereits GESCHRIEBENE
+        // Prosa (Draft/Revision/Endfassung oder Szenentext), NICHT zurücksetzen. Sonst würde
+        // ein nachträglich geänderter Zielumfang (z. B. via „Buch erweitern") oder ein
+        // strengeres Qualitäts-Heuristik-Urteil einen bereits fertig geschriebenen Text
+        // löschen. Ohne Prosa ist das Neuplanen unbedenklich.
+        let hasWrittenProse = !(chapter.draftText ?? "").isEmpty
+            || !(chapter.revisedText ?? "").isEmpty
+            || !(chapter.finalText ?? "").isEmpty
+            || (chapter.scenes ?? []).contains { !($0.text ?? "").isEmpty }
+        guard !hasWrittenProse else { return }
+
         for scene in chapter.scenes ?? [] {
             modelContext?.delete(scene)
         }

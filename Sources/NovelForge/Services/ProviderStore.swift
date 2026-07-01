@@ -82,8 +82,13 @@ final class ProviderSettingsStore: ObservableObject {
             config.defaultModel = provider.suggestedModels.first
         }
         if provider == .ollamaCloud {
+            // Nur die Laufzeit-Konfiguration normalisieren – NICHT als Seiteneffekt in das
+            // (evtl. inzwischen gelöschte) SwiftData-Projekt zurückschreiben. Das frühere
+            // `project.preferredModel = …` konnte a) beim Schreiben auf ein gelöschtes @Model
+            // abstürzen und b) die vom Nutzer bewusst gewählte Modellwahl dauerhaft
+            // überschreiben. Die Normalisierung passiert bei jedem Aufruf erneut und muss
+            // daher nicht persistiert werden.
             config.defaultModel = OllamaCloudModelCatalog.bestModel(preferred: config.defaultModel)
-            project.preferredModel = config.defaultModel ?? ""
         }
         config.apiKey = KeychainService.getAPIKey(for: provider)
         return config

@@ -188,6 +188,15 @@ actor ProviderGateway {
         case 200:
             let result = try JSONDecoder().decode(AnthropicResponse.self, from: data)
             let text = result.content.first(where: { $0.type == "text" })?.text ?? ""
+            // Leerer Antworttext (nur Nicht-Text-Blöcke oder max_tokens vor dem ersten
+            // Text-Block) NICHT als Erfolg durchreichen – sonst würde leerer Inhalt als
+            // fertige Szene/Chat-Antwort gespeichert. Klarer Fehler (wie im Ollama-Pfad).
+            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                throw AIError.systemError(
+                    "Anthropic lieferte keinen Antworttext (stop_reason: \(result.stop_reason ?? "unbekannt")). "
+                    + "Bitte erneut versuchen oder ein anderes Modell wählen."
+                )
+            }
             let tokens = (result.usage?.input_tokens ?? 0) + (result.usage?.output_tokens ?? 0)
             return GenerationResponse(
                 text: text,
