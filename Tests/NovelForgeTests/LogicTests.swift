@@ -846,4 +846,41 @@ final class LogicTests: XCTestCase {
         XCTAssertTrue(prompt.contains("ANSCHLUSS"))
         XCTAssertTrue(prompt.contains("ÜBERSTRAPAZIERTE"))
     }
+
+    // MARK: - Polarisierende Titel, Lesesog, Alltagssprache
+
+    /// Polarisierende Titel (Tabu/Anschuldigung/Besitz) schlagen gefällige Titel im Score.
+    func testTitleViralityRewardsPolarizingTitles() {
+        let polar = AutonomousContentQuality.titleViralityScore("Du gehörst mir")
+        let tame = AutonomousContentQuality.titleViralityScore("Der Sommer am See")
+        XCTAssertGreaterThan(polar, tame)
+    }
+
+    /// Akademisches Fachvokabular wird deterministisch erkannt (Dave: „Mediävistiker" sagt niemand).
+    func testJargonDetectionFlagsAcademicVocabulary() {
+        let jargon = "Der Mediävistiker deutete den Wasserfleck kartographisch."
+        XCTAssertGreaterThanOrEqual(AutonomousContentQuality.jargonTellCount(jargon), 2)
+        XCTAssertEqual(AutonomousContentQuality.jargonTellCount("Sie tranken Kaffee und stritten über Geld."), 0)
+        // Zwei Fachwörter in einem langen Text lösen die Neufassung aus.
+        let filler = String(repeating: "Sie ging die Straße entlang und dachte an gestern. ", count: 20)
+        XCTAssertTrue(AutonomousContentQuality.soundsLikeAI(filler + jargon))
+        XCTAssertFalse(AutonomousContentQuality.soundsLikeAI(filler + "Sie tranken Kaffee."))
+    }
+
+    /// Die Handwerksregeln verbieten Fachvokabular ausdrücklich (Prompt-Ebene).
+    func testHumanCraftRulesForbidAcademicJargon() {
+        XCTAssertTrue(PromptFactory.humanCraftRules.contains("ALLTAGSSPRACHE"))
+        XCTAssertTrue(PromptFactory.humanCraftRules.contains("Mediävistiker"))
+    }
+
+    /// Ruhig auslaufende Kapitelenden werden erkannt; Frage/kurzer Schlag/Rede gelten als stark.
+    func testHasWeakChapterEndingDetectsCalmEndings() {
+        let filler = String(repeating: "Sie ging weiter durch die Stadt und sah sich die Fenster an. ", count: 15)
+        let weak = filler + "Der Abend legte sich ruhig über die Dächer der kleinen Stadt und alles wurde still und friedlich an diesem langen Tag."
+        XCTAssertTrue(AutonomousContentQuality.hasWeakChapterEnding(weak))
+        let question = filler + "Aber warum hatte er die Tür nicht abgeschlossen?"
+        XCTAssertFalse(AutonomousContentQuality.hasWeakChapterEnding(question))
+        let punch = filler + "Dann sah sie das Blut."
+        XCTAssertFalse(AutonomousContentQuality.hasWeakChapterEnding(punch))
+    }
 }

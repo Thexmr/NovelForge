@@ -47,7 +47,39 @@ enum AutonomousContentQuality {
         if lower.contains(" und ") || lower.contains(" oder ") || title.contains(",") { score += 6 }
         if lower.contains("dich") || lower.contains("dir") || lower.contains(" du ") { score += 6 }
 
+        // POLARISIERUNG: Titel mit Tabu-/Anschuldigungs-/Dilemma-Ladung lösen sofort eine
+        // Reaktion aus und werden geklickt – gefällige Titel werden überscrollt.
+        let polarizingWords = ["schuld", "verrat", "betrog", "belog", "rache", "sünde", "hass",
+                               "hasse", "monster", "teufel", "verboten", "gehörst", "niemals",
+                               "gestehe", "geständnis", "beichte", "stahl", "zerstör", "feind",
+                               "ehemann", "witwe", "affäre", "bett"]
+        if polarizingWords.contains(where: { lower.contains($0) }) { score += 12 }
+        // Ich-/Du-Konfrontation („Ich habe …", „Du hast …") = Geständnis/Anschuldigung.
+        if lower.hasPrefix("ich ") || lower.hasPrefix("du ") { score += 6 }
+
         return max(0, score)
+    }
+
+    /// Endet das Kapitel ohne Sog? (Rein deterministisch – erkennt ruhige Beschreibungs-
+    /// Enden ohne Frage, Zuspitzung oder kurzen Schlag.) Wird für Nicht-Schlusskapitel
+    /// in die Revision eingespeist: „Kapitelende schärfen".
+    static func hasWeakChapterEnding(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.wordCount >= 120 else { return false } // Kurztexte nicht beurteilen
+        let tail = String(trimmed.suffix(400))
+        // Frage oder abgebrochene Rede im Schluss = Sog vorhanden.
+        if tail.contains("?") { return false }
+        if tail.hasSuffix("…") || tail.hasSuffix("–") || tail.hasSuffix("-") { return false }
+        // Letzten Satz isolieren (nach dem letzten Satzende davor).
+        let sentences = tail.components(separatedBy: CharacterSet(charactersIn: ".!…"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard let last = sentences.last else { return true }
+        // Kurzer Schlusssatz (≤ 8 Wörter) = bewusster Schlag/Punch → stark.
+        if last.wordCount <= 8 { return false }
+        // Endet in wörtlicher Rede → meist Zuspitzung/Drohung → stark.
+        if tail.hasSuffix("\"") || tail.hasSuffix("“") || tail.hasSuffix("«") || tail.hasSuffix("»") { return false }
+        return true
     }
 
     /// Wählt aus der Antwort des viralen Titel-Prompts (KANDIDATEN + BESTER) den stärksten
@@ -569,6 +601,31 @@ enum AutonomousContentQuality {
         "gewahrte", "hub an", "sann nach", "zur stund"
     ]
 
+    /// Akademisches Fachvokabular/Bildungswörter, die normale Leser nicht kennen und
+    /// die in Unterhaltungsromanen nichts verloren haben (Dave-Feedback: „Mediävistiker"
+    /// sagt niemand). Bewusst nur EINDEUTIG seltene Wörter – keine False Positives.
+    static let jargonTellPhrases: [String] = [
+        "mediävist", "komparatist", "kartographisch", "kartografisch", "diaphan",
+        "ephemer", "evozier", "konzedier", "proliferier", "habilitand", "hermeneut",
+        "ontolog", "epistemolog", "palimpsest", "apokryph", "äquidistant",
+        "dichotom", "paradigmat", "narratolog", "semiot", "diskursiv"
+    ]
+
+    /// Zählt Fachvokabular-Marker (Gesamtvorkommen).
+    static func jargonTellCount(_ text: String) -> Int {
+        let lower = text.lowercased()
+        guard !lower.isEmpty else { return 0 }
+        var count = 0
+        for phrase in jargonTellPhrases {
+            var range = lower.startIndex..<lower.endIndex
+            while let hit = lower.range(of: phrase, range: range) {
+                count += 1
+                range = hit.upperBound..<lower.endIndex
+            }
+        }
+        return count
+    }
+
     /// Zählt altertümliche Marker (Gesamtvorkommen).
     static func archaicTellCount(_ text: String) -> Int {
         let lower = text.lowercased()
@@ -591,6 +648,8 @@ enum AutonomousContentQuality {
         guard words >= 150 else { return false }
         // Schon zwei altertümliche Marker lassen den Text sofort antiquiert wirken.
         if archaicTellCount(text) >= 2 { return true }
+        // Zwei akademische Fachwörter machen den Text für normale Leser unzugänglich.
+        if jargonTellCount(text) >= 2 { return true }
         let threshold = max(2, words / 300)
         return aiTellCount(text) >= threshold
     }

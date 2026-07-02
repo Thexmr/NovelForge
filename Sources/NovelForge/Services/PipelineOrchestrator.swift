@@ -2304,6 +2304,22 @@ final class PipelineOrchestrator: ObservableObject {
                         positionParts.append("SO BEGINNT DAS BUCH (nimm EIN Bild oder Motiv daraus am Ende wieder auf):\n„\(String(openingText.prefix(400)))…“")
                     }
                 }
+                // Im Schlusskapitel: die in den Szenen-Summaries protokollierten offenen Fäden
+                // (OFFEN:-Zeilen) einsammeln und zum Schließen vorlegen – gegen
+                // „Was wurde eigentlich aus X?"-Rezensionen.
+                if chapterIndex == chapters.count - 1 {
+                    let openThreads = storySoFar
+                        .flatMap { $0.components(separatedBy: .newlines) }
+                        .compactMap { line -> String? in
+                            guard let r = line.range(of: "OFFEN:") else { return nil }
+                            let thread = line[r.upperBound...].trimmingCharacters(in: .whitespaces)
+                            return (thread.isEmpty || thread == "-" || thread == "–") ? nil : thread
+                        }
+                    if !openThreads.isEmpty {
+                        positionParts.append("NOCH OFFENE FÄDEN (in diesem Kapitel schließen oder ausdrücklich einem Folgeband übergeben):\n"
+                            + openThreads.suffix(10).map { "- \($0)" }.joined(separator: "\n"))
+                    }
+                }
                 let positionBlock = positionParts.joined(separator: "\n")
 
                 let job = beginJob(agent: AgentName.draftWriter, phase: .drafting, project: project,
@@ -2629,6 +2645,11 @@ final class PipelineOrchestrator: ObservableObject {
                 .map { String($0.suffix(400)) } ?? ""
             let nextOpening = chapterIdx.flatMap { $0 + 1 < chapters.count ? chapters[$0 + 1].draftText : nil }
                 .map { String($0.prefix(300)) } ?? ""
+            // Kapitelende ohne Sog? (Nur Nicht-Schlusskapitel – das Finale darf ruhig ausklingen.)
+            let isFinal = chapter.chapterNumber == chapters.last?.chapterNumber
+            let endingNote = (!isFinal && AutonomousContentQuality.hasWeakChapterEnding(draft))
+                ? "KAPITELENDE SCHÄRFEN: Dieses Kapitel endet aktuell ohne Sog. Forme den letzten Beat zu einem echten Haken um (offene Frage, Drohung, Enthüllung oder eine Entscheidung ohne gezeigte Antwort) – der Leser darf hier nicht aufhören können. Handlung davor unverändert lassen."
+                : ""
             requests.append(makeRequest(
                 prompt: PromptFactory.reviseChapter(
                     language: project.language, style: project.styleProfile,
@@ -2637,7 +2658,8 @@ final class PipelineOrchestrator: ObservableObject {
                     genreBrief: profile.genreRules,
                     charactersSummary: charactersSummary,
                     previousEnding: prevEnding, nextOpening: nextOpening,
-                    overusedPhrases: overusedList
+                    overusedPhrases: overusedList,
+                    endingNote: endingNote
                 ),
                 system: "Du bist ein erfahrener Lektor. Du verbesserst Prosa, ohne Handlung oder Stimme zu verändern.",
                 maxTokens: min(12000, max(3000, draft.wordCount * 3)),

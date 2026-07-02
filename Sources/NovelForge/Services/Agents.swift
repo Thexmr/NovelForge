@@ -41,10 +41,11 @@ enum PromptFactory {
         WAS EINEN VIRALEN TITEL AUSMACHT:
         - Neugier-Lücke: ein angedeutetes Geheimnis, eine Drohung, eine Frage, ein Tabu – der Leser MUSS wissen, was dahintersteckt.
         - Emotion und Einsatz sofort spürbar (Verrat, verbotene Liebe, Gefahr, Verlust, Rache).
-        - Konkret und bildhaft, nicht abstrakt oder verkopft. Kurz: 2-6 Wörter, im Thumbnail sofort lesbar.
+        - POLARISIEREN: Der Titel muss eine SOFORTIGE emotionale Reaktion auslösen – Empörung, Tabu-Reiz, moralisches Dilemma, eine Anschuldigung oder ein gefährliches Versprechen. Ein Titel, zu dem jeder eine Meinung hat, wird geklickt; ein netter, gefälliger Titel wird überscrollt. Mut zur Kante: „Ich habe seinen Bruder geliebt" schlägt „Eine schwierige Liebe".
+        - Konkret und bildhaft, nicht abstrakt oder verkopft. Kurz: 2-6 Wörter, im Thumbnail sofort lesbar. Nur Alltagswörter, die jeder kennt.
         - Genre-Signal: der Titel fühlt sich nach \(genre) an.
         - Direkte Ansprache (du/dich/mein/dein) erzeugt Nähe und Sofort-Spannung.
-        Starke Bauarten (mischen): Bevor/Wenn/Warum/Was ...; Das Mädchen, das ...; eine Drohung oder ein Versprechen als Satz; ein aufgeladenes konkretes Objekt; eine Negation (Niemand ..., Kein ...); ein Name plus Einsatz.
+        Starke Bauarten (mischen): Bevor/Wenn/Warum/Was ...; Das Mädchen, das ...; eine Drohung oder ein Versprechen als Satz; ein Geständnis oder eine Anschuldigung in der Ich-/Du-Form; ein aufgeladenes konkretes Objekt; eine Negation (Niemand ..., Kein ...); ein Name plus Einsatz.
 
         STRENG VERBOTEN: Genre-Wörter als Titel (Liebesroman, Erotik-Roman, Thriller); Platzhalter (Titel); kryptische Wort-Collagen oder Nonsens (z. B. Schluckauf im Erdboden); Berufs-/Ort-Klischees (Die [Beruf] von [Ort]); mehr als 6 Wörter; Tippfehler; alles, was auf zehn anderen Büchern stehen könnte.
 
@@ -93,6 +94,7 @@ enum PromptFactory {
 
         TITEL-PFLICHT – EXTREM stark und viral, aber NIE komisch oder kryptisch (die besten Bestseller-Titel sind BEIDES zugleich: magnetisch UND sofort verständlich):
         – VIRAL & DAUMEN-STOPPEND: Der Titel stoppt beim Scrollen sofort, macht augenblicklich süchtig auf die Geschichte und ist BookTok-würdig (man will ihn aussprechen und weiterempfehlen). Starkes emotionales Versprechen, hohe Aufladung, sofortiger Klick-Sog – ziel auf die Wucht echter Verkaufsschlager. Brave, schwache, austauschbare Titel sind verboten.
+        – POLARISIEREND: Der Titel provoziert eine sofortige Reaktion (Tabu-Reiz, Anschuldigung, moralisches Dilemma, gefährliches Versprechen) – jeder, der ihn liest, hat SOFORT ein Gefühl dazu. Mut zur Kante schlägt Gefälligkeit.
         – ZUGLEICH KLAR & NATÜRLICH: idiomatisches Deutsch, beim ersten Lesen sofort verständlich, genre-richtig. „Viral" heißt NICHT rätselhaft, sondern ein echtes Gefühl/Versprechen in klare, einprägsame Worte fassen. 2–6 Wörter bevorzugt (aktive Sätze dürfen länger), kein erklärender Nebensatz, kein Gedankenstrich.
         – AMAZON-KDP-MARKTFIT: im Amazon-KDP-Suchergebnis und als kleines Thumbnail sofort lesbar, klickbar und genre-richtig.
         – STRENG VERBOTEN, weil es „komisch"/künstlich klingt: kryptische, prätentiöse oder rätselhafte Titel; synästhetische oder paradoxe Wort-Collagen („Salz im Stromnetz", „Die Farbe deiner Stimme"); Wörter, die zusammen keinen Sinn ergeben; gewollt „literarische" Bilder, die kein echter Leser als Buchtitel sucht oder beim ersten Lesen versteht.
@@ -443,6 +445,7 @@ enum PromptFactory {
         """
         MENSCHLICH SCHREIBEN – DAMIT ES NICHT NACH KI KLINGT (diese Regeln stehen über dem reinen Glattschreiben; erzähl die Szene trotzdem vollständig zu Ende und kommentiere sie nie):
         - ZEITGEMÄSSE, PROFESSIONELLE SPRACHE (KEIN historischer/mittelalterlicher Klang): Schreibe wie ein aktueller deutschsprachiger Bestseller von heute – klar, natürlich, gegenwärtig, sofort verständlich. STRENG VERBOTEN sind altertümliche oder geschwollene Wörter/Wendungen wie „alsbald", „ward", „fürwahr", „sodann", „dünkte", „Antlitz", „Gemach", „Maid", „Jüngling", „Weib" (für Frau), „holde/edle", „auf dass", „es begab sich", „harrte", „allerorten", „weilte", „sann", „vermochte" sowie pathetische Inversionen und feierlich-erhabener Ton. Moderne Wortwahl, normale Wortstellung, heutige Begriffe (es sei denn, das Genre ist ausdrücklich historisch).
+        - ALLTAGSSPRACHE STATT FACHVOKABULAR: Verwende AUSSCHLIESSLICH Wörter, die ein normaler Leser kennt und im Alltag benutzt. KEINE akademischen Fachbegriffe, Bildungswörter, bildungssprachlichen Adjektive oder seltenen Fremdwörter (z. B. NIEMALS „Mediävistiker", „Komparatistik", „kartographisch", „diaphan", „ephemer", „Ökonometrie", „Habilitand", „proliferieren", „evozieren", „konzedieren"). Braucht eine Figur einen Fachberuf, beschreibe ihn so, wie Menschen wirklich reden („Professor für mittelalterliche Geschichte" statt „Mediävistiker"; „ein Fleck wie eine Landkarte" statt „kartographisch"). Auch KEINE unerklärten Bildungs-Anspielungen (antike Dramen, Dissertationsthemen, Literaturtheorie), die nur Akademiker verstehen – wenn eine Figur studiert, bleibt ihr Fachgebiet in einfachen Worten beschrieben. Härtetest: Würde jemand das Wort in einem Gespräch unter Freunden sagen? Wenn nein, ersetze es.
         - INHALTLICH STIMMIG (muss Sinn ergeben): Jeder Satz schließt logisch an den vorigen an; keine schön klingenden, aber leeren, widersprüchlichen oder unverständlichen Sätze. Lieber klar und konkret als kunstvoll und vage. Handlung, Zeit und Ort müssen nachvollziehbar bleiben.
         - ERZÄHLTEMPO VARIIEREN (passend zum Geschehen, NIE durchgehend langsam): Spannung, Action, Konfrontation, Gefahr und Wendepunkte schnell und treibend erzählen – kurze Sätze, harte Schnitte, wenig Innenschau, Fokus auf Handlung und Dialog. Ruhige, emotionale oder verbindende Momente dürfen kurz atmen, bleiben aber zielgerichtet. Steigere das Tempo zum Szenen- und Kapitelende. Lange Wetter-, Stimmungs- oder Reflexionspassagen, die die Handlung nicht vorantreiben, sind verboten (höchstens wenige Sätze, dann weiter).
         - SATZLÄNGE BRUTAL STREUEN: Niemals drei Sätze in Folge mit ähnlicher Länge. Nach einem langen Schachtelsatz (25+ Wörter) folgt ein Satz mit drei bis fünf Wörtern oder ein verbloses Fragment („Kein Licht. Nirgends."). Pro Szene mindestens zwei sehr kurze Sätze unter vier Wörtern.
@@ -660,7 +663,9 @@ enum PromptFactory {
         """
         Fasse die folgende Romanszene in 2-3 Sätzen zusammen. Nenne Figuren, Ort, \
         was passiert, was sich verändert hat und welche neuen Fakten oder Enthüllungen \
-        etabliert wurden. Gib NUR die Zusammenfassung aus.
+        etabliert wurden. Füge danach GENAU eine Zeile an: \
+        „OFFEN: <die in dieser Szene neu geöffnete Frage oder das gegebene Versprechen>" – \
+        falls nichts Neues geöffnet wurde: „OFFEN: -". Gib NUR Zusammenfassung + OFFEN-Zeile aus.
 
         \(text.truncated(to: 8000))
         """
@@ -698,7 +703,7 @@ enum PromptFactory {
                               chapterNumber: Int, chapterTitle: String, text: String,
                               genreBrief: String = "", charactersSummary: String = "",
                               previousEnding: String = "", nextOpening: String = "",
-                              overusedPhrases: String = "") -> String {
+                              overusedPhrases: String = "", endingNote: String = "") -> String {
         // Kontext-Blöcke: Die Revision lief bisher völlig blind (ohne Genre, Figuren,
         // Nachbarkapitel) – sie konnte Fakten verfälschen, den Genre-Ton abkühlen und
         // Kapitel-Anschlüsse/Cliffhanger zerschreiben.
@@ -721,6 +726,7 @@ enum PromptFactory {
             (hier jede durch eine frische, konkrete Alternative ersetzen, nie wiederverwenden):
             \(overusedPhrases)
             """
+        let endingBlock = endingNote.isEmpty ? "" : "\n\(endingNote)\n"
         return """
         Überarbeite Kapitel \(chapterNumber) ("\(chapterTitle)") eines Romans.
         Sprache: \(language). Stil: \(style), Tonalität: \(tonality).
@@ -731,7 +737,7 @@ enum PromptFactory {
         Ereignisse, Perspektive und Umfang bei (±10%). Szenentrenner (***) müssen \
         exakt erhalten bleiben. Der Genre-Ton (z. B. Hitze/Spannung) darf beim \
         Glätten NICHT abkühlen.
-        \(charactersBlock)\(seamBlock)\(overusedBlock)
+        \(charactersBlock)\(seamBlock)\(overusedBlock)\(endingBlock)
         Wende beim Überarbeiten zusätzlich diese Regeln an (entferne KI-typische Muster aktiv):
         \(humanCraftRules)
 
@@ -786,7 +792,9 @@ enum PromptFactory {
 
         Antworte exakt in diesem Format:
         VERKAUFSTITEL: [klickstarker Verkaufstitel für Amazon KDP, 2-6 Wörter, als Thumbnail im \
-        Suchergebnis sofort lesbar, neugierig machend (offene Frage/Spannung), emotional. PFLICHT: Der \
+        Suchergebnis sofort lesbar, neugierig machend (offene Frage/Spannung), emotional und POLARISIEREND \
+        (Tabu-Reiz, Anschuldigung oder gefährliches Versprechen – ein Titel, zu dem jeder sofort ein \
+        Gefühl hat; nett/gefällig wird überscrollt). Nur Alltagswörter. PFLICHT: Der \
         Titel muss zum TATSÄCHLICHEN Inhalt oben und zum Genre „\(genre)" passen – er verspricht genau \
         das, was das Buch liefert (KEIN irreführender Clickbait, der eine andere Geschichte oder ein \
         anderes Genre vorgaukelt). Wenn es natürlich passt, ein gesuchtes Genre-/Trope-Wort enthalten. \
@@ -850,7 +858,8 @@ enum PromptFactory {
         \(genreLine)\(premiseLine)
         PFLICHT je Titel:
         - EXTREM stark und viral: stoppt den Daumen beim Scrollen, macht sofort süchtig, BookTok-würdig – keine braven, schwachen Titel. ZUGLEICH wie ein echter, professionell verlegter Bestseller: idiomatisches Deutsch, beim ersten Lesen sofort verständlich (viral heißt NICHT kryptisch).
-        - 2-6 Wörter, als Amazon-KDP-Thumbnail sofort lesbar.
+        - POLARISIEREND: löst sofort eine emotionale Reaktion aus (Tabu, Anschuldigung, moralisches Dilemma, gefährliches Versprechen) – ein Titel, zu dem jeder eine Meinung hat. Nett und gefällig wird überscrollt.
+        - 2-6 Wörter, als Amazon-KDP-Thumbnail sofort lesbar. Nur Alltagswörter, die jeder kennt.
         - Offene Frage / Spannung / starkes Versprechen — ein Sog, der zum Klicken zwingt, aber NIE gewollt, kryptisch oder rätselhaft.
         - Emotional aufgeladen, konkretes und verständliches Bild; BookTok-tauglich.
         - STRENG VERBOTEN (klingt „komisch"/künstlich): kryptische oder prätentiöse Titel, synästhetische oder paradoxe Wort-Collagen, Wörter, die zusammen keinen Sinn ergeben.
