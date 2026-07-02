@@ -130,7 +130,9 @@ enum ContentSafetyFilter {
     /// Findet Altersangaben in Ziffern 1–17 (z.B. „14 Jahre alt“, „16-jährig“,
     /// „im Alter von 12“). Liefert (Zeichen-Offset, Alter).
     private static func underageAges(in text: String) -> [(Int, Int)] {
-        let pattern = "(?i)(?:\\bim alter von\\s+)?(\\d{1,2})\\s*[-‑ ]?\\s*(?:jährig\\w*|jahre alt|jahre|jahren|j\\.)"
+        // (?<!\d): keine Teiltreffer in längeren Zahlen – „115 Jahre" darf nicht als
+        // „15 Jahre" gewertet werden (Fehlblockade legitimer erwachsener Figuren).
+        let pattern = "(?i)(?:\\bim alter von\\s+)?(?<!\\d)(\\d{1,2})\\s*[-‑ ]?\\s*(?:jährig\\w*|jahre alt|jahre|jahren|j\\.)"
         guard let re = try? NSRegularExpression(pattern: pattern) else { return [] }
         let ns = text as NSString
         var result: [(Int, Int)] = []

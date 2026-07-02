@@ -594,4 +594,86 @@ enum AutonomousContentQuality {
         let threshold = max(2, words / 300)
         return aiTellCount(text) >= threshold
     }
+
+    // MARK: - Buchweite Wiederholungen (N-Gramm-Scan)
+
+    /// Redebegleiter/Allerwelts-Phrasen, die naturgemäß oft vorkommen und KEINE
+    /// Wiederholungs-Befunde sind.
+    private static let ngramStopPhrases: Set<String> = [
+        "sagte er und sah sie", "sagte sie und sah ihn",
+        "sah sie an und sagte", "sah ihn an und sagte",
+        "es war nicht das erste", "zum ersten mal seit langem"
+    ]
+
+    /// Findet Formulierungen (4-6-Wort-N-Gramme), die in mehreren VERSCHIEDENEN Kapiteln
+    /// wiederkehren – die Lieblingsfloskeln des Modells, an denen Leser KI-Prosa erkennen.
+    /// Rein deterministisch, kein Modell-Call. Liefert die auffälligsten zuerst.
+    static func overusedPhrases(inChapters chapters: [String], minChapters: Int = 3,
+                                maxResults: Int = 12) -> [String] {
+        guard chapters.count >= minChapters else { return [] }
+        // Pro Kapitel zählt jedes N-Gramm nur EINMAL – uns interessiert die
+        // KAPITEL-übergreifende Wiederkehr, nicht die Dichte innerhalb eines Kapitels.
+        var chapterCounts: [String: Int] = [:]
+        var firstSpelling: [String: String] = [:]
+        for chapter in chapters {
+            let words = chapter
+                .components(separatedBy: .whitespacesAndNewlines)
+                .filter { !$0.isEmpty }
+            guard words.count >= 6 else { continue }
+            var seenInChapter = Set<String>()
+            for n in 4...6 {
+                guard words.count >= n else { continue }
+                for start in 0...(words.count - n) {
+                    let gramWords = Array(words[start..<(start + n)])
+                    let raw = gramWords.joined(separator: " ")
+                    let key = String(raw.lowercased()
+                        .filter { !",.;:!?…„“”»«\"'()".contains($0) })
+                    // Nur „inhaltige" Gramme: mindestens ein Wort > 5 Zeichen,
+                    // sonst matcht man nur Funktionswort-Ketten („und dann sah sie").
+                    guard key.count >= 18,
+                          gramWords.contains(where: { $0.count > 5 }),
+                          !ngramStopPhrases.contains(key),
+                          !seenInChapter.contains(key) else { continue }
+                    seenInChapter.insert(key)
+                    chapterCounts[key, default: 0] += 1
+                    if firstSpelling[key] == nil { firstSpelling[key] = raw }
+                }
+            }
+        }
+        // Auffälligste zuerst; Teil-Gramme bereits gemeldeter Formulierungen unterdrücken.
+        let hits = chapterCounts.filter { $0.value >= minChapters }
+            .sorted { ($0.value, $0.key.count) > ($1.value, $1.key.count) }
+        var results: [String] = []
+        for (key, _) in hits {
+            guard results.count < maxResults else { break }
+            let spelled = firstSpelling[key] ?? key
+            if !results.contains(where: { $0.lowercased().contains(key) || key.contains($0.lowercased()) }) {
+                results.append(spelled)
+            }
+        }
+        return results
+    }
+
+    // MARK: - Rewrite-Abnahme (Revision/Korrektorat)
+
+    /// Prüft, ob eine Überarbeitung als Ersatz für die Quelle akzeptiert werden darf.
+    /// Vorher genügten 50% der Wortzahl – ein bei maxTokens ABGESCHNITTENES Kapitel
+    /// (endet mitten im Satz, Szenentrenner fehlen) wurde stillschweigend übernommen
+    /// und landete halbiert beim Leser.
+    static func isAcceptableRewrite(source: String, candidate: String,
+                                    minRatio: Double = 0.8) -> Bool {
+        let sourceWords = source.wordCount
+        let candidateWords = candidate.wordCount
+        guard sourceWords > 0 else { return !candidate.isEmpty }
+        guard Double(candidateWords) >= Double(sourceWords) * minRatio else { return false }
+        // Abgeschnittene Antwort: endet nicht auf Satzschluss-Zeichen.
+        let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let last = trimmed.last, ".!?…«»\"'“”’".contains(last) else { return false }
+        // Szenentrenner müssen erhalten bleiben (beide Prompts fordern es; verlorene
+        // Trenner zerstören die Szenenwechsel im Export).
+        let sourceSeparators = source.components(separatedBy: "***").count - 1
+        let candidateSeparators = candidate.components(separatedBy: "***").count - 1
+        if sourceSeparators > 0, candidateSeparators < sourceSeparators { return false }
+        return true
+    }
 }

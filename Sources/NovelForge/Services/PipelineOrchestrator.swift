@@ -1343,6 +1343,28 @@ final class PipelineOrchestrator: ObservableObject {
                 try await runConsistencyCheck(project: project, config: config)
             case .proofreading:
                 try await runProofreading(project: project, config: config)
+                // Bisher liefen Repair-Audit (Kontinuität/Spannung/Tropes) und die
+                // „Blick ins Buch"-Eröffnungsoptimierung NUR über manuelle UI-Aktionen –
+                // autonom produzierte Bücher bekamen die stärkste Qualitätsstufe nie.
+                // Jetzt Teil jeder Pipeline; Fehler dort lassen das Buch nicht scheitern.
+                do {
+                    _ = try await runRepairWorkflow(project: project, config: config)
+                } catch is CancellationError {
+                    throw CancellationError() // Stop-Anforderung nie verschlucken
+                } catch {
+                    addReport(project: project, area: "Lektorat", type: "Reparatur",
+                              result: "Automatisches Repair-Audit übersprungen: \(error.localizedDescription)",
+                              severity: .warning, recommendation: "Manuell über Veröffentlichung → Reparatur starten.")
+                }
+                do {
+                    try await produceOpeningOptimization(project: project, config: config)
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    addReport(project: project, area: "Blick ins Buch", type: "Eröffnung",
+                              result: "Automatische Eröffnungsoptimierung übersprungen: \(error.localizedDescription)",
+                              severity: .info, recommendation: "Manuell über Veröffentlichung → Blick ins Buch starten.")
+                }
             case .copyrightCheck:
                 runCopyrightCheck(project: project)
             case .kdpFormatting:
@@ -1931,7 +1953,9 @@ final class PipelineOrchestrator: ObservableObject {
                     perspective: profile.narrativePerspective,
                     plotContext: bible.plotPoints,
                     targetWords: chapter.targetWordCount,
-                    scenesPerChapter: plan.scenesPerChapter
+                    scenesPerChapter: plan.scenesPerChapter,
+                    // Schlusskapitel: Auszahlung statt erzwungenem Cliffhanger.
+                    isFinalChapter: chapter.chapterNumber == chapters.last?.chapterNumber
                 ),
                 system: "Du bist ein Szenenplaner für Romane. Du hältst dich exakt an das geforderte Ausgabeformat.",
                 maxTokens: 1200, temperature: 0.6, config: config
@@ -2261,6 +2285,27 @@ final class PipelineOrchestrator: ObservableObject {
                 let isFinalScene = chapterIndex == chapters.count - 1 && sceneIndex == scenes.count - 1
                 let previousEnding = previousSceneText.map { String($0.suffix(600)) } ?? ""
 
+                // Position im Buch + Ziel des Folgekapitels: gibt jeder Szene ihren Platz im
+                // Spannungsbogen (gegen die monotone Mitte) und lässt Kapitelenden aufs
+                // nächste Kapitel hinführen. Fürs Finale zusätzlich das wörtliche
+                // Eröffnungsbild, damit sich der Kreis wirklich schließen kann.
+                var positionParts: [String] = []
+                let percent = Int((Double(chapterIndex + 1) / Double(max(chapters.count, 1))) * 100)
+                positionParts.append("POSITION IM BUCH: Kapitel \(chapter.chapterNumber) von \(chapters.count) (ca. \(percent)%). Spannung und emotionale Einsätze müssen gegenüber früheren Kapiteln spürbar STEIGEN, nicht stagnieren.")
+                if sceneIndex == scenes.count - 1, chapterIndex + 1 < chapters.count {
+                    let nextGoal = chapters[chapterIndex + 1].goal
+                    if !nextGoal.isEmpty {
+                        positionParts.append("NÄCHSTES KAPITEL will: \(nextGoal.truncated(to: 220)) – das Kapitelende führt dorthin, ohne es vorwegzunehmen.")
+                    }
+                }
+                if isFinalScene {
+                    let openingText = chapters.first.flatMap { sortedScenes($0).first?.text } ?? ""
+                    if !openingText.isEmpty {
+                        positionParts.append("SO BEGINNT DAS BUCH (nimm EIN Bild oder Motiv daraus am Ende wieder auf):\n„\(String(openingText.prefix(400)))…“")
+                    }
+                }
+                let positionBlock = positionParts.joined(separator: "\n")
+
                 let job = beginJob(agent: AgentName.draftWriter, phase: .drafting, project: project,
                                    chapter: chapter.chapterNumber, scene: scene.sceneNumber)
                 currentAgent = "\(AgentName.draftWriter) – Kapitel \(chapter.chapterNumber), Szene \(scene.sceneNumber)"
@@ -2294,7 +2339,8 @@ final class PipelineOrchestrator: ObservableObject {
                         targetWords: scene.targetWordCount,
                         bookSignature: project.styleSignature,
                         spiceLevel: project.spiceLevel,
-                        genreBrief: profile.genreRules
+                        genreBrief: profile.genreRules,
+                        positionBlock: positionBlock
                     )
                     let maxTokens = LongFormProductionPlan.draftMaxTokens(forTargetWords: scene.targetWordCount)
                     let minWords = Int(Double(scene.targetWordCount) * 0.75)
@@ -2340,18 +2386,27 @@ final class PipelineOrchestrator: ObservableObject {
                         }
                     }
 
-                    // Deutlich zu kurze, aber vorhandene Szene einmalig vertiefen.
+                    // Deutlich zu kurze, aber vorhandene Szene einmalig vertiefen –
+                    // MIT Kontext (Figuren, Vorszenen-Ende, Genre) und erneuter Prüfung:
+                    // Die Nachbesserung der schwächsten Szenen lief vorher ungesichert
+                    // und konnte KI-Floskeln/Widersprüche NACH den Qualitäts-Gates einführen.
                     if !sceneText.isEmpty, sceneText.wordCount < minWords {
                         do {
                             let expanded = try await generate(
                                 prompt: PromptFactory.expandScene(
                                     language: project.language, style: project.styleProfile,
-                                    text: sceneText, targetWords: scene.targetWordCount
+                                    text: sceneText, targetWords: scene.targetWordCount,
+                                    charactersSummary: charactersSummary,
+                                    previousSceneEnding: previousEnding,
+                                    genreBrief: profile.genreRules
                                 ),
                                 system: "Du bist ein professioneller Romanautor. Du vertiefst Szenen, ohne die Handlung zu verändern.",
                                 maxTokens: maxTokens, temperature: 0.7, config: config, creative: true
                             )
-                            if expanded.text.wordCount > sceneText.wordCount {
+                            if expanded.text.wordCount > sceneText.wordCount,
+                               !AutonomousContentQuality.containsPromptArtifacts(expanded.text),
+                               !AutonomousContentQuality.soundsLikeAI(expanded.text),
+                               ContentSafetyFilter.isSafe(expanded.text) {
                                 sceneText = expanded.text
                                 sceneTokens += expanded.tokensUsed ?? 0
                             }
@@ -2549,17 +2604,40 @@ final class PipelineOrchestrator: ObservableObject {
         }
         guard !pending.isEmpty else { return }
 
+        // Buchweite Lieblingsfloskeln des Modells (in >=3 Kapiteln wiederholte 4-6-Wort-
+        // Formulierungen) deterministisch erkennen und der Revision zum Ersetzen geben –
+        // der meistzitierte KI-Tell in Rezensionen.
+        let allDrafts = chapters.map { $0.draftText ?? "" }
+        let overused = AutonomousContentQuality.overusedPhrases(inChapters: allDrafts)
+        let overusedList = overused.prefix(10).map { "- \($0)" }.joined(separator: "\n")
+        if !overused.isEmpty {
+            addReport(project: project, area: "Gesamtmanuskript", type: "Wiederholungen",
+                      result: "Buchweit überstrapazierte Formulierungen erkannt (\(overused.count)) – werden in der Revision ersetzt",
+                      severity: .info, recommendation: overused.prefix(6).joined(separator: " · "))
+        }
+        let charactersSummary = project.storyBible.map { compactCharacterSummary($0) } ?? ""
+
         var jobs: [PipelineJob] = []
         var requests: [GenerationRequest] = []
         for chapter in pending {
             jobs.append(beginJob(agent: AgentName.reviser, phase: .chapterRevision,
                                  project: project, chapter: chapter.chapterNumber))
             let draft = chapter.draftText ?? ""
+            // Nachbar-Anschlüsse: Kapitelanfang/-ende dürfen beim Glätten nicht brechen.
+            let chapterIdx = chapters.firstIndex(where: { $0.chapterNumber == chapter.chapterNumber })
+            let prevEnding = chapterIdx.flatMap { $0 > 0 ? chapters[$0 - 1].draftText : nil }
+                .map { String($0.suffix(400)) } ?? ""
+            let nextOpening = chapterIdx.flatMap { $0 + 1 < chapters.count ? chapters[$0 + 1].draftText : nil }
+                .map { String($0.prefix(300)) } ?? ""
             requests.append(makeRequest(
                 prompt: PromptFactory.reviseChapter(
                     language: project.language, style: project.styleProfile,
                     tonality: profile.tonality, chapterNumber: chapter.chapterNumber,
-                    chapterTitle: chapter.title, text: draft
+                    chapterTitle: chapter.title, text: draft,
+                    genreBrief: profile.genreRules,
+                    charactersSummary: charactersSummary,
+                    previousEnding: prevEnding, nextOpening: nextOpening,
+                    overusedPhrases: overusedList
                 ),
                 system: "Du bist ein erfahrener Lektor. Du verbesserst Prosa, ohne Handlung oder Stimme zu verändern.",
                 maxTokens: min(12000, max(3000, draft.wordCount * 3)),
@@ -2582,13 +2660,16 @@ final class PipelineOrchestrator: ObservableObject {
             switch results[index] {
             case .success(let response)?:
                 // Schutz vor abgeschnittenen/leeren Antworten: nie Text verlieren.
-                if response.text.wordCount >= draft.wordCount / 2,
+                // Strenge Abnahme (>=80% Umfang, Satzschluss am Ende, Szenentrenner erhalten) –
+                // vorher reichten 50%, wodurch bei maxTokens abgeschnittene Kapitel
+                // stillschweigend halbiert beim Leser landeten.
+                if AutonomousContentQuality.isAcceptableRewrite(source: draft, candidate: response.text),
                    ContentSafetyFilter.isSafe(response.text) {
                     chapter.revisedText = response.text
                 } else {
                     chapter.revisedText = draft
                     addReport(project: project, area: "Kapitel \(chapter.chapterNumber)",
-                              type: "Revision", result: "Revisionsantwort unvollständig – Rohfassung übernommen",
+                              type: "Revision", result: "Revisionsantwort unvollständig/abgeschnitten – Rohfassung übernommen",
                               severity: .warning,
                               recommendation: "Kapitel manuell prüfen oder Revision erneut ausführen.")
                 }
@@ -2622,9 +2703,16 @@ final class PipelineOrchestrator: ObservableObject {
         if (project.qualityReports ?? []).contains(where: { $0.checkType == "Konsistenz" }) { return }
         guard let bible = project.storyBible else { return }
 
-        let summaries = sortedChapters(project).map { chapter -> String in
+        // Budget FAIR auf alle Kapitel verteilen: Vorher wurde die Gesamtübersicht im
+        // Prompt hart bei 10.000 Zeichen gekappt – bei langen Büchern wurde alles ab
+        // ca. Kapitel 8 nie auf Widersprüche geprüft (ausgerechnet Mitte und Ende,
+        // wo sie Leser am meisten stören).
+        let allChapters = sortedChapters(project)
+        let summaryBudget = 9_500
+        let perChapter = allChapters.isEmpty ? 0 : max(160, summaryBudget / allChapters.count)
+        let summaries = allChapters.map { chapter -> String in
             let sceneSummaries = sortedScenes(chapter).compactMap { $0.summary }.joined(separator: " ")
-            return "Kapitel \(chapter.chapterNumber) (\(chapter.title)): \(sceneSummaries)"
+            return "Kapitel \(chapter.chapterNumber) (\(chapter.title)): \(sceneSummaries.truncated(to: perChapter))"
         }.joined(separator: "\n")
 
         guard !summaries.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -2701,13 +2789,15 @@ final class PipelineOrchestrator: ObservableObject {
             let source = chapter.revisedText ?? chapter.draftText ?? ""
             switch results[index] {
             case .success(let response)?:
-                if response.text.wordCount >= source.wordCount / 2,
+                // Korrektorat ändert nur Fehler → Umfang muss nahezu identisch bleiben (>=85%),
+                // sauber auf Satzschluss enden und alle Szenentrenner erhalten.
+                if AutonomousContentQuality.isAcceptableRewrite(source: source, candidate: response.text, minRatio: 0.85),
                    ContentSafetyFilter.isSafe(response.text) {
                     chapter.finalText = response.text
                 } else {
                     chapter.finalText = source
                     addReport(project: project, area: "Kapitel \(chapter.chapterNumber)",
-                              type: "Korrektorat", result: "Korrektoratsantwort unvollständig – vorige Fassung übernommen",
+                              type: "Korrektorat", result: "Korrektoratsantwort unvollständig/abgeschnitten – vorige Fassung übernommen",
                               severity: .warning,
                               recommendation: "Kapitel manuell prüfen.")
                 }
@@ -3150,10 +3240,17 @@ final class PipelineOrchestrator: ObservableObject {
     }
 
     private func compactCharacterSummary(_ bible: StoryBible) -> String {
+        // ALLE kanonischen Merkmale durchreichen (eine Zeile pro Figur): Vorher fielen
+        // Alter/Beruf/Angst weg – die häufigste Folge waren Figuren, deren Alter, Beruf
+        // oder Sprechweise mitten im Buch driftete (klassischer 1-Stern-Trigger).
         (bible.characters ?? []).prefix(8).map { character in
             var line = "\(character.name) (\(character.role))"
+            if !character.age.isEmpty { line += ", \(character.age)" }
+            if !character.occupation.isEmpty { line += ", \(character.occupation)" }
             if !character.goal.isEmpty { line += " – Ziel: \(character.goal)" }
+            if !character.fear.isEmpty { line += ", Angst: \(character.fear)" }
             if !character.weakness.isEmpty { line += ", Schwäche: \(character.weakness)" }
+            if !character.speechPattern.isEmpty { line += ", Sprechweise: \(character.speechPattern)" }
             return line
         }.joined(separator: "\n")
     }

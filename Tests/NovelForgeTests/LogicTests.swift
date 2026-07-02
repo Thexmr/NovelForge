@@ -761,4 +761,86 @@ final class LogicTests: XCTestCase {
         let long = CoverComposer.titleFontSize(for: "Ein ziemlich langer Romantitel der umbrechen muss")
         XCTAssertGreaterThan(short, long)
     }
+
+    // MARK: - Buchqualitäts-Runde (N-Gramm-Scan, Rewrite-Abnahme, Finale-Prompts)
+
+    /// Buchweit wiederholte Formulierungen werden erkannt; Einmal-Formulierungen nicht.
+    func testOverusedPhrasesFindsCrossChapterRepeats() {
+        let tic = "ein Schauer lief ihr kalt den Rücken hinunter"
+        let chapters = (1...4).map { i in
+            "Kapitel \(i) beginnt völlig anders und erzählt eigene Dinge. " + tic
+                + " Danach ging die Handlung Nummer \(i) ganz eigenständig weiter."
+        }
+        let hits = AutonomousContentQuality.overusedPhrases(inChapters: chapters)
+        XCTAssertTrue(hits.contains { $0.lowercased().contains("schauer lief ihr kalt") },
+                      "Wiederkehrende Floskel muss gefunden werden: \(hits)")
+    }
+
+    func testOverusedPhrasesIgnoresUniqueProse() {
+        let chapters = [
+            "Marta zählte die Möwen am Hafenbecken und verfluchte die Flut.",
+            "Jonas reparierte den Vergaser, während der Regen aufs Wellblech trommelte.",
+            "Im Archiv roch es nach kaltem Staub und vergessenen Jahrzehnten."
+        ]
+        XCTAssertTrue(AutonomousContentQuality.overusedPhrases(inChapters: chapters).isEmpty)
+    }
+
+    /// Abgeschnittene Rewrites (zu kurz, ohne Satzschluss, verlorene Szenentrenner)
+    /// werden abgelehnt; saubere Rewrites akzeptiert.
+    func testIsAcceptableRewriteRejectsTruncatedAnswers() {
+        let source = String(repeating: "Ein ganzer Satz steht hier. ", count: 40) + "\n\n***\n\n"
+            + String(repeating: "Auch hier stehen ganze Sätze. ", count: 40)
+        let truncated = String(repeating: "Ein ganzer Satz steht hier. ", count: 30) + "und dann brach es mitten im"
+        XCTAssertFalse(AutonomousContentQuality.isAcceptableRewrite(source: source, candidate: truncated))
+        let losesSeparator = String(repeating: "Ein ganzer Satz steht hier. ", count: 75) + "Ende gut."
+        XCTAssertFalse(AutonomousContentQuality.isAcceptableRewrite(source: source, candidate: losesSeparator))
+        let good = String(repeating: "Ein besserer Satz steht hier. ", count: 38) + "\n\n***\n\n"
+            + String(repeating: "Auch hier stehen bessere Sätze. ", count: 38) + "Ende gut."
+        XCTAssertTrue(AutonomousContentQuality.isAcceptableRewrite(source: source, candidate: good))
+    }
+
+    /// Das Schlusskapitel wird als Auszahlung geplant (kein erzwungener Haken),
+    /// normale Kapitel behalten die Haken-Pflicht.
+    func testScenePlanFinalChapterPlansResolutionInsteadOfHook() {
+        let normal = PromptFactory.scenePlan(bookTitle: "B", chapterNumber: 3, chapterTitle: "K",
+                                             chapterGoal: "Ziel", chapterConflict: "Konflikt",
+                                             perspective: "Er", plotContext: "Plot", targetWords: 2000)
+        XCTAssertTrue(normal.contains("starken Haken"))
+        let finale = PromptFactory.scenePlan(bookTitle: "B", chapterNumber: 40, chapterTitle: "Ende",
+                                             chapterGoal: "Ziel", chapterConflict: "Konflikt",
+                                             perspective: "Er", plotContext: "Plot", targetWords: 2000,
+                                             isFinalChapter: true)
+        XCTAssertTrue(finale.contains("SCHLUSSKAPITEL"))
+        XCTAssertFalse(finale.contains("starken Haken"))
+    }
+
+    /// Die letzte Szene erhält keine Sog-/Cliffhanger-Regeln mehr.
+    func testDraftSceneFinalSceneDropsHookRules() {
+        func scene(final: Bool) -> String {
+            PromptFactory.draftScene(
+                language: "Deutsch", style: "klar", tonality: "warm", perspective: "Er",
+                tense: "Präteritum", genre: "Liebesroman", bookTitle: "B", chapterNumber: 40,
+                chapterTitle: "Ende", chapterGoal: "Ziel", sceneNumber: 4, sceneGoal: "Ziel",
+                sceneLocation: "Ort", sceneTime: "Abend", sceneObstacle: "H", sceneTurn: "W",
+                scenePerspective: "", charactersSummary: "F", styleRules: "R", storySoFar: "S",
+                previousSceneEnding: "", isFirstScene: false, isFinalScene: final, targetWords: 900)
+        }
+        XCTAssertTrue(scene(final: false).contains("SOG (dezent)"))
+        XCTAssertFalse(scene(final: true).contains("SOG (dezent)"))
+        XCTAssertTrue(scene(final: true).contains("KEINE neue Frage"))
+    }
+
+    /// Revision erhält Kontext (Genre, Figuren, Anschluss, Wiederholungs-Liste).
+    func testReviseChapterCarriesContextBlocks() {
+        let prompt = PromptFactory.reviseChapter(
+            language: "Deutsch", style: "d", tonality: "t", chapterNumber: 2,
+            chapterTitle: "K", text: "Text.",
+            genreBrief: "KERNVERSPRECHEN: X", charactersSummary: "Mia (Heldin)",
+            previousEnding: "So endete Kapitel 1.", nextOpening: "So beginnt Kapitel 3.",
+            overusedPhrases: "- die Luft zwischen ihnen knisterte")
+        XCTAssertTrue(prompt.contains("KERNVERSPRECHEN"))
+        XCTAssertTrue(prompt.contains("Mia (Heldin)"))
+        XCTAssertTrue(prompt.contains("ANSCHLUSS"))
+        XCTAssertTrue(prompt.contains("ÜBERSTRAPAZIERTE"))
+    }
 }

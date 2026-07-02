@@ -397,8 +397,22 @@ enum PromptFactory {
     static func scenePlan(bookTitle: String, chapterNumber: Int, chapterTitle: String,
                           chapterGoal: String, chapterConflict: String,
                           perspective: String, plotContext: String, targetWords: Int,
-                          scenesPerChapter: Int = 4) -> String {
-        """
+                          scenesPerChapter: Int = 4, isFinalChapter: Bool = false) -> String {
+        // Schlusskapitel: kein erzwungener Haken – die letzten Szenen gehören der Auszahlung.
+        // (Vorher erzwang der Plan auch im Finale einen Cliffhanger → abrupte, unbefriedigende
+        // Enden, der häufigste 1-Stern-Trigger.)
+        let endingNote = isFinalChapter
+            ? """
+              Dies ist das SCHLUSSKAPITEL des Buches: Baue die Szenen als Höhepunkt → Auflösung →
+              emotionaler Nachklang. Die letzte Szene beantwortet die zentrale Frage des Buches und
+              endet OHNE neuen Haken – reserviere mindestens die letzte Szene ganz für die Auszahlung.
+              """
+            : """
+              Die LETZTE Szene des Kapitels muss mit einem starken Haken
+              enden (Feld „Wendung am Szenenende" entsprechend zugespitzt) – der Leser darf das
+              Buch am Kapitelende nicht weglegen können.
+              """
+        return """
         Plane die Szenen für Kapitel \(chapterNumber) ("\(chapterTitle)") des Romans "\(bookTitle)".
         Kapitelziel: \(chapterGoal)
         Kapitelkonflikt: \(chapterConflict)
@@ -411,9 +425,7 @@ enum PromptFactory {
         Plane mindestens \(scenesPerChapter) Szenen (bei Bedarf mehr, aber nicht weniger).
         Für 500-Seiten-Langform braucht jede Szene eine eigene dramatische Funktion:
         neues Ziel, neue Reibung, neue Information, veränderte Beziehung oder verschärfter Einsatz.
-        Die LETZTE Szene des Kapitels muss mit einem starken Haken
-        enden (Feld „Wendung am Szenenende" entsprechend zugespitzt) – der Leser darf das
-        Buch am Kapitelende nicht weglegen können.
+        \(endingNote)
 
         Gib für JEDE Szene GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
         SZENE|Nummer|Perspektive|Ort|Zeit|Ziel der Szene|Hindernis|Wendung am Szenenende
@@ -545,7 +557,7 @@ enum PromptFactory {
                            storySoFar: String, previousSceneEnding: String,
                            isFirstScene: Bool, isFinalScene: Bool,
                            targetWords: Int, bookSignature: String = "", spiceLevel: Int = 0,
-                           genreBrief: String = "") -> String {
+                           genreBrief: String = "", positionBlock: String = "") -> String {
         var positionNote = ""
         if isFirstScene {
             positionNote = """
@@ -558,10 +570,17 @@ enum PromptFactory {
         } else if isFinalScene {
             positionNote = """
 
-            WICHTIG – LETZTE SZENE DES BUCHES:
-            Löse den zentralen Konflikt emotional befriedigend auf. Greife ein Bild oder Motiv \
-            vom Anfang des Buches wieder auf. Der Schlusssatz muss nachhallen. Kein Cliffhanger.
+            WICHTIG – LETZTE SZENE DES BUCHES (diese Anweisung hat VORRANG vor allen \
+            Sog-/Cliffhanger-Regeln oben):
+            Löse den zentralen Konflikt emotional befriedigend auf und SCHLIESSE alle im Buch \
+            benannten offenen Fragen (oder übergib sie ausdrücklich einem Folgeband). Greife ein \
+            Bild oder Motiv vom Anfang des Buches wieder auf. Ein ruhiger Ausklang ist erlaubt \
+            und erwünscht. Der Schlusssatz muss nachhallen – er öffnet KEINE neue Frage. \
+            Kein Cliffhanger.
             """
+        }
+        if !positionBlock.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            positionNote += "\n\(positionBlock)\n"
         }
 
         var transition = ""
@@ -600,8 +619,8 @@ enum PromptFactory {
         Langform-Pflicht: Schreibe die Szene aus, nicht als Zusammenfassung. Nimm den Zielumfang ernst:
         Konflikt, Wahrnehmung, Subtext, kleine Entscheidungen und Konsequenzen müssen auf der Seite stattfinden.
 
-        FIGUREN:
-        \(charactersSummary.truncated(to: 1200))
+        FIGUREN (Merkmale sind KANONISCH – Alter, Beruf, Beziehungen nie verändern):
+        \(charactersSummary.truncated(to: 2000))
 
         BISHERIGE HANDLUNG:
         \(storySoFar.isEmpty ? "Dies ist der Anfang des Buches." : storySoFar.truncated(to: 8000))
@@ -618,10 +637,14 @@ enum PromptFactory {
         - Konkrete, spezifische Details statt generischer. Variiere Satzlänge und Rhythmus wie in einem Bestseller: Lesefluss vor Kunstfertigkeit, nicht jede Zeile „literarisch" aufladen.
         \(humanCraftRules)
         - KEINE WIEDERHOLUNGEN: Greife keine Bilder, Metaphern, Formulierungen oder Motive aus der bisherigen Handlung wieder auf; erkläre etablierte Fakten nie ein zweites Mal. Ein starkes Symbol nur SELTEN erwähnen, nicht in jeder Szene.
-        - SOG (dezent): Halte mindestens eine offene Frage aktiv und nutze Mikro-Spannung, aber nie auf Kosten der Verständlichkeit. Pro Szene höchstens EINE neue Figur oder Enthüllung, nicht mehrere gleichzeitig.
-        - Der letzte Satz gibt einen Grund zum Weiterlesen, ohne aufgesetzt oder programmatisch zu wirken.
-        \(pageTurnerRules)
-        \(gripRules)
+        \(isFinalScene
+            ? "- AUSZAHLUNG: Alle offenen Fragen werden hier beantwortet – der letzte Satz hallt nach, statt eine neue Frage zu öffnen."
+            : """
+              - SOG (dezent): Halte mindestens eine offene Frage aktiv und nutze Mikro-Spannung, aber nie auf Kosten der Verständlichkeit. Pro Szene höchstens EINE neue Figur oder Enthüllung, nicht mehrere gleichzeitig.
+              - Der letzte Satz gibt einen Grund zum Weiterlesen, ohne aufgesetzt oder programmatisch zu wirken.
+              \(pageTurnerRules)
+              \(gripRules)
+              """)
         \(genreCraft(genre))
         \(positionNote)
         Gib AUSSCHLIESSLICH den fertigen Prosatext der Szene aus. Übernimm NIEMALS
@@ -672,17 +695,43 @@ enum PromptFactory {
     }
 
     static func reviseChapter(language: String, style: String, tonality: String,
-                              chapterNumber: Int, chapterTitle: String, text: String) -> String {
-        """
+                              chapterNumber: Int, chapterTitle: String, text: String,
+                              genreBrief: String = "", charactersSummary: String = "",
+                              previousEnding: String = "", nextOpening: String = "",
+                              overusedPhrases: String = "") -> String {
+        // Kontext-Blöcke: Die Revision lief bisher völlig blind (ohne Genre, Figuren,
+        // Nachbarkapitel) – sie konnte Fakten verfälschen, den Genre-Ton abkühlen und
+        // Kapitel-Anschlüsse/Cliffhanger zerschreiben.
+        let charactersBlock = charactersSummary.isEmpty ? "" :
+            "\nFIGUREN (kanonisch – Namen und Fakten NICHT verändern):\n\(charactersSummary.truncated(to: 1200))\n"
+        let seamBlock: String
+        if previousEnding.isEmpty && nextOpening.isEmpty {
+            seamBlock = ""
+        } else {
+            seamBlock = """
+
+            ANSCHLUSS (inhaltlich unverändert lassen):
+            \(previousEnding.isEmpty ? "" : "So endet das VORIGE Kapitel – der Kapitelanfang muss weiterhin nahtlos daran anschließen: „…\(previousEnding)“")
+            \(nextOpening.isEmpty ? "" : "So beginnt das NÄCHSTE Kapitel – das Kapitelende (inkl. seines Hakens) muss weiterhin dorthin führen: „\(nextOpening)…“")
+            """
+        }
+        let overusedBlock = overusedPhrases.isEmpty ? "" : """
+
+            BEREITS ÜBERSTRAPAZIERTE FORMULIERUNGEN DIESES BUCHES \
+            (hier jede durch eine frische, konkrete Alternative ersetzen, nie wiederverwenden):
+            \(overusedPhrases)
+            """
+        return """
         Überarbeite Kapitel \(chapterNumber) ("\(chapterTitle)") eines Romans.
         Sprache: \(language). Stil: \(style), Tonalität: \(tonality).
-
+        \(genreDirectiveBlock(genreBrief))
         Verbessere Satzrhythmus, Wortwiederholungen, schwache Verben, Füllwörter und \
         Dialogfluss. Streiche Filterwörter (sehen, hören, spüren, bemerken), wo die \
         Wahrnehmung direkt gezeigt werden kann. Behalte Handlung, Reihenfolge der \
         Ereignisse, Perspektive und Umfang bei (±10%). Szenentrenner (***) müssen \
-        exakt erhalten bleiben.
-
+        exakt erhalten bleiben. Der Genre-Ton (z. B. Hitze/Spannung) darf beim \
+        Glätten NICHT abkühlen.
+        \(charactersBlock)\(seamBlock)\(overusedBlock)
         Wende beim Überarbeiten zusätzlich diese Regeln an (entferne KI-typische Muster aktiv):
         \(humanCraftRules)
 
@@ -907,12 +956,24 @@ enum PromptFactory {
         """
     }
 
-    static func expandScene(language: String, style: String, text: String, targetWords: Int) -> String {
-        """
+    static func expandScene(language: String, style: String, text: String, targetWords: Int,
+                            charactersSummary: String = "", previousSceneEnding: String = "",
+                            genreBrief: String = "") -> String {
+        // Vorher lief die Nachbesserung der SCHWÄCHSTEN Szenen ausgerechnet ohne Kontext
+        // und ohne Handwerksregeln – und lud mit „Innenleben vertiefen" genau zu den
+        // KI-Floskeln ein, die überall sonst verboten sind.
+        let charactersBlock = charactersSummary.isEmpty ? "" :
+            "\nFIGUREN (kanonisch, konsistent halten):\n\(charactersSummary.truncated(to: 1000))\n"
+        let anchorBlock = previousSceneEnding.isEmpty ? "" :
+            "\nDIE SZENE MUSS WEITER NAHTLOS AN DIESES VORSZENEN-ENDE ANSCHLIESSEN:\n„…\(previousSceneEnding)“\n"
+        return """
         Die folgende Romanszene ist zu kurz. Erweitere sie auf ca. \(targetWords) Wörter, \
-        OHNE die Handlung zu verändern: Vertiefe Sinneseindrücke, das Innenleben der \
-        Perspektivfigur und die Dialoge. Füge keine neuen Ereignisse oder Figuren hinzu. \
+        OHNE die Handlung zu verändern: Spiele Momente voll aus (konkrete Handlung, Dialog \
+        mit Subtext, spezifische Sinnesdetails) statt zusammenzufassen. Füge keine neuen \
+        Ereignisse oder Figuren hinzu. Innere Reaktionen SPARSAM – keine Floskel-Innenschau.
         Sprache: \(language). Stil: \(style).
+        \(genreDirectiveBlock(genreBrief))\(charactersBlock)\(anchorBlock)
+        \(humanCraftRules)
         Gib NUR den vollständigen erweiterten Szenentext aus, ohne Kommentare.
 
         SZENE:

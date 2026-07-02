@@ -99,4 +99,16 @@ final class ContentSafetyTests: XCTestCase {
         XCTAssertTrue(ContentSafetyFilter.isSafe(
             "Sein Penis war hart. Draußen spielten die Kinder im Garten."))
     }
+
+    /// Regression: Teiltreffer in längeren Zahlen dürfen NICHT als Minderjährigkeit
+    /// gewertet werden („115 Jahre" ist nicht „15 Jahre").
+    func testDoesNotFlagThreeDigitAgesAsUnderage() {
+        XCTAssertTrue(ContentSafetyFilter.isSafe(
+            "Der Vampir war 115 Jahre alt, als sie leidenschaftlichen Sex hatten."))
+    }
+
+    func testStillFlagsRealUnderageAgeNearSexualContent() {
+        XCTAssertFalse(ContentSafetyFilter.isSafe(
+            "Sie war 15 Jahre alt, als die Szene in expliziten Sex überging."))
+    }
 }
