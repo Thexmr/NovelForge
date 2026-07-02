@@ -883,4 +883,16 @@ final class LogicTests: XCTestCase {
         let punch = filler + "Dann sah sie das Blut."
         XCTAssertFalse(AutonomousContentQuality.hasWeakChapterEnding(punch))
     }
+
+    /// Gehäufte Umschreibungen (Benennungs-Vermeidung, Korrekturfiguren) machen den Text
+    /// unverständlich und lösen die Neufassung aus; klare Prosa bleibt unangetastet.
+    func testCircumlocutionDensityTriggersRewrite() {
+        let filler = String(repeating: "Sie ging weiter durch die Stadt und sah sich die Fenster an. ", count: 15)
+        let crypto = "Es war das, was sie nie sagten. Kein Umzug, sondern eine Auslöschung. "
+            + "Es blieb so etwas wie Wärme, etwas, das sie nicht benennen konnte."
+        XCTAssertGreaterThanOrEqual(AutonomousContentQuality.circumlocutionCount(crypto), 4)
+        XCTAssertTrue(AutonomousContentQuality.soundsLikeAI(filler + crypto))
+        XCTAssertFalse(AutonomousContentQuality.soundsLikeAI(filler))
+        XCTAssertTrue(PromptFactory.humanCraftRules.contains("UMSCHREIBUNGEN STRENG BEGRENZEN"))
+    }
 }

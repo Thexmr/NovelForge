@@ -611,6 +611,30 @@ enum AutonomousContentQuality {
         "dichotom", "paradigmat", "narratolog", "semiot", "diskursiv"
     ]
 
+    /// Umschreibungs-Marker: Benennungs-Vermeidung, Korrekturfiguren und Ins-Ungefähre-
+    /// Vergleiche. Einzeln legitim – GEHÄUFT machen sie den Text kryptisch und der Leser
+    /// versteht die Geschichte nicht mehr (Dave-Feedback zu echten Buchauszügen).
+    static let circumlocutionMarkers: [String] = [
+        "das, was", "etwas, das", "etwas, dass", "so etwas wie", "eine art ",
+        ", sondern", "als ob es", "wie etwas, das", "nicht benennen", "kein wort dafür",
+        "etwas härterem als", "etwas anderem als", "aus etwas, das"
+    ]
+
+    /// Zählt Umschreibungs-Marker (Gesamtvorkommen).
+    static func circumlocutionCount(_ text: String) -> Int {
+        let lower = text.lowercased()
+        guard !lower.isEmpty else { return 0 }
+        var count = 0
+        for phrase in circumlocutionMarkers {
+            var range = lower.startIndex..<lower.endIndex
+            while let hit = lower.range(of: phrase, range: range) {
+                count += 1
+                range = hit.upperBound..<lower.endIndex
+            }
+        }
+        return count
+    }
+
     /// Zählt Fachvokabular-Marker (Gesamtvorkommen).
     static func jargonTellCount(_ text: String) -> Int {
         let lower = text.lowercased()
@@ -650,6 +674,10 @@ enum AutonomousContentQuality {
         if archaicTellCount(text) >= 2 { return true }
         // Zwei akademische Fachwörter machen den Text für normale Leser unzugänglich.
         if jargonTellCount(text) >= 2 { return true }
+        // Gehäufte Umschreibungen (Benennungs-Vermeidung, Korrekturfiguren) machen die
+        // Geschichte unverständlich – dichteabhängig, damit lange Kapitel nicht über
+        // legitime Einzelvorkommen stolpern.
+        if circumlocutionCount(text) >= max(4, words / 220) { return true }
         let threshold = max(2, words / 300)
         return aiTellCount(text) >= threshold
     }
