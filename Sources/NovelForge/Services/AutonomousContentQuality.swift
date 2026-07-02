@@ -741,6 +741,23 @@ enum AutonomousContentQuality {
         return results
     }
 
+    // MARK: - Romance-Eskalation (Beziehungstemperatur)
+
+    /// Romance-artige Genres, deren Kernversprechen eine ESKALIERENDE Beziehung ist.
+    static func isRomanceGenre(_ genre: String) -> Bool {
+        let g = genre.lowercased()
+        return ["romance", "liebe", "romantasy", "erotik", "new adult"].contains { g.contains($0) }
+    }
+
+    /// Zielwert der Beziehungstemperatur (2–10) für ein Kapitel: steigt linear über das
+    /// Buch. Gibt dem „Slow Burn" eine messbare Leiter – gegen das bekannte
+    /// „Dark Romance liest sich als kühler Thriller"-Problem (No Burn).
+    static func romanceHeatTarget(chapterIndex: Int, chapterCount: Int) -> Int {
+        guard chapterCount > 1 else { return 6 }
+        let fraction = Double(chapterIndex) / Double(chapterCount - 1)
+        return min(10, max(2, 2 + Int((fraction * 8.0).rounded())))
+    }
+
     // MARK: - Rewrite-Abnahme (Revision/Korrektorat)
 
     /// Prüft, ob eine Überarbeitung als Ersatz für die Quelle akzeptiert werden darf.

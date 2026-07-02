@@ -895,4 +895,38 @@ final class LogicTests: XCTestCase {
         XCTAssertFalse(AutonomousContentQuality.soundsLikeAI(filler))
         XCTAssertTrue(PromptFactory.humanCraftRules.contains("UMSCHREIBUNGEN STRENG BEGRENZEN"))
     }
+
+    // MARK: - Bestseller-Runde (Figurenstimmen, Gefühlsbogen, Beziehungstemperatur)
+
+    /// Sprechweise und markantes Äußeres werden aus der FIGUR-Zeile geparst.
+    func testParseCharactersReadsSpeechAndAppearance() {
+        let line = "FIGUR|Mara|Protagonistin|29|Ärztin|Wahrheit finden|Verlust|Stolz|kurze Sätze, nie Entschuldigungen|rote Locken, Narbe am Kinn"
+        let parsed = StructureParser.parseCharacters(line)
+        XCTAssertEqual(parsed.first?.speech, "kurze Sätze, nie Entschuldigungen")
+        XCTAssertEqual(parsed.first?.appearance, "rote Locken, Narbe am Kinn")
+        // Alte 8-Feld-Zeilen bleiben gültig (Felder leer).
+        let old = StructureParser.parseCharacters("FIGUR|Tom|Antagonist|41|Anwalt|Macht|Kontrollverlust|Eitelkeit")
+        XCTAssertEqual(old.first?.speech, "")
+    }
+
+    /// Der Emotionale Schritt aus dem Kapitelplan wird ins Kapitelziel gefaltet.
+    func testParseChaptersFoldsEmotionalStepIntoGoal() {
+        let line = "KAPITEL|3|Der Riss|Sie findet den Brief|Vertrauen gegen Beweis|Misstrauen kippt in erstes Vertrauen"
+        let parsed = StructureParser.parseChapters(line)
+        XCTAssertTrue(parsed.first?.goal.contains("Emotionaler Schritt: Misstrauen kippt") == true)
+        // Ohne Emotions-Feld bleibt das Ziel unverändert.
+        let old = StructureParser.parseChapters("KAPITEL|3|Der Riss|Sie findet den Brief|Vertrauen gegen Beweis")
+        XCTAssertEqual(old.first?.goal, "Sie findet den Brief")
+    }
+
+    /// Die Beziehungstemperatur steigt über das Buch von 2 auf 10; Romance-Genres werden erkannt.
+    func testRomanceHeatLadderEscalates() {
+        XCTAssertEqual(AutonomousContentQuality.romanceHeatTarget(chapterIndex: 0, chapterCount: 40), 2)
+        XCTAssertEqual(AutonomousContentQuality.romanceHeatTarget(chapterIndex: 39, chapterCount: 40), 10)
+        let mid = AutonomousContentQuality.romanceHeatTarget(chapterIndex: 20, chapterCount: 40)
+        XCTAssertTrue((5...8).contains(mid))
+        XCTAssertTrue(AutonomousContentQuality.isRomanceGenre("Dark Romance"))
+        XCTAssertTrue(AutonomousContentQuality.isRomanceGenre("Liebesroman"))
+        XCTAssertFalse(AutonomousContentQuality.isRomanceGenre("Psychothriller"))
+    }
 }

@@ -1834,6 +1834,8 @@ final class PipelineOrchestrator: ObservableObject {
                 character.goal = item.goal
                 character.fear = item.fear
                 character.weakness = item.weakness
+                character.speechPattern = item.speech          // unverwechselbare Dialogstimme
+                character.importantFacts = item.appearance     // kanonische äußere Merkmale
                 character.storyBible = bible
                 bible.characters?.append(character)
                 modelContext?.insert(character)
@@ -2292,6 +2294,15 @@ final class PipelineOrchestrator: ObservableObject {
                 var positionParts: [String] = []
                 let percent = Int((Double(chapterIndex + 1) / Double(max(chapters.count, 1))) * 100)
                 positionParts.append("POSITION IM BUCH: Kapitel \(chapter.chapterNumber) von \(chapters.count) (ca. \(percent)%). Spannung und emotionale Einsätze müssen gegenüber früheren Kapiteln spürbar STEIGEN, nicht stagnieren.")
+                // Amazon-Leseprobe = die ersten ~10% des Buches: Hier entscheidet sich der Kauf.
+                if percent <= 10 {
+                    positionParts.append("LESEPROBE-BEREICH: Dieses Kapitel liegt in der Amazon-Leseprobe (Blick ins Buch) – maximaler Sog, keine Längen, keine Rückblenden, kein Welt-Erklären. Jede Seite muss zum Kauf führen.")
+                }
+                // Romance-Kernversprechen: die Beziehung eskaliert MESSBAR über das Buch.
+                if AutonomousContentQuality.isRomanceGenre(project.genre) {
+                    let heat = AutonomousContentQuality.romanceHeatTarget(chapterIndex: chapterIndex, chapterCount: chapters.count)
+                    positionParts.append("BEZIEHUNGSTEMPERATUR: In diesem Kapitel ca. Stufe \(heat)/10 (Nähe/Anziehung/Spannung zwischen den Hauptfiguren) – spürbar mehr als in früheren Kapiteln. Die Anziehung ist in JEDER gemeinsamen Szene präsent (Blicke, Berührung, Subtext), nie kühl oder beiläufig.")
+                }
                 if sceneIndex == scenes.count - 1, chapterIndex + 1 < chapters.count {
                     let nextGoal = chapters[chapterIndex + 1].goal
                     if !nextGoal.isEmpty {
@@ -3273,6 +3284,7 @@ final class PipelineOrchestrator: ObservableObject {
             if !character.fear.isEmpty { line += ", Angst: \(character.fear)" }
             if !character.weakness.isEmpty { line += ", Schwäche: \(character.weakness)" }
             if !character.speechPattern.isEmpty { line += ", Sprechweise: \(character.speechPattern)" }
+            if !character.importantFacts.isEmpty { line += ", Merkmale: \(character.importantFacts)" }
             return line
         }.joined(separator: "\n")
     }

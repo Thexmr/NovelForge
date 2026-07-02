@@ -355,7 +355,11 @@ enum PromptFactory {
 
         Erstelle den Protagonisten, den Antagonisten und 3-5 wichtige Nebenfiguren.
         Gib für JEDE Figur GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
-        FIGUR|Name|Rolle|Alter|Beruf|Ziel|Angst|Schwäche
+        FIGUR|Name|Rolle|Alter|Beruf|Ziel|Angst|Schwäche|Sprechweise|Markantes Äußeres
+
+        Sprechweise = 1 kurzer Marker, der die Figur im Dialog UNVERWECHSELBAR macht \
+        (Satzlänge, Lieblingsausdruck, was sie nie sagen würde) – jede Figur klingt anders. \
+        Markantes Äußeres = 2-3 unveränderliche Merkmale (bleiben das ganze Buch kanonisch).
 
         Danach darfst du zu jeder Figur 2-3 Sätze Hintergrund ergänzen.
         """
@@ -390,7 +394,12 @@ enum PromptFactory {
         - KAPITELTITEL kreativ, eigenständig, doppelbödig: jeder Titel ist ein BILD, ein VERSPRECHEN oder eine FRAGE, macht schon im Inhaltsverzeichnis neugierig und verrät NICHT, was passiert (kein Spoiler), klingt im Rückblick aber anders. STRENG VERBOTEN: „Kapitel N", „Teil N", Phasennamen (Aufbruch/Eskalation/Krise/Auflösung), Durchnummerierung und jedes über mehrere Kapitel wiederholte Titelwort. Mische die Bauarten über das Buch (konkretes geladenes Objekt, abgebrochener Halbsatz, Dialog-Echo mit Subtext, sinnliche Wahrnehmung, Paradox, offene Frage, Zeit/Countdown, Drohung/Versprechen); mindestens jeder dritte Titel zielt auf die Beziehungsebene. Kurz (2-6 Wörter), jeder Titel unverwechselbar anders.
 
         Gib für JEDES Kapitel GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
-        KAPITEL|Nummer|Titel|Ziel des Kapitels|Zentraler Konflikt
+        KAPITEL|Nummer|Titel|Ziel des Kapitels|Zentraler Konflikt|Emotionaler Schritt
+
+        Emotionaler Schritt = wie sich der innere Zustand bzw. die Beziehung der Hauptfigur \
+        in DIESEM Kapitel verändert (z. B. „Misstrauen kippt in erstes Vertrauen") – der \
+        Gefühlsbogen entwickelt sich über das Buch stetig weiter, nie zwei Kapitel mit \
+        demselben emotionalen Stand.
 
         Keine weiteren Erklärungen. Die Kapitel müssen den kompletten Plot von Anfang bis Auflösung abdecken.
         """
@@ -403,6 +412,13 @@ enum PromptFactory {
         // Schlusskapitel: kein erzwungener Haken – die letzten Szenen gehören der Auszahlung.
         // (Vorher erzwang der Plan auch im Finale einen Cliffhanger → abrupte, unbefriedigende
         // Enden, der häufigste 1-Stern-Trigger.)
+        // Haken-Typ rotiert deterministisch – sonst enden 40 Kapitel mit demselben Bauplan.
+        let hookTypes = [
+            "eine offene Frage, die der Leser SOFORT beantwortet haben will",
+            "eine konkrete Bedrohung, die gerade sichtbar wird",
+            "eine überraschende Enthüllung im letzten Moment",
+            "eine Entscheidung, deren Ausgang NICHT mehr gezeigt wird"
+        ]
         let endingNote = isFinalChapter
             ? """
               Dies ist das SCHLUSSKAPITEL des Buches: Baue die Szenen als Höhepunkt → Auflösung →
@@ -412,7 +428,8 @@ enum PromptFactory {
             : """
               Die LETZTE Szene des Kapitels muss mit einem starken Haken
               enden (Feld „Wendung am Szenenende" entsprechend zugespitzt) – der Leser darf das
-              Buch am Kapitelende nicht weglegen können.
+              Buch am Kapitelende nicht weglegen können. Haken-Typ für dieses Kapitel:
+              \(hookTypes[abs(chapterNumber) % hookTypes.count]).
               """
         return """
         Plane die Szenen für Kapitel \(chapterNumber) ("\(chapterTitle)") des Romans "\(bookTitle)".
@@ -1043,7 +1060,13 @@ enum PromptFactory {
         - Wenn ein Problem mehrere Kapitel betrifft, schreibe eine eigene REPAIR-Zeile pro
           betroffenem Kapitel, damit die App diese Kapitel automatisch korrigieren kann.
         - Nutze "Gesamtmanuskript" nur, wenn keine konkrete Textreparatur möglich ist.
-        - Stütze Befunde zu Wortlaut, Anschluss und Kontinuität auf die mitgelieferten Textauszüge.\(tropesBlock)
+        - Stütze Befunde zu Wortlaut, Anschluss und Kontinuität auf die mitgelieferten Textauszüge.
+        - ENDE-ABNAHME (Pflicht): Prüfe die LETZTEN beiden Kapitel besonders streng – wird die
+          zentrale Frage des Buches klar beantwortet? Bleiben benannte offene Fäden ungelöst
+          (die OFFEN-Punkte der Handlungsübersicht)? Wirkt das Ende gehetzt, abrupt oder surreal?
+          Bei Liebesromanen: Gibt es eine emotionale Auszahlung (HEA/HFN)? Jeder Mangel am Ende
+          ist reparaturpflichtig (Fehlerquelle: Logik oder Motivation) – schwache Enden sind der
+          häufigste Grund für schlechte Rezensionen.\(tropesBlock)
         - Prüfe AUCH die Lesesog-/Bestseller-Qualität: ein schwaches Kapitel-Ende ohne Haken/
           Cliffhanger, flache oder durchhängende Spannung, ein nicht eingelöstes Genre-Versprechen
           oder ein zäher Einstieg sind reparaturpflichtig (Fehlerquelle: Spannung). Reparaturanweisung
@@ -1346,6 +1369,8 @@ struct ParsedCharacter {
     let goal: String
     let fear: String
     let weakness: String
+    var speech: String = ""
+    var appearance: String = ""
 }
 
 struct ParsedIssue {
@@ -1427,10 +1452,16 @@ enum StructureParser {
             let parts = droppingLeadingNumber(raw)
             let title = parts.first ?? ""
             guard !title.isEmpty else { continue }
+            // Emotionaler Schritt (4. Feld) wird ins Ziel gefaltet – so fließt der geplante
+            // Gefühlsbogen ohne Schema-Änderung automatisch in Szenenplan und Prosa-Prompt.
+            var goal = parts.count > 1 ? parts[1] : ""
+            if parts.count > 3, !parts[3].isEmpty {
+                goal += goal.isEmpty ? parts[3] : " – Emotionaler Schritt: \(parts[3])"
+            }
             result.append(PlannedChapter(
                 number: result.count + 1, // fortlaufend nummerieren, Modell-Nummern können lückenhaft sein
                 title: title,
-                goal: parts.count > 1 ? parts[1] : "",
+                goal: goal,
                 conflict: parts.count > 2 ? parts[2] : ""
             ))
         }
@@ -1469,7 +1500,9 @@ enum StructureParser {
                 occupation: parts.count > 3 ? parts[3] : "",
                 goal: parts.count > 4 ? parts[4] : "",
                 fear: parts.count > 5 ? parts[5] : "",
-                weakness: parts.count > 6 ? parts[6] : ""
+                weakness: parts.count > 6 ? parts[6] : "",
+                speech: parts.count > 7 ? parts[7] : "",
+                appearance: parts.count > 8 ? parts[8] : ""
             ))
         }
         return result
