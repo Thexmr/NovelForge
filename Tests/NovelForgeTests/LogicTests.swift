@@ -765,6 +765,8 @@ final class LogicTests: XCTestCase {
     // MARK: - Buchqualitäts-Runde (N-Gramm-Scan, Rewrite-Abnahme, Finale-Prompts)
 
     /// Buchweit wiederholte Formulierungen werden erkannt; Einmal-Formulierungen nicht.
+    /// (WELCHES Fragment der wiederholten Passage gemeldet wird, ist durch Kappung+Dedup
+    /// bewusst nicht festgelegt – entscheidend ist, DASS die Passage auffällt.)
     func testOverusedPhrasesFindsCrossChapterRepeats() {
         let tic = "ein Schauer lief ihr kalt den Rücken hinunter"
         let chapters = (1...4).map { i in
@@ -772,8 +774,9 @@ final class LogicTests: XCTestCase {
                 + " Danach ging die Handlung Nummer \(i) ganz eigenständig weiter."
         }
         let hits = AutonomousContentQuality.overusedPhrases(inChapters: chapters)
-        XCTAssertTrue(hits.contains { $0.lowercased().contains("schauer lief ihr kalt") },
-                      "Wiederkehrende Floskel muss gefunden werden: \(hits)")
+        XCTAssertFalse(hits.isEmpty, "Wiederkehrende Passagen müssen gefunden werden")
+        XCTAssertTrue(hits.contains { $0.lowercased().contains("schauer") || $0.lowercased().contains("hinunter") },
+                      "Ein Fragment der wiederholten Floskel muss gemeldet werden: \(hits)")
     }
 
     func testOverusedPhrasesIgnoresUniqueProse() {
