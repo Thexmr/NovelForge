@@ -388,6 +388,7 @@ struct ProviderRow: View {
     }
 }
 
+@MainActor
 struct AddProviderView: View {
     @Environment(\.dismiss) var dismiss
     let onAdd: (ProviderConfiguration, String) -> Void

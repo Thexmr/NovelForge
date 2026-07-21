@@ -847,6 +847,7 @@ enum ExportFormat: String {
     }
 }
 
+@MainActor
 struct ExportFormatRow: View {
     let format: ExportFormat
     let project: Project
