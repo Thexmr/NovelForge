@@ -94,7 +94,12 @@ actor NonfictionResearchService {
             ? officialSources(query: query, domain: riskDomain)
             : []
 
-        let combined = await (wikipedia ?? []) + (crossref ?? []) + (pubmed ?? []) + (official ?? [])
+        // In Teil-Ausdrücke zerlegt: die verkettete ??/+-Form überforderte den Type-Checker.
+        let wikiSources = await wikipedia ?? []
+        let crossrefSrc = await crossref ?? []
+        let pubmedSrc = await pubmed ?? []
+        let officialSrc = await official ?? []
+        let combined = wikiSources + crossrefSrc + pubmedSrc + officialSrc
         var seen = Set<String>()
         let unique = combined.filter { source in
             let key = source.url.lowercased()

@@ -209,7 +209,8 @@ final class KDPFactory: ObservableObject {
     func startDispatcher() {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in await self?.tick() }
+            guard let self else { return }
+            Task { @MainActor in await self.tick() }
         }
         Task { await tick() }
     }
