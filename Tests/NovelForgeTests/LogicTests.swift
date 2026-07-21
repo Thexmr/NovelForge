@@ -3,6 +3,7 @@ import SwiftData
 @testable import NovelForge
 
 /// Tests für Pipeline-Invarianten und Sicherheitsgarantien.
+@MainActor
 final class LogicTests: XCTestCase {
 
     /// In-Memory-SwiftData-Container für Tests, die echte @Model-Beziehungen

@@ -4,6 +4,7 @@ import XCTest
 /// Tests für die Parser, die KI-Antworten in Strukturen übersetzen –
 /// die kritischste Stelle der Pipeline: Wenn hier etwas bricht,
 /// produziert die Pipeline leere Bücher.
+@MainActor
 final class ParserTests: XCTestCase {
 
     // MARK: - ConceptParser
@@ -219,6 +220,7 @@ final class ParserTests: XCTestCase {
 }
 
 /// Tests für Preislogik, Wortzählung und KDP-Druckmaße.
+@MainActor
 final class HelperTests: XCTestCase {
 
     func testModelPricingPrefixMatching() {

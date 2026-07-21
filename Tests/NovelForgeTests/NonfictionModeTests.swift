@@ -1,6 +1,7 @@
 import XCTest
 @testable import NovelForge
 
+@MainActor
 final class NonfictionModeTests: XCTestCase {
     func testBookContentTypeRecognizesCuratedNonfictionGenres() {
         for genre in ["Sachbuch", "Ratgeber", "Praxisbuch", "Biografie", "Gesundheitsratgeber"] {

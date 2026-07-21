@@ -3,6 +3,7 @@ import XCTest
 
 /// Tests für den Kinder-/Minderjährigen-Schutzfilter (`ContentSafetyFilter`).
 /// Stellt sicher, dass die harte Sperre nicht versehentlich kaputtgeht.
+@MainActor
 final class ContentSafetyTests: XCTestCase {
 
     // MARK: - Muss blockieren (sexueller Kontext + Minderjährigkeit)

@@ -1,6 +1,7 @@
 import XCTest
 @testable import NovelForge
 
+@MainActor
 final class UnlimitedProductionTests: XCTestCase {
     func testDefaultBookSettingsIncludeDaveImprintForKDPFrontMatter() {
         XCTAssertEqual(DefaultBookSettings.authorName, "Dave Demaré")
