@@ -3,6 +3,7 @@ import Foundation
 /// Namen der spezialisierten Agenten – erscheinen im Agenten-Monitor und im Protokoll.
 enum AgentName {
     static let input = "Input Agent"
+    static let research = "Research Agent"
     static let concept = "Concept Agent"
     static let plot = "Plot Architect"
     static let character = "Character Architect"
@@ -27,11 +28,38 @@ enum AgentName {
 
 enum PromptFactory {
 
+    static func authorBioSuggestions(authorName: String, facts: String,
+                                     genre: String, language: String) -> String {
+        let provided = facts.trimmingCharacters(in: .whitespacesAndNewlines)
+        return """
+        Formuliere 3 professionelle Kurzbiografien für die KDP-Autorenseite und das Buch.
+        Name/Pseudonym: \(authorName)
+        Buchbereich: \(genre)
+        Sprache: \(language)
+        Vom Autor tatsächlich angegebene Informationen:
+        \(provided.isEmpty ? "Keine biografischen Fakten angegeben." : provided)
+
+        VERBINDLICH: Erfinde niemals Beruf, Ausbildung, Titel, Auszeichnungen, Verkaufserfolge,
+        Wohnort, Familie, Erfahrung, Qualifikation oder persönliche Geschichte. Nutze ausschließlich
+        die angegebenen Fakten. Fehlen Fakten, formuliere eine kurze neutrale Markenbio über Themen,
+        Perspektive und Art der Bücher, ohne Tatsachen über die Person zu erfinden.
+        Jede Variante 45–90 Wörter, dritte Person, glaubwürdig und ohne Werbeübertreibung.
+
+        Gib exakt drei einzelne Zeilen aus:
+        BIO|[Variante 1]
+        BIO|[Variante 2]
+        BIO|[Variante 3]
+        """
+    }
+
     /// Kommerziell vielversprechende Buchideen. `authorSeed` ist eine optionale
     /// eigene Idee des Autors, die zu einer vollwertigen Buchidee ausgebaut wird.
     /// Generiert 10 virale Titel-Kandidaten (grounded in der Story) + die stärkste Wahl.
     /// Liefert klare, neugierig machende Kauf-Titel statt schwacher oder kryptischer.
     static func viralTitles(genre: String, premise: String, language: String, count: Int = 10) -> String {
+        if BookContentType.infer(from: genre) == .nonfiction {
+            return nonfictionTitles(genre: genre, premise: premise, language: language, count: count)
+        }
         return """
         Erfinde \(count) extrem starke, klickstarke Titel für diesen Roman (Genre: \(genre), Sprache: \(language)) – Titel, die im Amazon-Suchergebnis sofort Neugier wecken und zum Kauf treiben.
 
@@ -59,6 +87,10 @@ enum PromptFactory {
 
     static func bookIdeas(genre: String, language: String, avoidanceBrief: String = "",
                           authorSeed: String = "") -> String {
+        if BookContentType.infer(from: genre) == .nonfiction {
+            return nonfictionIdeas(genre: genre, language: language,
+                                   avoidanceBrief: avoidanceBrief, authorSeed: authorSeed)
+        }
         let memoryBlock = avoidanceBrief.isEmpty ? "" : "\n\(avoidanceBrief)\n"
         let seed = authorSeed.trimmingCharacters(in: .whitespacesAndNewlines)
         let seedBlock = seed.isEmpty ? "" : """
@@ -105,6 +137,56 @@ enum PromptFactory {
 
         Gib für JEDE Idee GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
         IDEE|Titel|Genre|Prämisse in 2 Sätzen – Satz 1 ist der High-Concept-Hook, Satz 2 nennt Konflikt und Einsatz
+
+        Keine weiteren Erklärungen.
+        """
+    }
+
+    private static func nonfictionTitles(genre: String, premise: String, language: String,
+                                         count: Int) -> String {
+        """
+        Entwickle \(count) professionelle Amazon-KDP-Titel für ein \(genre) auf \(language).
+
+        Inhalt und Nutzen:
+        \(premise.truncated(to: 1500))
+
+        Der Haupttitel ist kurz, konkret und glaubwürdig. Er benennt Problem, Methode oder erwünschte
+        Veränderung, ohne Clickbait. Ein Untertitel darf Zielgruppe und konkreten Nutzen erklären.
+        Verboten: Erfolgsgarantien, Heilungs- oder Einkommensversprechen, erfundene Superlative,
+        "Bestseller", "garantiert", "mühelos", "für immer" und nicht belegbare Zahlenversprechen.
+
+        Antworte exakt in diesem Format:
+        KANDIDATEN:
+        1) ...
+        \(count)) ...
+        BESTER: [exakt einer der Kandidaten]
+        """
+    }
+
+    private static func nonfictionIdeas(genre: String, language: String,
+                                        avoidanceBrief: String, authorSeed: String) -> String {
+        let seed = authorSeed.trimmingCharacters(in: .whitespacesAndNewlines)
+        let seedBlock = seed.isEmpty ? "" : "\nAUTOREN-IDEE (verbindlich): \(seed)\n"
+        let memoryBlock = avoidanceBrief.isEmpty ? "" : "\n\(avoidanceBrief)\n"
+        return """
+        Entwickle 5 eigenständige, praktisch wertvolle Ideen für \(genre) auf \(language).
+        \(seedBlock)\(memoryBlock)
+
+        QUALITÄTSVERTRAG:
+        - LESERPROBLEM: ein konkretes, relevantes Problem einer klar benannten Zielgruppe.
+        - NUTZENVERSPRECHEN: eine realistische Veränderung, die das Buch Schritt für Schritt ermöglicht.
+        - DIFFERENZIERUNG: ein nachvollziehbarer Blickwinkel oder eine bessere praktische Methode,
+          keine bloße Zusammenstellung bekannter Allgemeinplätze.
+        - UMSETZUNG: Beispiele, Checklisten, Übungen und nächste Schritte müssen möglich sein.
+        - Keine erfundenen Fakten, Studien, Statistiken, Quellen, Zitate oder Fachleute.
+        - Keine Heilungs-, Erfolgs- oder Einkommensgarantien und kein irreführender Clickbait.
+        \(NonfictionSafety.directive(genre: genre, premise: seed))
+
+        Titel sind klar, glaubwürdig und suchnah. Jede Idee unterscheidet sich deutlich von den
+        gespeicherten Büchern in Thema, Zielgruppe, Methode und Nutzen.
+
+        Gib für JEDE Idee GENAU eine Zeile aus:
+        IDEE|Titel|Genre|LESERPROBLEM: ... NUTZENVERSPRECHEN: ... METHODE: ...
 
         Keine weiteren Erklärungen.
         """
@@ -183,6 +265,9 @@ enum PromptFactory {
     /// Konzept, Plot, Kapitelplan und jede Szene – damit das Buch zweifelsfrei im Genre landet.
     static func genreBrief(title: String, genre: String, subgenre: String?,
                            tropes: String = "", spiceLevel: Int = 0, language: String) -> String {
+        if BookContentType.infer(from: genre) == .nonfiction {
+            return nonfictionBrief(title: title, genre: genre, subgenre: subgenre, language: language)
+        }
         var genreLine = genre
         if let subgenre, !subgenre.isEmpty { genreLine += " / \(subgenre)" }
         let t = tropes.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -232,7 +317,14 @@ enum PromptFactory {
                         style: String, tonality: String, audience: String,
                         perspective: String, tense: String, pageCount: Int,
                         ideaSeed: String, tropes: String = "", bookSignature: String = "",
-                        sequelContext: String = "", genreBrief: String = "") -> String {
+                        sequelContext: String = "", genreBrief: String = "",
+                        researchContext: String = "") -> String {
+        if BookContentType.infer(from: genre) == .nonfiction {
+            return nonfictionConcept(title: title, genre: genre, subgenre: subgenre,
+                                     language: language, style: style, tonality: tonality,
+                                     audience: audience, pageCount: pageCount, ideaSeed: ideaSeed,
+                                     researchContext: researchContext)
+        }
         var genreLine = genre
         if let subgenre, !subgenre.isEmpty {
             genreLine += " / \(subgenre)"
@@ -301,7 +393,14 @@ enum PromptFactory {
 
     static func plot(title: String, genre: String, style: String, concept: String,
                      pageCount: Int, chapterCount: Int, bookSignature: String = "",
-                     sequelContext: String = "", genreBrief: String = "") -> String {
+                     sequelContext: String = "", genreBrief: String = "",
+                     researchContext: String = "") -> String {
+        if BookContentType.infer(from: genre) == .nonfiction {
+            return nonfictionArchitecture(title: title, genre: genre, style: style,
+                                          concept: concept, pageCount: pageCount,
+                                          chapterCount: chapterCount, genreBrief: genreBrief,
+                                          researchContext: researchContext)
+        }
         let trimmedSignature = bookSignature.trimmingCharacters(in: .whitespacesAndNewlines)
         let signatureBlock = trimmedSignature.isEmpty ? "" : """
 
@@ -319,16 +418,20 @@ enum PromptFactory {
         \(concept)
         \(signatureBlock)\(sequelLine)
         \(genreDirectiveBlock(genreBrief))
-        Baue den Plot nach bewährter Bestseller-Dramaturgie in drei Akten:
-        - Eröffnungsbild und Alltag mit Riss (0–10%)
-        - Auslösendes Ereignis, das die Normalität zerstört (ca. 10%)
-        - Erster Wendepunkt – es gibt kein Zurück mehr (ca. 25%)
-        - Steigende Komplikationen mit wechselnden Teilerfolgen (25–50%)
-        - Mittelpunkt-Umkehr: ein Sieg oder eine Niederlage, die alles neu rahmt (50%)
-        - Die Schlinge zieht sich zu, der Preis steigt (50–75%)
-        - Tiefpunkt: Alles scheint verloren (ca. 75%)
-        - Entscheidung und finale Konfrontation (75–90%)
-        - Höhepunkt (ca. 90%) und Auflösung mit emotionalem Nachklang
+        Entwickle einen kausalen, genresicheren Spannungsbogen, dessen konkrete Architektur der
+        STIL-DNA dieses Buches folgt. Verwende die folgenden Funktionen, aber NICHT als starre
+        Drei-Akt- oder Prozentschablone und nicht immer in derselben sichtbaren Reihenfolge:
+        - eine frühe Störung, die das zentrale Versprechen aktiviert
+        - mindestens eine irreversible Entscheidung der Hauptfigur
+        - Komplikationen, die aus vorherigen Entscheidungen entstehen
+        - eine Erkenntnis oder Umkehr, die Ziel oder Bedeutung verändert
+        - einen Preis, den die Hauptfigur nicht umgehen kann
+        - eine finale Entscheidung, Konfrontation oder Enthüllung
+        - eine genre- und figurenbezogene Auszahlung mit angemessenem Nachklang
+
+        Lage, Anzahl und Abstand dieser Funktionen variieren nach Strukturmodell, Genre und Stimme.
+        Nichtlineare, parallele, Mosaik-, Countdown- oder Rahmenstrukturen müssen auf der Seite
+        tatsächlich anders funktionieren und dürfen nicht bloß eine umbenannte Drei-Akt-Fassung sein.
 
         Zusätzlich:
         - Formuliere die zentrale dramatische Frage in einem Satz.
@@ -343,7 +446,8 @@ enum PromptFactory {
         """
     }
 
-    static func characters(title: String, genre: String, plot: String, sequelContext: String = "") -> String {
+    static func characters(title: String, genre: String, plot: String, concept: String = "",
+                           sequelContext: String = "") -> String {
         let trimmedSequel = sequelContext.trimmingCharacters(in: .whitespacesAndNewlines)
         let sequelBlock = trimmedSequel.isEmpty ? "" : "\nSERIE / FOLGEBAND (VERBINDLICH): Übernimm die wiederkehrenden Figuren der Reihe UNVERÄNDERT (gleiche Namen, Rollen, Eigenschaften) und führe sie als erste Einträge auf; ergänze nur neue Figuren, die DIESER Band zusätzlich braucht. Wiederkehrende Figuren der Reihe:\n\(trimmedSequel)\n"
         return """
@@ -353,13 +457,19 @@ enum PromptFactory {
         Plot:
         \(plot.truncated(to: 4000))
 
+        VERBINDLICHER BUCHKANON:
+        \(concept.truncated(to: 3500))
+
         Erstelle den Protagonisten, den Antagonisten und 3-5 wichtige Nebenfiguren.
         Gib für JEDE Figur GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
-        FIGUR|Name|Rolle|Alter|Beruf|Ziel|Angst|Schwäche|Sprechweise|Markantes Äußeres
+        FIGUR|Name|Rolle|Alter|Beruf|Ziel|Angst|Schwäche|Sprechweise|Markantes Äußeres|Beziehungen|Kanonische Fakten
 
         Sprechweise = 1 kurzer Marker, der die Figur im Dialog UNVERWECHSELBAR macht \
         (Satzlänge, Lieblingsausdruck, was sie nie sagen würde) – jede Figur klingt anders. \
         Markantes Äußeres = 2-3 unveränderliche Merkmale (bleiben das ganze Buch kanonisch).
+        Beziehungen = konkrete Verwandtschaft und Beziehung zu allen zentralen Figuren. Kanonische
+        Fakten = nur unveränderliche, handlungsrelevante Tatsachen aus Buchkanon und Plot, besonders
+        Besitz, Tod/Leben, Herkunft und frühere Ereignisse. Erfinde hier KEINE Alternative zum Kanon.
 
         Danach darfst du zu jeder Figur 2-3 Sätze Hintergrund ergänzen.
         """
@@ -368,7 +478,12 @@ enum PromptFactory {
     static func chapterPlan(title: String, genre: String, plot: String,
                             chapterCount: Int, wordsPerChapter: Int,
                             scenesPerChapter: Int = 4, bookSignature: String = "",
-                            genreBrief: String = "") -> String {
+                            genreBrief: String = "", canonicalStory: String = "") -> String {
+        if BookContentType.infer(from: genre) == .nonfiction {
+            return nonfictionChapterPlan(title: title, genre: genre, architecture: plot,
+                                         chapterCount: chapterCount, wordsPerChapter: wordsPerChapter,
+                                         sectionsPerChapter: scenesPerChapter, genreBrief: genreBrief)
+        }
         let trimmedSignature = bookSignature.trimmingCharacters(in: .whitespacesAndNewlines)
         let signatureBlock = trimmedSignature.isEmpty ? "" : """
 
@@ -384,13 +499,20 @@ enum PromptFactory {
         keine summarischen Sprünge, kein Kurzgeschichtenbogen mit künstlicher Streckung.
         \(signatureBlock)
         \(genreDirectiveBlock(genreBrief))
+        VERBINDLICHER BUCHKANON (steht über jeder kreativen Ergänzung):
+        \(canonicalStory.truncated(to: 7000))
+
         Plot:
         \(plot.truncated(to: 6000))
 
         Regeln für Bestseller-Kapitelstruktur:
-        - JEDES Kapitel endet mit einem Haken: offene Frage, Bedrohung, Enthüllung oder folgenschwere Entscheidung.
+        - Die meisten Kapitel enden mit Vorwärtsbewegung oder einer offenen Erwartung. Nutze harte Cliffhanger nur an dramaturgisch passenden Stellen; ruhige emotionale Nachwirkungen und abgeschlossene Teilziele sind ausdrücklich erlaubt.
         - Variiere das Tempo: Auf intensive Kapitel folgt ein ruhigeres mit Charaktertiefe – nie zwei gleiche hintereinander.
         - Jedes Kapitel hat genau ein klares Ziel und treibt den Hauptplot messbar voran. Keine Füllkapitel.
+        - KONTINUITÄT: Verwandtschaft, Besitz, Todesfälle, Vergangenheit, Berufe, Namen und Rollen aus
+          dem Buchkanon niemals ändern oder durch neue Varianten ersetzen. Keine neue Schwester, Tante,
+          kein neuer Onkel oder Erblasser, wenn der Kanon diese Beziehung nicht festlegt. Unklare Details
+          offenlassen statt erfinden. Keine Genreverschiebung durch übernatürliche Elemente ohne Kanonbasis.
         - KAPITELTITEL kreativ, eigenständig, doppelbödig: jeder Titel ist ein BILD, ein VERSPRECHEN oder eine FRAGE, macht schon im Inhaltsverzeichnis neugierig und verrät NICHT, was passiert (kein Spoiler), klingt im Rückblick aber anders. STRENG VERBOTEN: „Kapitel N", „Teil N", Phasennamen (Aufbruch/Eskalation/Krise/Auflösung), Durchnummerierung und jedes über mehrere Kapitel wiederholte Titelwort. Mische die Bauarten über das Buch (konkretes geladenes Objekt, abgebrochener Halbsatz, Dialog-Echo mit Subtext, sinnliche Wahrnehmung, Paradox, offene Frage, Zeit/Countdown, Drohung/Versprechen); mindestens jeder dritte Titel zielt auf die Beziehungsebene. Kurz (2-6 Wörter), jeder Titel unverwechselbar anders.
 
         Gib für JEDES Kapitel GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
@@ -408,7 +530,15 @@ enum PromptFactory {
     static func scenePlan(bookTitle: String, chapterNumber: Int, chapterTitle: String,
                           chapterGoal: String, chapterConflict: String,
                           perspective: String, plotContext: String, targetWords: Int,
-                          scenesPerChapter: Int = 4, isFinalChapter: Bool = false) -> String {
+                          scenesPerChapter: Int = 4, isFinalChapter: Bool = false,
+                          canonicalStory: String = "") -> String {
+        if plotContext.contains("SACHBUCH-ARCHITEKTUR") {
+            return nonfictionSectionPlan(bookTitle: bookTitle, chapterNumber: chapterNumber,
+                                         chapterTitle: chapterTitle, chapterGoal: chapterGoal,
+                                         chapterChallenge: chapterConflict, architecture: plotContext,
+                                         targetWords: targetWords, sectionCount: scenesPerChapter,
+                                         isFinalChapter: isFinalChapter)
+        }
         // Schlusskapitel: kein erzwungener Haken – die letzten Szenen gehören der Auszahlung.
         // (Vorher erzwang der Plan auch im Finale einen Cliffhanger → abrupte, unbefriedigende
         // Enden, der häufigste 1-Stern-Trigger.)
@@ -438,12 +568,28 @@ enum PromptFactory {
         Standard-Erzählperspektive: \(perspective)
         Gesamtumfang des Kapitels: ca. \(targetWords) Wörter.
 
+        VERBINDLICHER BUCHKANON:
+        \(canonicalStory.truncated(to: 6000))
+        Jede Szene muss diesem Kanon entsprechen. Verwandtschaft, Besitz, Vergangenheit, Todesfälle,
+        Namen und Rollen niemals abwandeln. Keine neue kanonische Tatsache erfinden, nur weil sie als
+        dramatische Wendung bequem wäre.
+
         Plotkontext:
         \(plotContext.truncated(to: 3000))
 
         Plane mindestens \(scenesPerChapter) Szenen (bei Bedarf mehr, aber nicht weniger).
         Für 500-Seiten-Langform braucht jede Szene eine eigene dramatische Funktion:
         neues Ziel, neue Reibung, neue Information, veränderte Beziehung oder verschärfter Einsatz.
+        KANON-GRENZE: Konkretisiere ausschließlich das vorgegebene Kapitelziel. Erfinde KEINE neue
+        Vorgeschichte, Verwandtschaft, Schwangerschaft, Geburt, Todesursache, Todesort, Datumsfolge,
+        Besitzurkunde, geheime Abstammung oder frühere Tat. Plane keine Briefe, Fotos, Tagebücher,
+        Ultraschallbilder oder sonstigen Beweisstücke, die nicht bereits im Primärkanon genannt sind.
+        Keine Geister-, Stalker-, Einbrecher-, Silhouetten- oder Verwesungsbilder, wenn das Genre sie
+        nicht verlangt. Atmosphäre darf Spannung erzeugen, aber niemals das Genre in Horror oder
+        Mystery verschieben. Keine scheinbar spektakuläre Wendung auf Kosten von Logik und Kanon.
+        Jede Information im Feld „Wendung“ muss sich wörtlich aus Primärkanon, Kapitelziel oder
+        Kapitelkonflikt begründen lassen. Bei Unsicherheit plane eine Entscheidung oder
+        Beziehungsverschiebung statt einer neuen Tatsache.
         \(endingNote)
 
         Gib für JEDE Szene GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
@@ -465,9 +611,10 @@ enum PromptFactory {
         - DIREKT ERZÄHLEN – UMSCHREIBUNGEN STRENG BEGRENZEN: Nenne Dinge, Gefühle und Ereignisse beim konkreten Namen, statt sie zu umschreiben. Der Leser muss in JEDEM Absatz ohne Rätseln verstehen, wer was tut und was gerade passiert. STRENG VERBOTEN sind gehäufte Umschreibungs-Ketten: Benennungs-Vermeidung („das, was sie waren", „etwas, das sie nicht benennen konnte"), Korrekturfiguren in Serie („Nicht leergezogen, sondern ausgelöscht"), abstrakte Vergleiche ins Ungefähre („wie eine Wand aus etwas Härterem als Luft"), Substantiv-Kaskaden, die dieselbe Sache dreimal neu umschreiben. HÖCHSTENS EINE Umschreibung pro Szene – alles andere in klaren, direkten Sätzen. Wenn ein Satz beim ersten Lesen nicht sofort verständlich ist, schreibe ihn einfacher.
         - ALLTAGSSPRACHE STATT FACHVOKABULAR: Verwende AUSSCHLIESSLICH Wörter, die ein normaler Leser kennt und im Alltag benutzt. KEINE akademischen Fachbegriffe, Bildungswörter, bildungssprachlichen Adjektive oder seltenen Fremdwörter (z. B. NIEMALS „Mediävistiker", „Komparatistik", „kartographisch", „diaphan", „ephemer", „Ökonometrie", „Habilitand", „proliferieren", „evozieren", „konzedieren"). Braucht eine Figur einen Fachberuf, beschreibe ihn so, wie Menschen wirklich reden („Professor für mittelalterliche Geschichte" statt „Mediävistiker"; „ein Fleck wie eine Landkarte" statt „kartographisch"). Auch KEINE unerklärten Bildungs-Anspielungen (antike Dramen, Dissertationsthemen, Literaturtheorie), die nur Akademiker verstehen – wenn eine Figur studiert, bleibt ihr Fachgebiet in einfachen Worten beschrieben. Härtetest: Würde jemand das Wort in einem Gespräch unter Freunden sagen? Wenn nein, ersetze es.
         - INHALTLICH STIMMIG (muss Sinn ergeben): Jeder Satz schließt logisch an den vorigen an; keine schön klingenden, aber leeren, widersprüchlichen oder unverständlichen Sätze. Lieber klar und konkret als kunstvoll und vage. Handlung, Zeit und Ort müssen nachvollziehbar bleiben.
+        - KLARE KAUSALITÄT UND ABSICHT: Der Leser erkennt jederzeit, WER handelt, WAS konkret geschieht, WARUM die Figur es jetzt tut und WELCHE unmittelbare Folge daraus entsteht. Geheim gehalten werden darf eine benannte Information, niemals die sichtbare Handlung oder die aktuelle Absicht. Keine Absätze, die nur Stimmung, Vermutung oder Reaktion umkreisen. Spätestens nach einer kurzen Wahrnehmung folgt Entscheidung, Dialog oder Handlung.
         - ERZÄHLTEMPO VARIIEREN (passend zum Geschehen, NIE durchgehend langsam): Spannung, Action, Konfrontation, Gefahr und Wendepunkte schnell und treibend erzählen – kurze Sätze, harte Schnitte, wenig Innenschau, Fokus auf Handlung und Dialog. Ruhige, emotionale oder verbindende Momente dürfen kurz atmen, bleiben aber zielgerichtet. Steigere das Tempo zum Szenen- und Kapitelende. Lange Wetter-, Stimmungs- oder Reflexionspassagen, die die Handlung nicht vorantreiben, sind verboten (höchstens wenige Sätze, dann weiter).
-        - SATZLÄNGE BRUTAL STREUEN: Niemals drei Sätze in Folge mit ähnlicher Länge. Nach einem langen Schachtelsatz (25+ Wörter) folgt ein Satz mit drei bis fünf Wörtern oder ein verbloses Fragment („Kein Licht. Nirgends."). Pro Szene mindestens zwei sehr kurze Sätze unter vier Wörtern.
-        - ABSATZLÄNGE VARIIEREN: Keine zwei gleich langen Absätze hintereinander. Setze mindestens einen Ein-Satz-Absatz als Akzent.
+        - SATZRHYTHMUS ORGANISCH VARIIEREN: Satzlänge folgt Wahrnehmung, Stimme und Tempo der konkreten Szene. Kurze Sätze und Fragmente nur als echte Akzente, niemals nach Quote oder wiederkehrendem Muster. Lesefluss ist wichtiger als demonstrative Variation.
+        - ABSATZRHYTHMUS: Absätze nach Gedanken-, Handlungs- und Sprecherwechsel setzen. Ein-Satz-Absätze sparsam verwenden; keine sichtbare Längenschablone erzeugen.
         - ABSATZ-ENDEN (das wichtigste Verbot): Kein Absatz endet mit einem zusammenfassenden, deutenden oder moralisierenden Satz („Und so begriff sie …", „Es war ein Moment, der alles veränderte", „Nichts würde mehr sein wie zuvor"). Brich auf einer konkreten Handlung, einem Gegenstand oder einem halben Gedanken ab. Auch der Schlusssatz der Szene bleibt nüchtern, nicht feierlich, nicht aphoristisch – hör auf, bevor die Bedeutung sauber ist.
         - SATZANFÄNGE BRECHEN: Nicht jeder Satz beginnt mit dem Subjekt (Sie/Er/Name). Keine gehäuften Partizip- oder Adverb-Auftakte („Langsam …", „Mit zitternden Händen …") – höchstens einmal pro Absatz. Stell Sätze ruhig hart und unverbunden nebeneinander (Parataxe).
         - KONNEKTOREN-DIÄT: Höchstens EIN Satz-Anfangs-Konnektor pro Absatz; streiche „jedoch", „dennoch", „indes", „gleichwohl", „nichtsdestotrotz", „letztlich", „letztendlich", „mit anderen Worten", „in der Tat".
@@ -482,8 +629,9 @@ enum PromptFactory {
         - VERGLEICHS-KRÜCKE BEGRENZEN: „als hätte …", „als ob …", „als wäre …", „als würde …" sowie der Reflex-Vergleich „wie ein …" höchstens EINMAL pro Szene. Sonst das Konkrete unvermittelt hinstellen (statt „Ihre Hände zitterten, als hätte jemand die Kälte aufgedreht" lieber „Ihre Hände zitterten. Sie schob sie unter die Oberschenkel."). Keine vagen Innenschau-Formeln wie „etwas, das sie nicht benennen konnte/wollte", „etwas, das sie nicht in Worte fassen konnte" – benenne das Konkrete oder lass es weg.
         - MOTIV NICHT HÄMMERN: Ein abstraktes Themen-Substantiv (z.B. Kontrolle, Nähe, Schweigen, Protokoll) NICHT als Leitmotiv wiederholen, und das Thema NIE als abstrakten Begriff aussprechen. Zeig es an konkreten Dingen, benenne es nie.
         - KEINE WIEDERKEHRENDEN BEATS/GESTEN: Greife dieselbe Körpergeste oder Erzähl-Formel NIE als Reflex wieder auf. STRENG VERBOTEN als Standard-Beat (überstrapaziert, killt den Lesefluss): „öffnete den Mund und schloss ihn (wieder)", „drehte sich nicht um", die Formel „…", sagte sie. Keine Frage." und „etwas, das sie nicht [sehen/deuten/benennen] konnte". Jede emotionale Reaktion wird ANDERS und konkret gezeigt; variiere Gesten von Szene zu Szene.
+        - HARTE FREQUENZ-LIMITS pro Szene (werden maschinell gezählt): Sätze, die mit „Nicht/Kein/Keine" beginnen: höchstens 1 (die Verneinungs-Rhetorik „Nicht X. Sondern Y." ist DAS Erkennungszeichen von KI-Prosa). Körpersignale (schlucken, Atem stocken/anhalten, Herz hämmern, Magen, zittern, kribbeln): zusammen höchstens 1. „leise/langsam/plötzlich/einfach": zusammen höchstens 2. Was ein Körpersignal sagen soll, zeigt stattdessen eine konkrete Handlung, ein Objekt oder ein Satz Dialog.
         - TELLING SPARSAM: Formeln wie „sie wusste, dass …", „sie kannte …", „etwas in …" nur selten. Statt zu behaupten, was eine Figur weiß oder fühlt, zeig die Handlung oder das konkrete Detail, aus dem es hervorgeht.
-        - SELBSTCHECK vor der Ausgabe (still, nicht in den Text schreiben): Endet ein Absatz auf einer Deutung? Drei gleich lange Sätze in Folge? Ein Gefühl benannt statt gezeigt? Eine Trikola oder ein „nicht X, sondern Y"? Mehr als ein „als hätte/wäre/würde"? – umbauen. Gib nur die korrigierte Prosa aus.
+        - SELBSTCHECK vor der Ausgabe (still, nicht in den Text schreiben): Endet ein Absatz auf einer Deutung? Drei gleich lange Sätze in Folge? Ein Gefühl benannt statt gezeigt? Eine Trikola oder ein „nicht X, sondern Y"? Mehr als ein „als hätte/wäre/würde"? Ist bei jedem Absatz klar, wer handelt, was geschieht und was sich dadurch ändert? – umbauen. Gib nur die korrigierte Prosa aus.
         """
     }
 
@@ -493,12 +641,12 @@ enum PromptFactory {
     static var pageTurnerRules: String {
         """
         SOG / PAGE-TURNER (der Leser MUSS weiterlesen):
-        - OFFENE SCHLEIFE: In jeder Szene bleibt mindestens eine BENANNTE Frage offen; schließt du eine, öffne im selben Moment eine neue, sodass nie alle Fäden zu sind. Im Liebesroman/Erotik ist die stärkste offene Frage eine BEZIEHUNGSFRAGE (Sehnsucht, Misstrauen, Schuld), nie nur eine Plot-/Technik-Frage.
-        - ZWEI SPANNUNGSSTRÖME: Halte gleichzeitig eine äußere Frage (Gefahr/Plot) UND eine innere/zwischenmenschliche (Begehren/Misstrauen/Schuld) offen; wechsle innerhalb der Szene mindestens einmal die Tonart.
-        - MIKROSPANNUNG ZEILE FÜR ZEILE: In JEDEM Absatz eine kleine offene Frage, ein Widerspruch oder ein unausgesprochenes Gefühl. Keine reinen Beschreibungs- oder Infoabsätze ohne innere Reibung.
+        - OFFENE SCHLEIFEN DOSIEREN: Halte die zentrale Frage des aktuellen Abschnitts lebendig, aber erlaube echte Antworten und kurze Ruhe. Nicht jede Szene muss eine neue Frage eröffnen.
+        - SPANNUNGSSTRÖME: Äußere und zwischenmenschliche Spannung dürfen sich abwechseln; erzwinge nicht beide in jeder Szene.
+        - MIKROSPANNUNG GEZIELT: Dialog, Entscheidung und widersprüchliche Absichten tragen Spannung. Reine Beobachtung oder Atmosphäre ist erlaubt, wenn sie Stimme, Orientierung oder Kontrast schafft und knapp bleibt.
         - WITHHOLDING KONKRET: Halte gezielt EINE BENANNTE Information zurück, kein diffuses „etwas, das nicht stimmte". Eine Andeutung bleibt höchstens zweimal vage, dann wird sie schärfer oder benannt.
         - VERZÖGERUNG: Springe nie sofort zur Lösung. Beinahe-Momente (fast berührt, fast gesagt, dann unterbrochen); romantische UND Plot-Auflösung bewusst hinauszögern.
-        - SZENE BEGINNT MITTEN DRIN, ENDET AUF EINER WENDE: Öffne in medias res (Streit, Begehren, Drohung, Beinahe-Berührung), nicht mit Ankommen oder Einrichten. Schneide das Szenen-/Kapitelende auf einem Wende-, Schock- oder Enthüllungsmoment, nie auf einer Handlungsanweisung oder ruhigen Beschreibung; mindestens jedes zweite Kapitelende ist eine Beziehungs-Wende.
+        - EINSTIEG UND ENDE VARIIEREN: Beginne mit der frühestmöglichen interessanten Handlung. Enden dürfen Wendung, Entscheidung, Erkenntnis, emotionale Verschiebung oder ein prägnantes konkretes Bild sein. Wiederhole denselben Endtyp nicht mechanisch.
         - DIALOG DOPPELBÖDIG: Figuren reden über A und meinen B. Kein reiner Informations-Dialog ohne mitschwingende Beziehungsebene.
         - STAKES KONKRET: Übersetze jede abstrakte Gefahr in persönlichen Verlust (ein Mensch, ein Zuhause, die Zukunft mit dem Love Interest) und benenne ihn früh.
         """
@@ -512,11 +660,11 @@ enum PromptFactory {
         FESSELN GARANTIEREN (jede Szene zieht; das steht ÜBER schöner Sprache – eine sprachlich perfekte Szene ohne Vorwärtsbewegung ist ein Fehler):
         - SZENEN-GATE (vorab benennen, sonst nicht schreiben): WILL = was die Perspektivfigur konkret und benennbar will (kein Lebensgefühl wie „Nähe spüren", sondern ein Ziel wie „herausfinden, was X verbirgt"); WIDERSTAND = wer oder was es aktiv verweigert (eine lügende Person, eine Frist, eine Bedrohung); VERLUST = was sie konkret verliert, wenn sie scheitert. Fehlt eins, ist es ein Stimmungsbild, kein Vorgang.
         - LAGE-DELTA (Pflicht): Die Lage am Szenenende MUSS gegenüber dem Anfang verschoben oder verschärft sein – in WISSEN, MACHT/STATUS, RISIKO oder BINDUNG. Streich-Test: Ändert die Szene nichts am Buch, ist sie ein Zustand statt eines Vorgangs – umbauen. (Falsch: „will raus" → „will raus, jetzt gespürt". Richtig: „Verdacht" → „Beweis plus zerstörtes Vertrauen".)
-        - ENTDECKUNG STATT EMPFINDUNG: Jede Szene braucht mindestens eine Enthüllung, die die Figur AKTIV aufdeckt und die ihr Wissen ändert. Eine reine Empfindung (den Atem anhalten, eine Berührung spüren) ist NIE der Szenenkern. Prüffrage: Was wissen Figur und Leser am Ende, das sie vorher nicht wussten?
-        - DETAIL = INDIZ: Jedes prominente Sinnesdetail deutet auf Verborgenes oder Kommendes (worauf weist es hin, für wen ist es gefährlich oder verräterisch?), nie bloße Atmosphäre. Jede bedeutsame Geste trägt eine Konsequenz oder verdeckte Absicht.
+        - VERÄNDERUNG STATT LEERLAUF: Eine Szene verändert mindestens Wissen, Beziehung, Entscheidung, Risiko oder Selbstbild. Eine Enthüllung ist eine Möglichkeit, keine Pflichtformel.
+        - DETAILS MIT FUNKTION: Prominente Details tragen Orientierung, Figur, Atmosphäre oder Handlung. Nicht jedes Detail muss als Indiz aufgeladen werden.
         - STIMMUNGS-BUDGET: Höchstens etwa 15–20 % reine Atmosphäre/Innenschau pro Szene; nie mehrere reine Stimmungsabsätze ohne Statusverschiebung hintereinander.
         - MOTIV ESKALIERT: Ein Leitmotiv (Regen, Schweigen, ein Objekt) höchstens zweimal explizit benennen; beim zweiten Mal muss es die Lage verschärfen (neue Drohung oder Information), nicht nur bestätigen.
-        - SCHLUSS-WENDE: Die letzte Zeile öffnet eine drängendere Frage oder kippt eine Annahme – aus einer Tatsache, nicht aus einem Gefühl (formulierbar als „Was passiert jetzt?"). Verboten als Schluss: ein beruhigter, in sich ruhender Gefühlszustand.
+        - SCHLUSS MIT FUNKTION: Die letzte Zeile setzt den beabsichtigten Nachklang oder Vorwärtsimpuls. Sie darf eine Frage öffnen, eine Entscheidung festnageln oder einen ruhigen emotionalen Beat abschließen; entscheidend ist die passende Wirkung, nicht ein Pflicht-Cliffhanger.
         - EINSATZ STEIGT: Der konkrete Einsatz steigt über das Buch tendenziell; nicht dreimal in Folge derselbe niedrige Einsatz.
         """
     }
@@ -578,7 +726,21 @@ enum PromptFactory {
                            storySoFar: String, previousSceneEnding: String,
                            isFirstScene: Bool, isFinalScene: Bool,
                            targetWords: Int, bookSignature: String = "", spiceLevel: Int = 0,
-                           genreBrief: String = "", positionBlock: String = "") -> String {
+                           genreBrief: String = "", positionBlock: String = "",
+                           catalogAvoidance: String = "", manuscriptAvoidance: String = "",
+                           researchContext: String = "", canonicalStory: String = "") -> String {
+        if BookContentType.infer(from: genre) == .nonfiction {
+            return nonfictionDraftSection(language: language, style: style, tonality: tonality,
+                                           genre: genre, bookTitle: bookTitle,
+                                           chapterNumber: chapterNumber, chapterTitle: chapterTitle,
+                                           chapterGoal: chapterGoal, sectionNumber: sceneNumber,
+                                           sectionGoal: sceneGoal, sectionKind: sceneLocation,
+                                           sequence: sceneTime, readerObstacle: sceneObstacle,
+                                           takeaway: sceneTurn, priorContent: storySoFar,
+                                           targetWords: targetWords, isFirst: isFirstScene,
+                                           isFinal: isFinalScene, researchContext: researchContext,
+                                           manuscriptAvoidance: manuscriptAvoidance)
+        }
         var positionNote = ""
         if isFirstScene {
             positionNote = """
@@ -618,6 +780,13 @@ enum PromptFactory {
         let signatureBlock = trimmedSignature.isEmpty ? "" : "\n\(trimmedSignature)\n"
         let spiceDirective = SpiceLevel.generationDirective(spiceLevel)
         let spiceBlock = spiceDirective.isEmpty ? "" : "\n\(spiceDirective)\n"
+        let manuscriptAvoidanceBlock = manuscriptAvoidance.isEmpty ? "" : """
+
+        WÖRTLICHE SPERRLISTE AUS DIESEM MANUSKRIPT:
+        \(manuscriptAvoidance)
+        Keinen dieser Sätze oder Beats wiederholen oder nur kosmetisch umstellen.
+        Reagiere an dieser Stelle konkret aus Figur, Ort und Handlung heraus.
+        """
 
         return """
         Schreibe Szene \(sceneNumber) aus Kapitel \(chapterNumber) ("\(chapterTitle)") des Romans "\(bookTitle)".
@@ -627,7 +796,14 @@ enum PromptFactory {
         STILREGELN: \(styleRules.truncated(to: 600))
         \(signatureBlock)\(spiceBlock)
         \(genreDirectiveBlock(genreBrief))
+        \(catalogAvoidance)
+        \(manuscriptAvoidanceBlock)
         \(ContentSafetyFilter.promptDirective)
+        VERBINDLICHER BUCHKANON (jede Aussage muss damit vereinbar sein):
+        \(canonicalStory.truncated(to: 7000))
+        Erfinde oder ändere keine Verwandtschaft, Besitzverhältnisse, Todesfälle, Vorgeschichte,
+        Berufe, Namen oder Rollen. Ist ein Detail nicht festgelegt, lasse es offen statt eine
+        scheinbar passende Tatsache hinzuzuerfinden.
         KAPITELZIEL: \(chapterGoal)
         SZENE:
         - Ort: \(sceneLocation)
@@ -655,6 +831,14 @@ enum PromptFactory {
         - THEMA NIEMALS ERKLÄREN: Die emotionale Bedeutung wird gezeigt, nie zusammengefasst oder ausbuchstabiert („nicht X, sondern Y" als Deutung ist verboten). Vertraue darauf, dass der Leser sie selbst erschließt.
         - Beginne mitten in der Handlung; halte den Einstieg kurz und komm schnell zum Kern der Szene. Keine Wetter- oder Aufwach-Eröffnung.
         - Szenenstruktur: Ziel → Konflikt → Wendung. Tiefe Perspektive der Perspektivfigur (keine Information, die sie nicht haben kann). Zeigen statt behaupten – Emotion NIE benennen („sie war wütend" ist verboten).
+        - KEINE ZUSATZ-ENTHÜLLUNG: Erfinde weder Schlüssel, Brief, Zettel, Notiz, Foto, Tagebuch, Waffe,
+          Silhouette, Beobachter noch anderes Fundstück als zusätzlichen Haken. Die Szene endet
+          ausschließlich mit der oben geplanten Wendung. Ist dort kein Fundstück genannt, gibt es keines.
+          Auch gewöhnliche Gegenstände (Besteck, Kleidung, Werkzeug, Möbel) bleiben gewöhnlich: kein
+          auffälliges, neues, verändertes oder unerklärlich platziertes Objekt als Ersatz-Rätsel.
+          Niemand war heimlich im Haus, beobachtet die Figur oder hinterlässt Spuren, sofern der
+          Szenenplan das nicht ausdrücklich und genresicher festlegt.
+          Türen, Fenster und Gegenstände verändern ihren Zustand nicht unerklärt zwischen Szenen.
         - Konkrete, spezifische Details statt generischer. Variiere Satzlänge und Rhythmus wie in einem Bestseller: Lesefluss vor Kunstfertigkeit, nicht jede Zeile „literarisch" aufladen.
         \(humanCraftRules)
         - KEINE WIEDERHOLUNGEN: Greife keine Bilder, Metaphern, Formulierungen oder Motive aus der bisherigen Handlung wieder auf; erkläre etablierte Fakten nie ein zweites Mal. Ein starkes Symbol nur SELTEN erwähnen, nicht in jeder Szene.
@@ -721,7 +905,15 @@ enum PromptFactory {
                               chapterNumber: Int, chapterTitle: String, text: String,
                               genreBrief: String = "", charactersSummary: String = "",
                               previousEnding: String = "", nextOpening: String = "",
-                              overusedPhrases: String = "", endingNote: String = "") -> String {
+                              overusedPhrases: String = "", endingNote: String = "",
+                              targetWords: Int = 0, researchContext: String = "") -> String {
+        if genreBrief.contains("SACHBUCH") || genreBrief.contains("FAKTEN- UND QUELLENINTEGRITÄT") {
+            return nonfictionRevision(language: language, style: style, tonality: tonality,
+                                      chapterNumber: chapterNumber, chapterTitle: chapterTitle,
+                                      text: text, genreBrief: genreBrief,
+                                      overusedPhrases: overusedPhrases, targetWords: targetWords,
+                                      researchContext: researchContext)
+        }
         // Kontext-Blöcke: Die Revision lief bisher völlig blind (ohne Genre, Figuren,
         // Nachbarkapitel) – sie konnte Fakten verfälschen, den Genre-Ton abkühlen und
         // Kapitel-Anschlüsse/Cliffhanger zerschreiben.
@@ -743,8 +935,17 @@ enum PromptFactory {
             BEREITS ÜBERSTRAPAZIERTE FORMULIERUNGEN DIESES BUCHES \
             (hier jede durch eine frische, konkrete Alternative ersetzen, nie wiederverwenden):
             \(overusedPhrases)
-            """
+        """
         let endingBlock = endingNote.isEmpty ? "" : "\n\(endingNote)\n"
+        let isOversized = ChapterRevisionSizing.isOversized(
+            sourceWords: text.wordCount,
+            targetWords: targetWords
+        )
+        let lengthDirective = isOversized ? """
+        Verdichte dieses überlange Kapitel auf ca. \(targetWords) Wörter (zulässig: 75–130 % des Ziels). \
+        Halte dabei die Handlung vollständig: Streiche Redundanz, doppelte Gedanken, wiederholte \
+        Reaktionen und unnötige Umwege, aber keine Ereignisse, Hinweise, Wendungen oder Anschlüsse.
+        """ : "Behalte den Umfang bei (±10%)."
         return """
         Überarbeite Kapitel \(chapterNumber) ("\(chapterTitle)") eines Romans.
         Sprache: \(language). Stil: \(style), Tonalität: \(tonality).
@@ -752,7 +953,7 @@ enum PromptFactory {
         Verbessere Satzrhythmus, Wortwiederholungen, schwache Verben, Füllwörter und \
         Dialogfluss. Streiche Filterwörter (sehen, hören, spüren, bemerken), wo die \
         Wahrnehmung direkt gezeigt werden kann. Behalte Handlung, Reihenfolge der \
-        Ereignisse, Perspektive und Umfang bei (±10%). Szenentrenner (***) müssen \
+        Ereignisse und Perspektive bei. \(lengthDirective) Szenentrenner (***) müssen \
         exakt erhalten bleiben. Der Genre-Ton (z. B. Hitze/Spannung) darf beim \
         Glätten NICHT abkühlen.
         \(charactersBlock)\(seamBlock)\(overusedBlock)\(endingBlock)
@@ -766,8 +967,23 @@ enum PromptFactory {
         """
     }
 
-    static func consistencyCheck(bookTitle: String, summaries: String, characters: String) -> String {
-        """
+    static func consistencyCheck(bookTitle: String, summaries: String, characters: String,
+                                 isNonfiction: Bool = false) -> String {
+        if isNonfiction {
+            return """
+            Prüfe das Sachbuch "\(bookTitle)" auf sachliche Widersprüche, unklare Begriffe,
+            fehlerhafte Reihenfolge, Redundanz, fehlende Voraussetzungen, nicht umsetzbare Schritte,
+            absolute Versprechen und unbelegte Tatsachenbehauptungen. Fehlende Belege niemals erfinden.
+
+            INHALTSÜBERSICHT:
+            \(summaries.truncated(to: 10000))
+
+            Antworte je Problem exakt:
+            PROBLEM|Schweregrad (Info/Warnung/Fehler/Kritisch)|Bereich|Beschreibung|Empfehlung
+            Wenn es keine Probleme gibt: KEINE PROBLEME
+            """
+        }
+        return """
         Prüfe die folgende Kapitelübersicht des Romans "\(bookTitle)" auf Widersprüche: \
         Zeitlinie, Figurenwissen, Orte, Logik der Ereignisse, offene Handlungsfäden.
 
@@ -787,6 +1003,11 @@ enum PromptFactory {
     static func kdpMetadata(title: String, author: String, authorBio: String = "", genre: String,
                             audience: String, synopsis: String, language: String, tropes: String = "",
                             spiceLevel: Int = 0) -> String {
+        if BookContentType.infer(from: genre) == .nonfiction {
+            return nonfictionKDPMetadata(title: title, author: author, authorBio: authorBio,
+                                         genre: genre, audience: audience, synopsis: synopsis,
+                                         language: language)
+        }
         let authorBlock = authorBio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? ""
             : "\nAutorprofil für Tonalität/Markenstimme:\n\(authorBio.truncated(to: 800))\n"
@@ -867,6 +1088,9 @@ enum PromptFactory {
     /// Dedizierter viraler Titel-Generator: liefert mehrere klickstarke, spannende
     /// Buchtitel, die auf Amazon KDP / BookTok auffallen.
     static func viralTitles(genre: String, premise: String, language: String) -> String {
+        if BookContentType.infer(from: genre) == .nonfiction {
+            return nonfictionTitles(genre: genre, premise: premise, language: language, count: 10)
+        }
         let genreLine = genre.trimmingCharacters(in: .whitespaces).isEmpty ? "" : "Genre: \(genre)\n"
         let premiseLine = premise.trimmingCharacters(in: .whitespaces).isEmpty
             ? "" : "Worum es geht: \(premise.truncated(to: 600))\n"
@@ -1041,7 +1265,26 @@ enum PromptFactory {
 
     /// Manuskript-Audit nach dem Proofreading: findet nur echte Reparaturfälle.
     static func repairAudit(bookTitle: String, summaries: String, characters: String,
-                            qualityReports: String, tropes: String = "") -> String {
+                            qualityReports: String, tropes: String = "",
+                            isNonfiction: Bool = false) -> String {
+        if isNonfiction {
+            return """
+            Prüfe das Sachbuch "\(bookTitle)" nach dem Korrektorat auf reparaturpflichtige Stellen:
+            sachliche Widersprüche, unklare Begriffe, Redundanz, fehlende Zwischenschritte,
+            ungeeignete Beispiele, nicht umsetzbare Anweisungen, unbelegte Gewissheiten, erfundene
+            Quellen/Statistiken und absolute Erfolgs-, Heilungs- oder Einkommensversprechen.
+            Fehlende Quellen werden mit [QUELLE PRÜFEN] markiert, niemals erfunden.
+
+            KAPITEL:
+            \(summaries)
+            BERICHTE:
+            \(qualityReports.isEmpty ? "Keine Befunde." : qualityReports)
+
+            Antworte nur mit einer Zeile pro Befund:
+            REPAIR|Schweregrad|Kapitel|Fehlerquelle/Bereich|Problem|Konkrete Reparaturanweisung
+            Wenn alles stimmig ist: KEINE REPARATUR NÖTIG
+            """
+        }
         let tropesBlock = tropes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" :
             "\n        - TROPE-LIEFERUNG prüfen: Werden die zugesagten Tropes (\(tropes)) deutlich und befriedigend eingelöst? Fehlt oder verpufft ein Trope, ist das reparaturpflichtig (Fehlerquelle: Trope) – Anweisung: den betroffenen Moment so schärfen, dass der Trope spürbar geliefert wird."
         return """
@@ -1092,8 +1335,25 @@ enum PromptFactory {
 
     /// Gezielte Reparatur eines Kapitels nach einem Audit-Befund.
     static func repairChapter(language: String, bookTitle: String, chapterNumber: Int,
-                              chapterTitle: String, issue: RepairIssue, chapterText: String) -> String {
-        """
+                              chapterTitle: String, issue: RepairIssue, chapterText: String,
+                              isNonfiction: Bool = false) -> String {
+        if isNonfiction {
+            return """
+            Repariere Kapitel \(chapterNumber) "\(chapterTitle)" aus dem Sachbuch "\(bookTitle)".
+            Sprache: \(language)
+            Befund: \(issue.area) | \(issue.problem)
+            Auftrag: \(issue.instruction)
+
+            Behebe gezielt die betroffene Stelle und notwendige Anschlüsse. Erhalte funktionierende
+            Erklärungen, Reihenfolge, Beispiele, Übungen und Abschnittstrenner. Erfinde niemals Fakten,
+            Quellen, Studien, Statistiken oder Zitate. Fehlt ein notwendiger Beleg, markiere [QUELLE PRÜFEN].
+            Gib nur den vollständigen reparierten Kapiteltext aus.
+
+            KAPITELTEXT:
+            \(chapterText)
+            """
+        }
+        return """
         Repariere Kapitel \(chapterNumber) „\(chapterTitle)" aus dem Roman „\(bookTitle)".
         Sprache: \(language)
 
@@ -1117,7 +1377,20 @@ enum PromptFactory {
 
     /// „Blick ins Buch"-Optimierung: macht den Anfang (Amazon-Leseprobe) zu maximalem Lesesog.
     static func openingHook(language: String, bookTitle: String, genre: String, chapterText: String) -> String {
-        """
+        if BookContentType.infer(from: genre) == .nonfiction {
+            return """
+            Überarbeite den Anfang der Amazon-Leseprobe des Sachbuchs "\(bookTitle)" auf \(language).
+            Der Leser erkennt auf der ersten Seite sein konkretes Problem, den realistischen Nutzen
+            des Buches und erhält früh eine kleine verwertbare Erkenntnis. Kein dramatischer Roman-Hook,
+            keine Angstwerbung, keine Erfolgs- oder Heilungsgarantie und kein langes Vorwort.
+            Erhalte Fakten, Grenzen und Inhalt. Erfinde keine Quellen oder Statistiken.
+            Gib nur den vollständigen überarbeiteten Kapiteltext aus.
+
+            KAPITELTEXT:
+            \(chapterText)
+            """
+        }
+        return """
         Überarbeite den ANFANG (Blick ins Buch / Amazon-Leseprobe) von „\(bookTitle)"
         (Genre: \(genre), Sprache: \(language)) zu unwiderstehlichem Lesesog. Die ersten Sätze
         entscheiden über den Kauf.
@@ -1143,6 +1416,18 @@ enum PromptFactory {
     /// nächste Buch ein – der stärkste Hebel, damit Leser den Folgeband kaufen.
     static func cliffhangerTeaser(language: String, bookTitle: String, genre: String,
                                   seriesName: String, chapterText: String) -> String {
+        if BookContentType.infer(from: genre) == .nonfiction {
+            return """
+            Überarbeite das Ende des Sachbuchs "\(bookTitle)" auf \(language) für eine Reihe.
+            Der Lernweg dieses Bandes bleibt vollständig abgeschlossen. Füge am Ende einen kurzen,
+            sachlichen Ausblick hinzu, welches weiterführende Problem ein nächster Band vertiefen kann,
+            ohne künstlichen Cliffhanger, Verkaufsdruck oder unerfülltes Versprechen.
+            Gib nur den vollständigen überarbeiteten Kapiteltext aus.
+
+            KAPITELTEXT:
+            \(chapterText)
+            """
+        }
         let seriesLine = seriesName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? "" : "Reihe: \(seriesName)\n"
         return """
@@ -1162,6 +1447,211 @@ enum PromptFactory {
         Gib den vollständigen, überarbeiteten Kapiteltext aus.
         """
     }
+
+    private static func nonfictionBrief(title: String, genre: String, subgenre: String?,
+                                        language: String) -> String {
+        let fullGenre = [genre, subgenre].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " / ")
+        return """
+        SACHBUCH-DIREKTIVE (verbindlich)
+        TITEL: \(title)
+        KATEGORIE: \(fullGenre)
+        SPRACHE: \(language)
+        LESERPROBLEM: [welches konkrete Problem der Leser lösen will]
+        NUTZENVERSPRECHEN: [realistische, beobachtbare Veränderung nach der Lektüre]
+        ZIELGRUPPE UND VORWISSEN: [präzise]
+        METHODE: [roter Faden und praktischer Ansatz]
+        PFLICHTELEMENTE: [Beispiele, Übungen, Checklisten, Zusammenfassungen]
+        TON: [klar, respektvoll, konkret, ohne Belehrung]
+        ABGRENZUNG: [was das Buch ausdrücklich nicht verspricht oder behandelt]
+        \(NonfictionSafety.directive(genre: genre))
+        """
+    }
+
+    private static func nonfictionConcept(title: String, genre: String, subgenre: String?,
+                                          language: String, style: String, tonality: String,
+                                          audience: String, pageCount: Int, ideaSeed: String,
+                                          researchContext: String) -> String {
+        let fullGenre = [genre, subgenre].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " / ")
+        return """
+        Entwickle ein fundiertes, praktisch nutzbares Sachbuchkonzept.
+        Titel: \(title) | Kategorie: \(fullGenre) | Sprache: \(language)
+        Stil: \(style) | Ton: \(tonality) | Zielgruppe: \(audience)
+        Zielumfang: ca. \(pageCount) Seiten
+        Ausgangsidee: \(ideaSeed.isEmpty ? "frei entwickeln" : ideaSeed)
+
+        \(researchContext)
+
+        Das Buch löst ein konkretes Leserproblem. Definiere Ausgangslage, realistische Transformation,
+        Vorwissen, Grenzen, Kernmethode und den praktischen Weg. Keine Romanhandlung, erfundenen Figuren
+        oder künstliche Cliffhanger. Plane nur Inhalte, die verantwortbar erklärt werden können.
+        \(NonfictionSafety.directive(genre: genre, premise: ideaSeed))
+
+        Antworte exakt mit diesen Labels:
+        PRÄMISSE: [Leserproblem und Nutzenversprechen in 1-2 Sätzen]
+        LOGLINE: [ein klarer Verkaufssatz ohne Garantie]
+        EXPOSÉ: [5-8 Sätze: Ausgangslage, Methode, Lernweg, Anwendung und Ergebnis]
+        HAUPTKONFLIKT: [größtes praktisches Hindernis des Lesers]
+        THEMA: [1-3 Wörter]
+        ZIELGRUPPE: [Vorwissen, Situation und Bedarf]
+        """
+    }
+
+    private static func nonfictionArchitecture(title: String, genre: String, style: String,
+                                               concept: String, pageCount: Int, chapterCount: Int,
+                                               genreBrief: String, researchContext: String) -> String {
+        """
+        SACHBUCH-ARCHITEKTUR
+        Erstelle die vollständige Wissens- und Lernarchitektur für "\(title)".
+        Kategorie: \(genre) | Stil: \(style) | ca. \(pageCount) Seiten / \(chapterCount) Kapitel
+
+        KONZEPT:
+        \(concept)
+        \(genreDirectiveBlock(genreBrief))
+        \(researchContext)
+        \(NonfictionSafety.directive(genre: genre, premise: concept))
+
+        Ordne den Inhalt kausal: Orientierung und Begriffe, Grundlagen, Kernmethode, schrittweise
+        Anwendung, typische Hindernisse und Fehler, Vertiefung, Transfer in den Alltag, nachhaltiger
+        Umsetzungsplan. Jedes Kapitel muss auf Vorwissen aufbauen und einen eigenständigen Nutzen haben.
+        Plane konkrete Beispiele, Übungen, Checklisten und Kapitelzusammenfassungen. Vermeide Redundanz,
+        Füllkapitel und bloße Motivation ohne anwendbaren Inhalt. Markiere alle Punkte, für die vor
+        Veröffentlichung aktuelle oder fachliche Quellen geprüft werden müssen, mit [QUELLE PRÜFEN].
+        Schreibe als klar gegliederte Gesamtarchitektur.
+        """
+    }
+
+    private static func nonfictionChapterPlan(title: String, genre: String, architecture: String,
+                                              chapterCount: Int, wordsPerChapter: Int,
+                                              sectionsPerChapter: Int, genreBrief: String) -> String {
+        """
+        Plane GENAU \(chapterCount) Kapitel für das \(genre) "\(title)" mit durchschnittlich
+        \(wordsPerChapter) Wörtern. Jedes Kapitel enthält mindestens \(sectionsPerChapter) sinnvolle
+        Abschnitte, aber Länge und Rhythmus dürfen nach Lernbedarf variieren.
+
+        \(architecture.truncated(to: 7000))
+        \(genreDirectiveBlock(genreBrief))
+
+        Regeln: klare Lernprogression, keine Wiederholung, pro Kapitel ein messbares Lernziel,
+        mindestens ein konkretes Beispiel oder eine Anwendung und ein umsetzbarer Abschluss.
+        Kapitelüberschriften sind klar und nutzenorientiert, nicht reißerisch.
+
+        Gib exakt eine Zeile pro Kapitel aus:
+        KAPITEL|Nummer|Titel|Lernziel des Kapitels|Zentrales Leserhindernis|Konkretes Ergebnis
+        """
+    }
+
+    private static func nonfictionSectionPlan(bookTitle: String, chapterNumber: Int,
+                                              chapterTitle: String, chapterGoal: String,
+                                              chapterChallenge: String, architecture: String,
+                                              targetWords: Int, sectionCount: Int,
+                                              isFinalChapter: Bool) -> String {
+        """
+        Plane mindestens \(sectionCount) Abschnitte für Kapitel \(chapterNumber) "\(chapterTitle)"
+        aus "\(bookTitle)". Lernziel: \(chapterGoal). Leserhindernis: \(chapterChallenge).
+        Zielumfang: \(targetWords) Wörter.
+        SACHBUCH-ARCHITEKTUR: \(architecture.truncated(to: 3500))
+
+        Jeder Abschnitt erfüllt genau eine Funktion: erklären, demonstrieren, anwenden, reflektieren,
+        Fehler vermeiden oder zusammenfassen. Baue vom Einfachen zum Anspruchsvollen auf. Das Kapitel
+        endet mit einem konkreten Ergebnis, einer CHECKLISTE, Übung oder nächsten Handlung, nicht mit
+        einem Roman-Cliffhanger. \(isFinalChapter ? "Das Schlusskapitel bündelt den Transfer in einen realistischen Umsetzungsplan." : "")
+
+        Gib exakt eine Zeile pro Abschnitt aus:
+        SZENE|Nummer|Leser|Abschnittstyp|Reihenfolge|Lernziel|Typisches Hindernis|Take-away oder Anwendung
+        """
+    }
+
+    private static func nonfictionDraftSection(language: String, style: String, tonality: String,
+                                                genre: String, bookTitle: String,
+                                                chapterNumber: Int, chapterTitle: String,
+                                                chapterGoal: String, sectionNumber: Int,
+                                                sectionGoal: String, sectionKind: String,
+                                                sequence: String, readerObstacle: String,
+                                                takeaway: String, priorContent: String,
+                                                targetWords: Int, isFirst: Bool, isFinal: Bool,
+                                                researchContext: String,
+                                                manuscriptAvoidance: String) -> String {
+        let avoidanceBlock = manuscriptAvoidance.isEmpty ? "" : """
+
+        WÖRTLICHE SPERRLISTE AUS DEM BISHERIGEN MANUSKRIPT:
+        \(manuscriptAvoidance)
+        Keinen dieser Sätze erneut verwenden. Formuliere jede Erklärung, Überleitung und
+        Handlungsaufforderung konkret für diesen Abschnitt.
+        """
+        return """
+        Schreibe Abschnitt \(sectionNumber) aus Kapitel \(chapterNumber) "\(chapterTitle)" des
+        Sachbuchs "\(bookTitle)". Sprache: \(language), Stil: \(style), Ton: \(tonality).
+        Kapitelziel: \(chapterGoal)
+        Abschnittsfunktion: \(sectionKind) | Reihenfolge: \(sequence)
+        Lernziel: \(sectionGoal) | Leserhindernis: \(readerObstacle)
+        Take-away: \(takeaway) | Zielumfang: ca. \(targetWords) Wörter
+        \(isFirst ? "Einstieg: Problem und unmittelbaren Nutzen ohne langes Vorwort klarmachen." : "")
+        \(isFinal ? "Abschluss: Erkenntnisse bündeln und in einen realistischen nächsten Schritt überführen." : "")
+
+        BISHERIGER INHALT:
+        \(priorContent.truncated(to: 8000))
+
+        \(researchContext.truncated(to: 6_000))
+        \(avoidanceBlock)
+
+        Schreibe klar, konkret und respektvoll. Erkläre Begriffe beim ersten Auftreten. Verwende
+        anschauliche, eindeutig illustrative Beispiele, praktische Schritte und bei passender Funktion
+        eine ÜBUNG oder CHECKLISTE. Keine redundanten Motivationsfloskeln, keine Romanhandlung und keine
+        künstlichen Cliffhanger. Fakten, Studien, Statistiken, Zitate und Quellen niemals erfinden.
+        Quellenabhängige Tatsachen direkt mit ihrer vorhandenen [Qn]-Nummer belegen. Verwende nur
+        Nummern aus der Quellenbasis; allgemeine Übergänge und eigene praktische Anleitungen brauchen
+        keinen Scheinbeleg. Eine Quelle nie weiter auslegen, als ihr Auszug trägt.
+        \(NonfictionSafety.directive(genre: genre))
+
+        Gib ausschließlich den fertigen Buchtext dieses Abschnitts aus, ohne Meta-Kommentar oder Markdown.
+        """
+    }
+
+    private static func nonfictionRevision(language: String, style: String, tonality: String,
+                                           chapterNumber: Int, chapterTitle: String, text: String,
+                                           genreBrief: String, overusedPhrases: String,
+                                           targetWords: Int, researchContext: String) -> String {
+        """
+        Überarbeite Kapitel \(chapterNumber) "\(chapterTitle)" eines Sachbuchs auf \(language).
+        Stil: \(style), Ton: \(tonality), Zielumfang: ca. \(targetWords) Wörter.
+        \(genreBrief)
+        \(researchContext.truncated(to: 5_000))
+
+        Prüfe roten Faden, Verständlichkeit, sachliche Widersprüche, Redundanz, Umsetzbarkeit,
+        Zielgruppennutzen und saubere Trennung von Fakten, Meinung und Beispiel. Entferne unbelegte
+        Gewissheiten, erfundene Quellen/Statistiken und absolute Versprechen. Fehlende aktuelle Belege
+        nicht erfinden, sondern mit [QUELLE PRÜFEN] markieren. Erhalte inhaltlich notwendige Schritte,
+        Beispiele, Übungen und Abschnittstrenner.
+        Prüfe alle [Qn]-Verweise gegen die Quellenbasis und erfinde keine neue Quellennummer.
+        Überstrapazierte Formulierungen: \(overusedPhrases.isEmpty ? "keine gemeldet" : overusedPhrases)
+
+        Gib nur den vollständigen überarbeiteten Kapiteltext aus.
+        TEXT:
+        \(text)
+        """
+    }
+
+    private static func nonfictionKDPMetadata(title: String, author: String, authorBio: String,
+                                              genre: String, audience: String, synopsis: String,
+                                              language: String) -> String {
+        """
+        Erstelle seriöse Amazon-KDP-Metadaten für das \(genre) "\(title)" von \(author).
+        Zielgruppe: \(audience) | Sprache: \(language)
+        Inhalt: \(synopsis.truncated(to: 3500))
+        Autorprofil: \(authorBio.truncated(to: 700))
+
+        Titel und Untertitel benennen Problem, Zielgruppe, Methode und realistischen Nutzen klar.
+        Kein Clickbait, Keyword-Spam, "Bestseller", Heilungs-, Erfolgs- oder Einkommensversprechen.
+        Keine erfundenen Qualifikationen oder Belege. Keine Hinweise auf Produktionswerkzeuge.
+
+        Antworte exakt:
+        VERKAUFSTITEL: [klarer, glaubwürdiger Haupttitel]
+        UNTERTITEL: [natürlicher suchnaher Untertitel mit Zielgruppe und Nutzen]
+        VERKAUFSTEXT: [150-220 Wörter: Problem, Nutzen, Inhalt, Anwendung, klare Kaufentscheidung]
+        KEYWORDS: [genau 7 unterschiedliche Long-Tail-Suchbegriffe]
+        KATEGORIEN: [3 passende, spezifische Amazon-Kindle-Kategorien, je eine Zeile]
+        """
+    }
 }
 
 // MARK: - Parser für strukturierte Agenten-Antworten
@@ -1173,6 +1663,43 @@ struct ConceptResult {
     var mainConflict = ""
     var theme = ""
     var audience = ""
+}
+
+enum AuthorBioParser {
+    static func parse(_ text: String) -> [String] {
+        var results: [String] = []
+        for rawLine in text.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard line.uppercased().hasPrefix("BIO|") else { continue }
+            let bio = String(line.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
+            if bio.wordCount >= 20, !results.contains(bio) { results.append(bio) }
+        }
+        return Array(results.prefix(3))
+    }
+}
+
+enum AuthorBioQuality {
+    private static let factMarkers = [
+        "studiert", "studium", "abschluss", "ausbildung", "ausgebildet", "beruf",
+        "arbeitet", "wohnort", "wohnt", "lebt in", "mutter", "vater", "kinder",
+        "jahre erfahrung", "langjährig", "ausgezeichnet", "preisgekrönt", "bestseller",
+        "veröffentlicht", "experte", "expertin", "coach", "therapeut", "therapeutin",
+        "arzt", "ärztin", "aus eigener erfahrung", "kennt aus eigener"
+    ]
+
+    static func isGrounded(_ bio: String, facts: String) -> Bool {
+        let candidate = normalize(bio)
+        let provided = normalize(facts)
+        guard bio.wordCount >= 20, bio.wordCount <= 120 else { return false }
+        return factMarkers.allSatisfy { marker in
+            !candidate.contains(marker) || provided.contains(marker)
+        }
+    }
+
+    private static func normalize(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+    }
 }
 
 enum ConceptParser {
@@ -1294,7 +1821,18 @@ struct RepairIssue {
     let instruction: String
 }
 
+enum QualityReleasePolicy {
+    static func isBlockingReport(autoFixed: Bool, severity: Severity) -> Bool {
+        !autoFixed && (severity == .critical || severity == .error)
+    }
+}
+
 enum RepairIssueParser {
+    static func isConclusiveAuditResponse(_ text: String) -> Bool {
+        !parse(text).isEmpty
+            || text.localizedCaseInsensitiveContains("KEINE REPARATUR NÖTIG")
+    }
+
     static func parse(_ text: String) -> [RepairIssue] {
         var result: [RepairIssue] = []
         for line in text.components(separatedBy: .newlines) {
@@ -1325,6 +1863,37 @@ enum RepairIssueParser {
             ))
         }
         return result
+    }
+
+    /// Modelle fassen gelegentlich einen Widerspruch über mehrere Kapitel als
+    /// `Gesamtmanuskript` zusammen. Für die automatische Reparatur wird daraus ein
+    /// identischer, kapitelgenauer Auftrag pro ausdrücklich genannter Kapitelnummer.
+    static func expandingGlobalChapterReferences(_ issues: [RepairIssue]) -> [RepairIssue] {
+        issues.flatMap { issue in
+            guard issue.chapterNumber == nil else { return [issue] }
+            let source = issue.problem + " " + issue.instruction
+            guard let expression = try? NSRegularExpression(
+                pattern: #"(?i)\bkapitel\s+(\d+)\b"#
+            ) else { return [issue] }
+            let range = NSRange(source.startIndex..<source.endIndex, in: source)
+            var seen = Set<Int>()
+            let chapters = expression.matches(in: source, range: range).compactMap { match -> Int? in
+                guard let numberRange = Range(match.range(at: 1), in: source),
+                      let number = Int(source[numberRange]),
+                      seen.insert(number).inserted else { return nil }
+                return number
+            }
+            guard !chapters.isEmpty else { return [issue] }
+            return chapters.map { chapterNumber in
+                RepairIssue(
+                    severity: issue.severity,
+                    chapterNumber: chapterNumber,
+                    area: issue.area,
+                    problem: issue.problem,
+                    instruction: issue.instruction
+                )
+            }
+        }
     }
 
     private static func severity(from text: String) -> Severity {
@@ -1371,6 +1940,8 @@ struct ParsedCharacter {
     let weakness: String
     var speech: String = ""
     var appearance: String = ""
+    var relationships: String = ""
+    var canonicalFacts: String = ""
 }
 
 struct ParsedIssue {
@@ -1502,7 +2073,9 @@ enum StructureParser {
                 fear: parts.count > 5 ? parts[5] : "",
                 weakness: parts.count > 6 ? parts[6] : "",
                 speech: parts.count > 7 ? parts[7] : "",
-                appearance: parts.count > 8 ? parts[8] : ""
+                appearance: parts.count > 8 ? parts[8] : "",
+                relationships: parts.count > 9 ? parts[9] : "",
+                canonicalFacts: parts.count > 10 ? parts[10] : ""
             ))
         }
         return result

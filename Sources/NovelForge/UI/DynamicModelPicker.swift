@@ -10,6 +10,8 @@ struct DynamicModelPicker: View {
     @State private var availableModels: [String] = []
     @State private var isLoading = false
     @State private var loadError: String?
+    @State private var scheduledRefresh: Task<Void, Never>?
+    @State private var requestID = UUID()
 
     var body: some View {
         Group {
@@ -27,9 +29,13 @@ struct DynamicModelPicker: View {
 
             if provider == .ollamaCloud {
                 HStack {
-                    Button(isLoading ? "Modelle laden ..." : "Cloud-Modelle aktualisieren") {
+                    Button {
                         refreshModels()
+                    } label: {
+                        Label(isLoading ? "Modelle werden geladen" : "Cloud-Modelle aktualisieren",
+                              systemImage: isLoading ? "arrow.triangle.2.circlepath" : "arrow.clockwise")
                     }
+                    .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.cyan))
                     .disabled(isLoading)
                     if let loadError {
                         Text(loadError)
@@ -49,8 +55,12 @@ struct DynamicModelPicker: View {
         }
         .onChange(of: pendingAPIKey) {
             if provider == .ollamaCloud {
-                refreshModels()
+                scheduleModelRefresh()
             }
+        }
+        .onDisappear {
+            scheduledRefresh?.cancel()
+            requestID = UUID()
         }
     }
 
@@ -63,11 +73,14 @@ struct DynamicModelPicker: View {
     }
 
     private func refreshModels() {
+        scheduledRefresh?.cancel()
         guard provider == .ollamaCloud || provider == .ollamaLocal else { return }
         if provider == .ollamaCloud && effectiveAPIKey().isEmpty {
             return
         }
 
+        let activeRequestID = UUID()
+        requestID = activeRequestID
         isLoading = true
         loadError = nil
 
@@ -80,16 +93,33 @@ struct DynamicModelPicker: View {
         }()
 
         Task { @MainActor in
-            defer { isLoading = false }
+            defer {
+                if requestID == activeRequestID {
+                    isLoading = false
+                }
+            }
             do {
                 let models = try await ProviderGateway.shared.listModels(configuration: requestConfig)
+                guard requestID == activeRequestID else { return }
                 guard !models.isEmpty else { return }
                 availableModels = models
                 if selectedModel.isEmpty || !models.contains(selectedModel) {
                     selectedModel = models.first ?? ""
                 }
             } catch {
+                guard requestID == activeRequestID else { return }
                 loadError = "Fallback-Liste aktiv"
+            }
+        }
+    }
+
+    private func scheduleModelRefresh() {
+        scheduledRefresh?.cancel()
+        scheduledRefresh = Task {
+            try? await Task.sleep(nanoseconds: 550_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                refreshModels()
             }
         }
     }
@@ -97,6 +127,6 @@ struct DynamicModelPicker: View {
     private func effectiveAPIKey() -> String {
         let pending = pendingAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
         if !pending.isEmpty { return pending }
-        return KeychainService.cachedAPIKey(for: provider) ?? ""
+        return KeychainService.storedAPIKeyWithoutPrompt(for: provider) ?? ""
     }
 }

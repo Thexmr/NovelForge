@@ -38,6 +38,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
     case editorChat = "Lektor"
     case export = "Export"
     case kdp = "Veröffentlichung"
+    case factory = "Buchfabrik"
     case settings = "Einstellungen"
 
     var id: String { rawValue }
@@ -53,6 +54,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         case .editorChat: return "text.bubble"
         case .export: return "square.and.arrow.up"
         case .kdp: return "shippingbox"
+        case .factory: return "gearshape.arrow.triangle.2.circlepath"
         case .settings: return "gear"
         }
     }
@@ -65,28 +67,44 @@ struct ContentView: View {
     @State private var showingNewBookSheet = false
 
     var body: some View {
-        HStack(spacing: 0) {
-            StudioSidebar(showingNewBookSheet: $showingNewBookSheet)
-                .frame(width: 268)
+        ZStack {
+            StudioBackground()
 
-            Rectangle()
-                .fill(StudioTheme.hairline)
-                .frame(width: 1)
+            HStack(spacing: 0) {
+                StudioSidebar(showingNewBookSheet: $showingNewBookSheet)
+                    .frame(width: 252)
 
-            detailContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .id(appState.selectedSidebarItem)
-                .transition(reduceMotion
-                            ? .opacity
-                            : .opacity.combined(with: .move(edge: .trailing)))
+                Rectangle()
+                    .fill(StudioTheme.hairline)
+                    .frame(width: 1)
+
+                detailContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .id(appState.selectedSidebarItem)
+                    .transition(reduceMotion
+                                ? .opacity
+                                : .opacity.combined(with: .move(edge: .trailing)))
+            }
         }
+        .animation(reduceMotion ? nil : Motion.standard, value: appState.selectedSidebarItem)
         .sheet(isPresented: $showingNewBookSheet) {
             NewBookWizardView(onStarted: {
                 appState.selectedSidebarItem = .production
             })
         }
         .onAppear {
-            PipelineOrchestrator.shared.configure(with: modelContext)
+            let orchestrator = PipelineOrchestrator.shared
+            orchestrator.configure(with: modelContext)
+            ProductionRecoveryService.recoverInterruptedJobs(in: modelContext)
+            if let project = ProductionRecoveryService.automaticResumeCandidate(
+                in: modelContext
+            ) {
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 800_000_000)
+                    guard !orchestrator.isRunning, project.status == .paused else { return }
+                    orchestrator.resumePipeline(project: project)
+                }
+            }
         }
     }
 
@@ -111,6 +129,8 @@ struct ContentView: View {
             ExportView()
         case .kdp:
             KDPMarketingView()
+        case .factory:
+            FactoryView()
         case .settings:
             SettingsView()
         case .none:
@@ -127,75 +147,70 @@ struct StudioSidebar: View {
     private let sections: [(String, [SidebarItem])] = [
         ("Studio", [.dashboard, .projects, .production, .agents]),
         ("Inhalt", [.manuscript, .storyBible, .editorChat]),
-        ("Ausgabe", [.export, .kdp]),
+        ("Ausgabe", [.export, .kdp, .factory]),
         ("System", [.settings])
     ]
 
     var body: some View {
-        ZStack {
-            StudioBackground()
-            VStack(spacing: 0) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        brandHeader
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    brandHeader
 
-                        VStack(alignment: .leading, spacing: 16) {
-                            ForEach(sections, id: \.0) { section in
-                                VStack(alignment: .leading, spacing: 7) {
-                                    StudioSectionLabel(text: section.0)
-                                        .padding(.horizontal, 4)
-                                    ForEach(section.1) { item in
-                                        SidebarButton(item: item,
-                                                      isSelected: appState.selectedSidebarItem == item,
-                                                      badge: badge(for: item)) {
-                                            withAnimation(.snappy(duration: 0.18)) {
-                                                appState.open(item)
-                                            }
+                    VStack(alignment: .leading, spacing: 17) {
+                        ForEach(sections, id: \.0) { section in
+                            VStack(alignment: .leading, spacing: 6) {
+                                StudioSectionLabel(text: section.0)
+                                    .padding(.horizontal, 8)
+                                ForEach(section.1) { item in
+                                    SidebarButton(item: item,
+                                                  isSelected: appState.selectedSidebarItem == item,
+                                                  badge: badge(for: item)) {
+                                        withAnimation(Motion.standard) {
+                                            appState.open(item)
                                         }
                                     }
                                 }
                             }
                         }
-
-                        productionCapsule
                     }
-                    .padding(16)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .scrollIndicators(.hidden)
 
-                Button {
-                    showingNewBookSheet = true
-                } label: {
-                    Label("Neues Buch", systemImage: "plus.circle.fill")
+                    productionCapsule
                 }
-                .buttonStyle(StudioPrimaryButtonStyle())
-                .keyboardShortcut("n", modifiers: .command)
                 .padding(16)
-                .background(StudioTheme.glassInk.opacity(0.72))
-                .overlay(alignment: .top) {
-                    LinearGradient(colors: [StudioTheme.hairlineBright, .clear],
-                                   startPoint: .top, endPoint: .bottom)
-                        .frame(height: 1)
-                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .scrollIndicators(.hidden)
+
+            Button {
+                showingNewBookSheet = true
+            } label: {
+                Label("Neues Buch", systemImage: "plus")
+            }
+            .buttonStyle(StudioPrimaryButtonStyle())
+            .keyboardShortcut("n", modifiers: .command)
+            .help("Neues Buch erstellen (⌘N)")
+            .padding(14)
+            .background(.ultraThinMaterial)
+            .overlay(alignment: .top) { StudioTheme.hairline.frame(height: 1) }
         }
+        .background(StudioTheme.glassInk.opacity(0.66))
+        .background(.ultraThinMaterial)
         .frame(minWidth: 238, maxWidth: 310, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var brandHeader: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 11) {
                 NovelForgeLogo(size: 40)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("NovelForge")
-                        .font(.system(size: 20, weight: .heavy, design: .rounded))
-                        .foregroundStyle(StudioTheme.brandGradient)
-                    Text("KDP AUTO STUDIO")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundStyle(StudioTheme.heroGradient)
+                    Text("KDP Produktionsstudio")
+                        .font(.caption2.weight(.medium))
                         .foregroundStyle(StudioTheme.textFaint)
-                        .tracking(1.8)
                 }
             }
 
@@ -206,8 +221,9 @@ struct StudioSidebar: View {
                                  color: orchestrator.isUnlimitedMode ? StudioTheme.lime : StudioTheme.violet)
             }
         }
-        .padding(12)
-        .studioFeaturedPanel(cornerRadius: 8)
+        .padding(.horizontal, 2)
+        .padding(.bottom, 16)
+        .overlay(alignment: .bottom) { StudioTheme.hairline.frame(height: 1) }
     }
 
     private var productionCapsule: some View {
@@ -215,11 +231,7 @@ struct StudioSidebar: View {
             HStack {
                 StudioSectionLabel(text: "Live Produktion")
                 Spacer()
-                Circle()
-                    .fill(orchestrator.isRunning ? StudioTheme.lime : StudioTheme.textFaint)
-                    .frame(width: 7, height: 7)
-                    .shadow(color: orchestrator.isRunning ? StudioTheme.lime.opacity(0.6) : .clear,
-                            radius: 7)
+                StudioLiveIndicator(color: StudioTheme.lime, isActive: orchestrator.isRunning)
             }
 
             Text(orchestrator.currentProject?.title ?? (orchestrator.isRunning ? "Pipeline aktiv" : "Wartet auf Start"))
@@ -262,55 +274,57 @@ struct SidebarButton: View {
     let isSelected: Bool
     let badge: String?
     let action: () -> Void
+    @State private var isHovered = false
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: item.icon)
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.system(size: 14, weight: .semibold))
                     .frame(width: 22)
-                    .foregroundStyle(isSelected ? Color.black.opacity(0.85) : StudioTheme.textMuted)
+                    .foregroundStyle(isSelected ? StudioTheme.cyan : StudioTheme.textMuted)
                 Text(item.rawValue)
-                    .font(.callout.weight(isSelected ? .bold : .medium))
-                    .foregroundStyle(isSelected ? Color.black.opacity(0.9) : StudioTheme.textMuted)
+                    .font(.callout.weight(isSelected ? .semibold : .medium))
+                    .foregroundStyle(isSelected ? Color.primary : StudioTheme.textMuted)
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 if let badge {
                     Text(badge)
                         .font(.caption2.weight(.bold))
                         .monospacedDigit()
-                        .foregroundStyle(isSelected ? Color.black.opacity(0.8) : StudioTheme.cyan)
+                        .foregroundStyle(isSelected ? StudioTheme.cyan : StudioTheme.textMuted)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
-                        .background {
-                            if isSelected {
-                                Capsule().fill(Color.white.opacity(0.42))
-                            } else {
-                                Capsule().fill(StudioTheme.cyan.opacity(0.12))
-                            }
-                        }
+                        .background(StudioTheme.surfaceDeep.opacity(0.72),
+                                    in: RoundedRectangle(cornerRadius: 5, style: .continuous))
                 }
             }
             .padding(.horizontal, 10)
-            .frame(height: 38)
+            .frame(height: 39)
             .background {
-                if isSelected {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(StudioTheme.brandGradient)
-                        .overlay(alignment: .top) {
-                            LinearGradient(colors: [.white.opacity(0.32), .clear], startPoint: .top, endPoint: .bottom)
-                                .frame(height: 16)
-                                .mask(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(isSelected
+                          ? StudioTheme.surfaceElevated.opacity(0.68)
+                          : Color.white.opacity(isHovered ? 0.045 : 0))
+                    .overlay {
+                        if isSelected {
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .strokeBorder(StudioTheme.cyan.opacity(0.22), lineWidth: 1)
                         }
-                        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.32), lineWidth: 1))
-                        .shadow(color: StudioTheme.violet.opacity(0.30), radius: 13, x: 0, y: 5)
-                        .shadow(color: StudioTheme.cyan.opacity(0.18), radius: 8, x: 0, y: 0)
-                }
+                    }
             }
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                    .fill(StudioTheme.cyan)
+                    .frame(width: 3, height: isSelected ? 22 : 0)
+                    .opacity(isSelected ? 1 : 0)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
         .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .animation(Motion.fast, value: isHovered)
+        .animation(Motion.standard, value: isSelected)
         .help(item.rawValue)
     }
 }
@@ -318,8 +332,13 @@ struct SidebarButton: View {
 // MARK: - Produktion (laufende Pipeline + Warteschlange)
 
 struct ProductionView: View {
-    @Query(sort: \Project.updatedAt, order: .reverse) private var allProjects: [Project]
+    private var _allProjects = Query<Project, [Project]>(
+        sort: \Project.updatedAt,
+        order: .reverse
+    )
+    private var allProjects: [Project] { _allProjects.wrappedValue }
     @ObservedObject private var orchestrator = PipelineOrchestrator.shared
+    @AppStorage(ProductionIncidentStore.messageKey) private var persistedInterruption = ""
     @State private var showingNewBookSheet = false
     @State private var showingUnlimitedSheet = false
     @State private var confirmStopUnlimited = false
@@ -328,6 +347,12 @@ struct ProductionView: View {
         allProjects.filter { project in
             project.status != .completed && project.id != orchestrator.currentProject?.id
         }
+    }
+
+    private var displayedInterruption: String? {
+        if let error = orchestrator.lastError, !error.isEmpty { return error }
+        let persisted = persistedInterruption.trimmingCharacters(in: .whitespacesAndNewlines)
+        return persisted.isEmpty ? nil : persisted
     }
 
     var body: some View {
@@ -343,12 +368,12 @@ struct ProductionView: View {
                     PipelineProgressView()
                 }
 
-                if !orchestrator.isRunning, let error = orchestrator.lastError {
+                if !orchestrator.isRunning, let error = displayedInterruption {
                     HStack(alignment: .top, spacing: 10) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(StudioTheme.danger)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Letzte Produktion abgebrochen")
+                            Text("Letzte Produktion unterbrochen")
                                 .font(.headline)
                             Text(error)
                                 .font(.caption)
@@ -434,10 +459,16 @@ struct ProductionView: View {
             HStack(alignment: .top, spacing: 18) {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 8) {
-                        StudioStatusPill(text: "Autonom", systemImage: "infinity", color: StudioTheme.lime)
-                        StudioStatusPill(text: "\(orchestrator.parallelUnlimitedBooks)x parallel",
-                                         systemImage: "square.grid.3x3",
-                                         color: StudioTheme.cyan)
+                        StudioStatusPill(
+                            text: orchestrator.isUnlimitedMode ? "Autonom" : "Einzelbuch",
+                            systemImage: orchestrator.isUnlimitedMode ? "infinity" : "book.closed",
+                            color: orchestrator.isUnlimitedMode ? StudioTheme.lime : StudioTheme.violet
+                        )
+                        if orchestrator.isUnlimitedMode {
+                            StudioStatusPill(text: "\(orchestrator.parallelUnlimitedBooks)x parallel",
+                                             systemImage: "square.grid.3x3",
+                                             color: StudioTheme.cyan)
+                        }
                     }
                     Text("Produktions-Cockpit")
                         .font(.system(size: 34, weight: .bold, design: .rounded))
@@ -587,10 +618,12 @@ struct UnlimitedProductionSheet: View {
     @State private var authorName = ""
     @State private var language = "Deutsch"
     @State private var selectedGenres: Set<String> = ["Thriller"]
+    @State private var visibleContentType = BookContentType.fiction
     @State private var style = UnlimitedSettings.randomToken
     @State private var pageCount = 150
     @State private var maxBooks = 0
     @State private var parallelBooks = 1
+    @State private var resumeInterruptedBooks = true
     @State private var imprint = ""
     @State private var authorBio = ""
     @State private var epubFormat = true
@@ -601,6 +634,11 @@ struct UnlimitedProductionSheet: View {
     @State private var selectedProvider = AIProvider.ollamaCloud
     @State private var selectedModel = AIProvider.ollamaCloud.suggestedModels.first ?? ""
     @State private var customModel = ""
+    @State private var validationMessage: String?
+
+    private let productionProviders: [AIProvider] = [
+        .ollamaCloud, .openAI, .anthropic, .kimi, .ollamaLocal
+    ]
 
     private var effectiveModel: String {
         let custom = customModel.trimmingCharacters(in: .whitespaces)
@@ -623,6 +661,7 @@ struct UnlimitedProductionSheet: View {
             && !selectedGenres.isEmpty
             && !effectiveModel.isEmpty
             && (epubFormat || pdfFormat || docxFormat)
+            && (!selectedProvider.requiresAPIKey || hasStoredKey)
     }
 
     private var selectedFormats: [String] {
@@ -635,9 +674,12 @@ struct UnlimitedProductionSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            ZStack {
+                StudioBackground()
+
+                Form {
                 Section("Dauerproduktion") {
-                    Text("NovelForge produziert KDP-fertige Bücher mit Story-Gedächtnis, damit sich Titel, Figuren, Konflikte und zentrale Geschichten nicht wiederholen. Die Produktion läuft weiter, bis Sie Stopp drücken.")
+                    Text("NovelForge produziert KDP-fertige Romane, Sachbücher und Ratgeber mit Katalog-Gedächtnis, damit sich Titel, Themen, Formulierungen und Konzepte nicht wiederholen. Die Produktion läuft weiter, bis Sie Stopp drücken.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     TextField("Autorname oder Pseudonym", text: $authorName)
@@ -669,11 +711,19 @@ struct UnlimitedProductionSheet: View {
                         }
                     }
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Genres")
+                        Text("Genres und Kategorien")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
+                        Picker("Buchtyp", selection: $visibleContentType) {
+                            ForEach(BookContentType.allCases) { type in
+                                Text(type.rawValue).tag(type)
+                            }
+                        }
+                        .pickerStyle(.segmented)
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), alignment: .leading)], alignment: .leading, spacing: 8) {
-                            ForEach(UnlimitedSettings.genrePool, id: \.self) { item in
+                            ForEach(UnlimitedSettings.genrePool.filter {
+                                BookContentType.infer(from: $0) == visibleContentType
+                            }, id: \.self) { item in
                                 Toggle(item, isOn: Binding(
                                     get: { selectedGenres.contains(item) },
                                     set: { isOn in
@@ -688,8 +738,8 @@ struct UnlimitedProductionSheet: View {
                             }
                         }
                         Text(selectedGenres.isEmpty
-                             ? "Mindestens ein Genre wählen."
-                             : "Auto-Produktion rotiert durch die gewählten Genres und prüft jedes neue Konzept gegen das Story-Gedächtnis.")
+                             ? "Mindestens ein Genre oder eine Kategorie wählen."
+                             : "\(selectedGenres.count) ausgewählt. Auto-Produktion rotiert durch die Auswahl und prüft jedes neue Konzept gegen das Katalog-Gedächtnis.")
                             .font(.caption)
                             .foregroundStyle(selectedGenres.isEmpty ? .orange : .secondary)
                     }
@@ -749,19 +799,20 @@ struct UnlimitedProductionSheet: View {
 
                 Section("KI-Provider & Parallelität") {
                     Picker("Provider", selection: $selectedProvider) {
-                        ForEach(AIProvider.allCases) { provider in
+                        ForEach(productionProviders) { provider in
                             Text(provider.rawValue).tag(provider)
                         }
                     }
                     .onChange(of: selectedProvider) {
                         selectedModel = selectedProvider.suggestedModels.first ?? ""
                         customModel = ""
+                        validationMessage = nil
                     }
 
                     DynamicModelPicker(provider: selectedProvider,
                                        selectedModel: $selectedModel,
                                        customModel: $customModel,
-                                       includeCustomField: true)
+                                       includeCustomField: selectedProvider != .ollamaCloud)
 
                     if selectedProvider.requiresAPIKey && !hasStoredKey {
                         Label("Falls der API-Key noch nicht gespeichert ist: zuerst in Einstellungen → KI-Provider eintragen.",
@@ -770,16 +821,26 @@ struct UnlimitedProductionSheet: View {
                             .foregroundStyle(.orange)
                     }
 
+                    if let validationMessage {
+                        Label(validationMessage, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(StudioTheme.amber)
+                    }
+
                     Stepper(maxBooks == 0 ? "Anzahl Bücher: unbegrenzt (bis Stopp)" : "Anzahl Bücher: \(maxBooks)",
                             value: $maxBooks, in: 0...100)
                     Stepper("Parallele Bücher: \(parallelBooks)",
                             value: $parallelBooks, in: 1...10)
+                    Toggle("Unfertige Bücher zuerst fortsetzen", isOn: $resumeInterruptedBooks)
                     Text("NovelForge arbeitet weiter, bis Sie stoppen oder der Provider selbst einen echten Kontingentfehler meldet.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
             .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+            .background(Color.clear)
+            }
             .navigationTitle("Dauerproduktion")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -816,6 +877,24 @@ struct UnlimitedProductionSheet: View {
     }
 
     private func start() {
+        guard canStart else {
+            if selectedProvider.requiresAPIKey && !hasStoredKey {
+                validationMessage = "Für diesen Provider zuerst einen API-Key in den Einstellungen speichern."
+            } else if selectedGenres.isEmpty {
+                validationMessage = "Mindestens ein Genre wählen."
+            } else if effectiveModel.isEmpty {
+                validationMessage = "Ein geeignetes Modell wählen."
+            } else {
+                validationMessage = "Autor und mindestens ein Exportformat vervollständigen."
+            }
+            return
+        }
+
+        guard ![authorName, authorBio, imprint, ideaText].contains(where: PublicContentGuard.disclosureViolation) else {
+            validationMessage = "Bitte Produktionshinweise aus den öffentlich sichtbaren Buchdaten entfernen."
+            return
+        }
+
         var config = ProviderConfiguration(provider: selectedProvider)
         config.isActive = true
         config.defaultModel = effectiveModel
@@ -833,7 +912,8 @@ struct UnlimitedProductionSheet: View {
             formats: selectedFormats,
             imprint: imprint,
             authorBio: authorBio,
-            ideaSeeds: ideaSeedsFromText
+            ideaSeeds: ideaSeedsFromText,
+            resumeInterruptedBooks: resumeInterruptedBooks
         )
         defaultAuthor = settings.authorName
         defaultImprint = settings.imprint
@@ -856,7 +936,7 @@ struct ResumableProjectRow: View {
                     .font(.headline)
                 HStack(spacing: 8) {
                     StatusBadge(status: project.status)
-                    Text("\(FormattingHelpers.formatWordCount(project.totalWordCount)) Wörter")
+                    Text("\(FormattingHelpers.formatWordCount(project.recordedWordCount)) Wörter")
                         .font(.caption)
                         .foregroundStyle(StudioTheme.textMuted)
                 }
@@ -949,6 +1029,41 @@ struct PipelineProgressView: View {
                 StudioProgressBar(value: Double(orchestrator.activeUnlimitedBooks) / max(1, Double(orchestrator.parallelUnlimitedBooks)))
             } else {
                 StudioProgressBar(value: orchestrator.progress)
+            }
+
+            // Eigene Reparatur-Anzeige: nicht nur ein laufender Timer, sondern auch
+            // WIE VIEL noch zu reparieren ist (behoben/gesamt) und eine geschätzte
+            // Restzeit – plus ein Fortschrittsbalken. Nur sichtbar, während repariert wird.
+            if orchestrator.repairStartedAt != nil {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "wrench.and.screwdriver")
+                        Text("Reparatur läuft")
+                        if let repairStart = orchestrator.repairStartedAt {
+                            Text(repairStart, style: .timer).monospacedDigit()
+                        }
+                        if orchestrator.repairIssuesTotal > 0 {
+                            Text("· \(max(0, orchestrator.repairIssuesTotal - orchestrator.repairIssuesRemaining))/\(orchestrator.repairIssuesTotal) behoben")
+                        }
+                        if !orchestrator.repairEtaText.isEmpty {
+                            Text("· noch ca. \(orchestrator.repairEtaText)")
+                                .fontWeight(.semibold)
+                        } else if orchestrator.repairIssuesRemaining > 0 {
+                            Text("· Restzeit wird berechnet …")
+                        }
+                        Spacer()
+                    }
+                    .font(.caption)
+                    .foregroundStyle(StudioTheme.amber)
+                    if orchestrator.repairIssuesTotal > 0 {
+                        ProgressView(
+                            value: Double(max(0, orchestrator.repairIssuesTotal - orchestrator.repairIssuesRemaining)),
+                            total: Double(orchestrator.repairIssuesTotal)
+                        )
+                        .tint(StudioTheme.amber)
+                    }
+                }
+                .padding(.top, 2)
             }
 
             // Detailzeile

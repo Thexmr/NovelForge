@@ -7,7 +7,8 @@ actor ProviderGateway {
     static let shared = ProviderGateway()
 
     private let urlSession: URLSession
-    private let maxRetries = 3
+    private let maxRetries = 5
+    private var unavailableOllamaCloudModels = Set<String>()
 
     init() {
         let config = URLSessionConfiguration.default
@@ -20,18 +21,59 @@ actor ProviderGateway {
 
     func generateText(request: GenerationRequest, configuration: ProviderConfiguration) async throws -> GenerationResponse {
         var attempt = 0
+        var activeRequest = request
+        if request.provider == .ollamaCloud,
+           unavailableOllamaCloudModels.contains(request.model.lowercased()),
+           let fallback = nextOllamaCloudModel(configuration: configuration,
+                                               excluding: unavailableOllamaCloudModels) {
+            activeRequest = replacingModel(in: request, with: fallback)
+        }
         while true {
             try Task.checkCancellation()
             do {
-                return try await executeRequest(request: request, configuration: configuration)
+                return try await executeRequest(request: activeRequest, configuration: configuration)
             } catch let error as AIError {
+                if error == .modelUnavailable, activeRequest.provider == .ollamaCloud {
+                    unavailableOllamaCloudModels.insert(activeRequest.model.lowercased())
+                    if let fallback = nextOllamaCloudModel(
+                        configuration: configuration,
+                        excluding: unavailableOllamaCloudModels
+                    ) {
+                        activeRequest = replacingModel(in: activeRequest, with: fallback)
+                        continue
+                    }
+                }
                 attempt += 1
-                let retryable = (error == .rateLimitExceeded || error == .networkError || error == .providerUnavailable)
+                let retryable = ProductionStabilityPolicy.isRetryableProviderError(error)
                 guard retryable && attempt < maxRetries else { throw error }
-                // Exponentielles Backoff: 2s, 4s
-                try await Task.sleep(nanoseconds: UInt64(attempt) * 2_000_000_000)
+                let delay = ProductionStabilityPolicy.providerRetryDelay(
+                    attempt: attempt,
+                    jitter: Double.random(in: 0.85...1.15)
+                )
+                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             }
         }
+    }
+
+    private func nextOllamaCloudModel(configuration: ProviderConfiguration,
+                                      excluding unavailable: Set<String>) -> String? {
+        let configured = configuration.defaultModel?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let candidates = [configured] + OllamaCloudModelCatalog.fallbackModels
+        return candidates.first { model in
+            !model.isEmpty
+                && OllamaCloudModelCatalog.isUsefulForLongFormCloudModel(model)
+                && !unavailable.contains(model.lowercased())
+        }
+    }
+
+    private func replacingModel(in request: GenerationRequest, with model: String) -> GenerationRequest {
+        GenerationRequest(prompt: request.prompt,
+                          systemPrompt: request.systemPrompt,
+                          model: model,
+                          provider: request.provider,
+                          maxTokens: request.maxTokens,
+                          temperature: request.temperature)
     }
 
     func listModels(configuration: ProviderConfiguration) async throws -> [String] {
@@ -293,7 +335,7 @@ actor ProviderGateway {
                 return GenerationResponse(
                     text: result.text,
                     tokensUsed: result.eval_count,
-                    finishReason: result.done ? "stop" : nil
+                    finishReason: result.finishReason
                 )
             case 401, 403:
                 throw AIError.apiKeyInvalid
@@ -323,6 +365,7 @@ actor ProviderGateway {
             return NormalizedOllamaResponse(
                 text: result.message.content,
                 done: result.done,
+                doneReason: result.done_reason,
                 eval_count: result.eval_count,
                 thinking: result.message.thinking
             )
@@ -331,6 +374,7 @@ actor ProviderGateway {
         return NormalizedOllamaResponse(
             text: result.response,
             done: result.done,
+            doneReason: result.done_reason,
             eval_count: result.eval_count,
             thinking: result.thinking
         )
@@ -453,6 +497,7 @@ struct AnthropicResponse: Codable {
 struct OllamaResponse: Codable {
     let response: String
     let done: Bool
+    let done_reason: String?
     let eval_count: Int?
     let thinking: String?
 }
@@ -464,14 +509,20 @@ struct OllamaChatResponse: Codable {
     }
     let message: Message
     let done: Bool
+    let done_reason: String?
     let eval_count: Int?
 }
 
 struct NormalizedOllamaResponse {
     let text: String
     let done: Bool
+    let doneReason: String?
     let eval_count: Int?
     let thinking: String?
+
+    var finishReason: String? {
+        doneReason ?? (done ? "stop" : nil)
+    }
 }
 
 struct APIErrorEnvelope: Codable {

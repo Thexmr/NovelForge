@@ -2,13 +2,22 @@ import Foundation
 
 struct LongFormProductionPlan {
     let pageCount: Int
+    let wordsPerChapterGoal: Int
+    let chapterVariation: Int
+
+    init(pageCount: Int, wordsPerChapterGoal: Int = 2_500, chapterVariation: Int = 0) {
+        self.pageCount = pageCount
+        self.wordsPerChapterGoal = min(max(wordsPerChapterGoal, 1_800), 4_500)
+        self.chapterVariation = min(max(chapterVariation, -4), 4)
+    }
 
     var targetWordCount: Int {
         normalizedPageCount * AppConstants.wordsPerPage
     }
 
     var chapterCount: Int {
-        max(12, min(80, Int(ceil(Double(targetWordCount) / 2500.0))))
+        let base = Int(ceil(Double(targetWordCount) / Double(wordsPerChapterGoal)))
+        return max(12, min(80, base + chapterVariation))
     }
 
     var targetWordsPerChapter: Int {
@@ -33,6 +42,39 @@ struct LongFormProductionPlan {
 
     private var normalizedPageCount: Int {
         min(max(pageCount, AppConstants.minPageCount), AppConstants.maxPageCount)
+    }
+}
+
+/// Eine gemeinsame Umfangsentscheidung für Revisionsprompt, Tokenbudget und
+/// Antwortabnahme. So kann der Prompt nicht mehr „Länge behalten" verlangen,
+/// während die Abnahme gleichzeitig eine starke Kürzung erwartet.
+enum ChapterRevisionSizing {
+    static let maximumTargetRatio = 1.35
+    static let minimumTargetRatio = 0.75
+
+    static func isOversized(sourceWords: Int, targetWords: Int) -> Bool {
+        guard targetWords > 0 else { return false }
+        return Double(sourceWords) > Double(targetWords) * maximumTargetRatio
+    }
+
+    static func desiredOutputWords(sourceWords: Int, targetWords: Int) -> Int {
+        isOversized(sourceWords: sourceWords, targetWords: targetWords)
+            ? max(1, targetWords)
+            : max(1, sourceWords)
+    }
+
+    static func minimumSourceRatio(sourceWords: Int, targetWords: Int) -> Double {
+        guard isOversized(sourceWords: sourceWords, targetWords: targetWords) else {
+            return 0.80
+        }
+        let ratioNeededForTargetFloor = Double(targetWords) * minimumTargetRatio
+            / Double(max(1, sourceWords))
+        return max(0.20, ratioNeededForTargetFloor)
+    }
+
+    static func maxOutputTokens(sourceWords: Int, targetWords: Int) -> Int {
+        let desiredWords = desiredOutputWords(sourceWords: sourceWords, targetWords: targetWords)
+        return min(12_000, max(3_000, desiredWords * 3))
     }
 }
 

@@ -23,7 +23,7 @@ extension ModelContext {
 
 struct AppConstants {
     static let appName = "NovelForge"
-    static let appVersion = "2.0.0"
+    static let appVersion = "2.1.1"
     static let maxPageCount = 1000 // bis zu 1000 Seiten (~250.000 Wörter); Plan skaliert automatisch
     static let minPageCount = 50
     static let wordsPerPage = 250
@@ -134,6 +134,13 @@ extension Project {
         (chapters ?? []).reduce(0) { $0 + $1.displayWordCount }
     }
 
+    /// Schnelle Wortzahl für Listen und Dashboards. Die Pipeline aktualisiert den
+    /// Wert nach jeder geschriebenen bzw. überarbeiteten Szene; anders als
+    /// `totalWordCount` muss dafür kein kompletter Buchtext geladen werden.
+    var recordedWordCount: Int {
+        (chapters ?? []).reduce(0) { $0 + $1.actualWordCount }
+    }
+
     var trimSize: TrimSize {
         TrimSize(rawValue: trimSizeRaw) ?? .sixByNine
     }
@@ -159,6 +166,13 @@ struct QualityScores {
     let consistency: Double
     let kdp: Double
 
+    private struct CachedEntry {
+        let fingerprint: Int
+        let scores: QualityScores
+    }
+
+    @MainActor private static var uiCache: [UUID: CachedEntry] = [:]
+
     static func compute(for project: Project) -> QualityScores {
         let chapters = project.chapters ?? []
 
@@ -171,11 +185,24 @@ struct QualityScores {
             structure = Double(wellFormed) / Double(chapters.count)
         }
 
-        // Figuren: mindestens 5 ausgearbeitete Figuren gelten als vollständig.
-        let characterCount = project.storyBible?.characters?.count ?? 0
-        let characters = min(1.0, Double(characterCount) / 5.0)
+        // Bei Romanen: Figurenensemble. Bei Sachbüchern: Leserproblem, Zielgruppe,
+        // Nutzenversprechen und konkrete Kapitelziele statt einer künstlichen Figurenliste.
+        let characters: Double
+        if project.isNonfiction {
+            let profile = project.bookProfile
+            let fields = [profile?.premise ?? "", profile?.targetAudience ?? "",
+                          profile?.readerBenefit ?? "", profile?.synopsis ?? ""]
+            let profileScore = Double(fields.filter { $0.wordCount >= 5 }.count) / Double(fields.count)
+            let usefulChapters = chapters.filter { $0.goal.wordCount >= 4 && $0.conflict.wordCount >= 3 }.count
+            let chapterScore = chapters.isEmpty ? 0 : Double(usefulChapters) / Double(chapters.count)
+            characters = (profileScore + chapterScore) / 2
+        } else {
+            let characterCount = project.storyBible?.characters?.count ?? 0
+            characters = min(1.0, Double(characterCount) / 5.0)
+        }
 
-        // Stil: Anteil der Szenen innerhalb ±25% der Zielwortzahl.
+        // Stil: Umfang allein ist kein Qualitätsbeweis. Kombiniere Zieltreue mit
+        // deterministischen Prüfungen auf maschinelle Muster und buchweite Floskeln.
         let scenes = chapters.flatMap { $0.scenes ?? [] }
         let written = scenes.filter { ($0.text ?? "").isEmpty == false }
         let style: Double
@@ -187,7 +214,15 @@ struct QualityScores {
                 let target = max(scene.targetWordCount, 1)
                 return abs(wordCount - target) <= Int(Double(target) * 0.25)
             }.count
-            style = Double(inTolerance) / Double(written.count)
+            let lengthScore = Double(inTolerance) / Double(written.count)
+            let natural = written.filter {
+                !AutonomousContentQuality.soundsLikeAI($0.text ?? "")
+            }.count
+            let naturalnessScore = Double(natural) / Double(written.count)
+            let chapterTexts = chapters.compactMap(\.bestText).filter { !$0.isEmpty }
+            let repeated = AutonomousContentQuality.overusedPhrases(inChapters: chapterTexts)
+            let repetitionScore = max(0.0, 1.0 - Double(repeated.count) / 10.0)
+            style = lengthScore * 0.30 + naturalnessScore * 0.45 + repetitionScore * 0.25
         }
 
         // Konsistenz: jede gefundene schwere Inkonsistenz kostet 10%.
@@ -204,6 +239,62 @@ struct QualityScores {
 
         return QualityScores(structure: structure, characters: characters,
                              style: style, consistency: consistency, kdp: kdp)
+    }
+
+    /// Schnelle Variante für SwiftUI-Ansichten. Produktionsphase und Exportbericht
+    /// nutzen weiterhin `compute(for:)`, damit dort immer frisch geprüft wird.
+    @MainActor
+    static func cached(for project: Project) -> QualityScores {
+        let fingerprint = uiFingerprint(project)
+        if let cached = uiCache[project.id], cached.fingerprint == fingerprint {
+            return cached.scores
+        }
+
+        let scores = compute(for: project)
+        if uiCache.count >= 256, uiCache[project.id] == nil {
+            uiCache.removeAll(keepingCapacity: true)
+        }
+        uiCache[project.id] = CachedEntry(fingerprint: fingerprint, scores: scores)
+        return scores
+    }
+
+    @MainActor
+    private static func uiFingerprint(_ project: Project) -> Int {
+        var hasher = Hasher()
+        hasher.combine(project.id)
+        hasher.combine(project.updatedAt)
+        hasher.combine(project.targetWordCount)
+        hasher.combine(project.storyBible?.characters?.count ?? 0)
+
+        let chapters = project.chapters ?? []
+        hasher.combine(chapters.count)
+        for chapter in chapters {
+            hasher.combine(chapter.id)
+            hasher.combine(chapter.updatedAt)
+            hasher.combine(chapter.actualWordCount)
+            hasher.combine(chapter.targetWordCount)
+            hasher.combine(chapter.goal.isEmpty)
+
+            let scenes = chapter.scenes ?? []
+            hasher.combine(scenes.count)
+            for scene in scenes {
+                hasher.combine(scene.id)
+                hasher.combine(scene.updatedAt)
+                hasher.combine(scene.status.rawValue)
+                hasher.combine(scene.targetWordCount)
+                hasher.combine(scene.text?.isEmpty ?? true)
+            }
+        }
+
+        let reports = project.qualityReports ?? []
+        hasher.combine(reports.count)
+        for report in reports {
+            hasher.combine(report.id)
+            hasher.combine(report.createdAt)
+            hasher.combine(report.severity.rawValue)
+            hasher.combine(report.autoFixed)
+        }
+        return hasher.finalize()
     }
 }
 

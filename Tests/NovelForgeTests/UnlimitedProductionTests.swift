@@ -27,8 +27,55 @@ final class UnlimitedProductionTests: XCTestCase {
         XCTAssertEqual(settings.pageCount, 500)
         XCTAssertEqual(settings.targetWordCount, 125_000)
         XCTAssertEqual(settings.parallelBooks, 10)
+        XCTAssertTrue(settings.resumeInterruptedBooks)
         XCTAssertTrue(settings.imprint.contains("Test Verlag"))
         XCTAssertTrue(settings.authorBio.contains("psychologische Thriller"))
+    }
+
+    func testUnlimitedRecoveryPolicyOnlySelectsMatchingUnfinishedProjects() {
+        let settings = UnlimitedSettings(
+            authorName: "Test Autor",
+            language: "Deutsch",
+            selectedGenres: ["Thriller"],
+            style: "psychologisch",
+            pageCount: 500,
+            maxBooks: 0,
+            formats: ["EPUB"],
+            imprint: "",
+            authorBio: ""
+        )
+        let project = Project(
+            title: "Unterbrochen",
+            authorName: "Test Autor",
+            language: "Deutsch",
+            genre: "Thriller",
+            styleProfile: "psychologisch",
+            targetPageCount: 500,
+            outputFormats: ["EPUB"]
+        )
+        project.preferredProviderRaw = AIProvider.ollamaCloud.rawValue
+        project.status = .failed
+
+        XCTAssertTrue(UnlimitedRecoveryPolicy.shouldRecover(
+            project: project,
+            settings: settings,
+            provider: .ollamaCloud
+        ))
+
+        project.status = .completed
+        XCTAssertFalse(UnlimitedRecoveryPolicy.shouldRecover(
+            project: project,
+            settings: settings,
+            provider: .ollamaCloud
+        ))
+
+        project.status = .failed
+        project.authorName = "Andere Autorin"
+        XCTAssertFalse(UnlimitedRecoveryPolicy.shouldRecover(
+            project: project,
+            settings: settings,
+            provider: .ollamaCloud
+        ))
     }
 
     func testUnlimitedSettingsClampParallelBookWorkersToOneThroughTen() {
@@ -350,6 +397,8 @@ final class UnlimitedProductionTests: XCTestCase {
                                                                               consecutiveFailures: 1))
         XCTAssertTrue(ProductionStabilityPolicy.shouldHaltUnlimitedProduction(after: AIError.baseURLMissing,
                                                                               consecutiveFailures: 1))
+        XCTAssertTrue(ProductionStabilityPolicy.shouldHaltUnlimitedProduction(after: AIError.modelUnavailable,
+                                                                              consecutiveFailures: 1))
         XCTAssertFalse(ProductionStabilityPolicy.shouldHaltUnlimitedProduction(after: AIError.providerUnavailable,
                                                                                consecutiveFailures: 1))
     }
@@ -362,10 +411,40 @@ final class UnlimitedProductionTests: XCTestCase {
         XCTAssertEqual(ProductionStabilityPolicy.retryDelay(forConsecutiveFailures: 8), 300)
     }
 
-    func testStabilityPolicyStopsAfterTooManyConsecutiveBookFailures() {
+    func testStabilityPolicyKeepsRetryingTransientBookFailures() {
         XCTAssertFalse(ProductionStabilityPolicy.shouldHaltUnlimitedProduction(after: AIError.networkError,
                                                                                consecutiveFailures: 2))
-        XCTAssertTrue(ProductionStabilityPolicy.shouldHaltUnlimitedProduction(after: AIError.networkError,
-                                                                              consecutiveFailures: 3))
+        XCTAssertFalse(ProductionStabilityPolicy.shouldHaltUnlimitedProduction(after: AIError.networkError,
+                                                                                 consecutiveFailures: 30))
+    }
+
+    func testStabilityPolicyResumesSameBookAfterTransientProviderFailures() {
+        XCTAssertTrue(ProductionStabilityPolicy.shouldResumeInterruptedBook(after: AIError.providerUnavailable))
+        XCTAssertTrue(ProductionStabilityPolicy.shouldResumeInterruptedBook(after: AIError.networkError))
+        XCTAssertTrue(ProductionStabilityPolicy.shouldResumeInterruptedBook(after: AIError.rateLimitExceeded))
+        XCTAssertTrue(ProductionStabilityPolicy.shouldResumeInterruptedBook(after: AIError.ollamaNotRunning))
+        XCTAssertFalse(ProductionStabilityPolicy.shouldResumeInterruptedBook(after: AIError.apiKeyInvalid))
+        XCTAssertFalse(ProductionStabilityPolicy.shouldResumeInterruptedBook(after: AIError.quotaExceeded))
+        XCTAssertFalse(ProductionStabilityPolicy.shouldResumeInterruptedBook(
+            after: NSError(domain: "NovelForgeTests", code: 1)
+        ))
+    }
+
+    func testReadinessShortfallRemainsRetryableForAutonomousProduction() {
+        let error = AIError.systemError(
+            "\(PipelineOrchestrator.readinessShortfallMarker): Offene Qualitätsbefunde: 1 kritisch, 0 Fehler."
+        )
+
+        XCTAssertTrue(PipelineOrchestrator.isReadinessShortfall(error))
+        XCTAssertFalse(PipelineOrchestrator.isReadinessShortfall(AIError.apiKeyInvalid))
+    }
+
+    func testProviderRetryUsesExponentialBackoffWithBoundedJitter() {
+        XCTAssertTrue(ProductionStabilityPolicy.isRetryableProviderError(.networkError))
+        XCTAssertTrue(ProductionStabilityPolicy.isRetryableProviderError(.rateLimitExceeded))
+        XCTAssertFalse(ProductionStabilityPolicy.isRetryableProviderError(.apiKeyInvalid))
+        XCTAssertEqual(ProductionStabilityPolicy.providerRetryDelay(attempt: 1, jitter: 1), 2)
+        XCTAssertEqual(ProductionStabilityPolicy.providerRetryDelay(attempt: 2, jitter: 1), 4)
+        XCTAssertEqual(ProductionStabilityPolicy.providerRetryDelay(attempt: 5, jitter: 1), 32)
     }
 }

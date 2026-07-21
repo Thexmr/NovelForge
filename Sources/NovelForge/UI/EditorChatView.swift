@@ -5,8 +5,10 @@ import SwiftData
 /// Ist ein Kapitel gewählt, überarbeitet der Agent es direkt; sonst beantwortet er.
 struct EditorChatView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: \Project.updatedAt, order: .reverse) private var projects: [Project]
-    @Query(sort: \ChatMessage.createdAt) private var allMessages: [ChatMessage]
+    private var _projects = Query<Project, [Project]>(sort: \Project.updatedAt, order: .reverse)
+    private var projects: [Project] { _projects.wrappedValue }
+    private var _allMessages = Query<ChatMessage, [ChatMessage]>(sort: \ChatMessage.createdAt)
+    private var allMessages: [ChatMessage] { _allMessages.wrappedValue }
     @ObservedObject private var appState = AppState.shared
     @ObservedObject private var orchestrator = PipelineOrchestrator.shared
 
@@ -56,37 +58,35 @@ struct EditorChatView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Lektor-Chat")
-                .font(.title2.weight(.bold))
-                .foregroundStyle(StudioTheme.heroGradient)
-            HStack(spacing: 12) {
-                Picker("Buch", selection: Binding(
-                    get: { project },
-                    set: { appState.selectedProject = $0; selectedChapterID = nil })) {
-                    ForEach(projects) { p in Text(p.title).tag(p as Project?) }
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Lektorat")
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .foregroundStyle(StudioTheme.heroGradient)
+                    Text("Fragen klären oder gezielte Kapiteländerungen beauftragen.")
+                        .font(.caption)
+                        .foregroundStyle(StudioTheme.textMuted)
                 }
-                .frame(maxWidth: 260)
-
-                Picker("Bezug", selection: $selectedChapterID) {
-                    Text("Allgemeine Frage").tag(PersistentIdentifier?.none)
-                    ForEach(chapters) { c in
-                        Text("Kapitel \(c.chapterNumber) überarbeiten").tag(Optional(c.persistentModelID))
+                Spacer()
+                if isProcessing || isRepairing {
+                    HStack(spacing: 5) {
+                        StudioLiveIndicator(color: StudioTheme.cyan, isActive: true)
+                        Text(isRepairing ? "Buchprüfung läuft" : "Lektor arbeitet")
                     }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(StudioTheme.cyan)
                 }
-                .frame(maxWidth: 280)
-
-                Button {
-                    repairBook()
-                } label: {
-                    Label(isRepairing ? "Prüft & repariert …" : "Buch prüfen & reparieren",
-                          systemImage: "wrench.and.screwdriver")
-                }
-                .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.lime))
-                .disabled(project == nil || isProcessing || isRepairing || orchestrator.isRunning)
-                .help(orchestrator.isRunning
-                      ? "Während einer laufenden Produktion nicht verfügbar"
-                      : "Prüft das gesamte Buch und repariert nur kapitelgenaue Inkonsistenzen")
             }
+
+            ViewThatFits(in: .horizontal) {
+                headerControls
+                VStack(alignment: .leading, spacing: 8) {
+                    projectPicker
+                    chapterPicker
+                    repairButton
+                }
+            }
+
             Text(selectedChapter == nil
                  ? "Stelle eine Frage oder besprich Änderungen. Für eine konkrete Überarbeitung wähle rechts ein Kapitel."
                  : "Schreib deinen Wunsch – der Lektor überarbeitet Kapitel \(selectedChapter!.chapterNumber) direkt.")
@@ -97,22 +97,75 @@ struct EditorChatView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private var headerControls: some View {
+        HStack(spacing: 12) {
+            projectPicker
+            chapterPicker
+            repairButton
+        }
+    }
+
+    private var projectPicker: some View {
+        Picker("Buch", selection: Binding(
+            get: { project },
+            set: { appState.selectedProject = $0; selectedChapterID = nil })) {
+            ForEach(projects) { p in Text(p.title).tag(p as Project?) }
+        }
+        .frame(maxWidth: 240)
+    }
+
+    private var chapterPicker: some View {
+        Picker("Bezug", selection: $selectedChapterID) {
+            Text("Allgemeine Frage").tag(PersistentIdentifier?.none)
+            ForEach(chapters) { chapter in
+                Text("Kapitel \(chapter.chapterNumber) überarbeiten")
+                    .tag(Optional(chapter.persistentModelID))
+            }
+        }
+        .frame(maxWidth: 260)
+    }
+
+    private var repairButton: some View {
+        Button {
+            repairBook()
+        } label: {
+            Label(isRepairing ? "Prüfung läuft" : "Buch prüfen & reparieren",
+                  systemImage: "wrench.and.screwdriver")
+        }
+        .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.lime))
+        .disabled(project == nil || isProcessing || isRepairing || orchestrator.isRunning)
+        .help(orchestrator.isRunning
+              ? "Während einer laufenden Produktion nicht verfügbar"
+              : "Prüft das gesamte Buch und repariert nur kapitelgenaue Inkonsistenzen")
+    }
+
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     if messages.isEmpty {
-                        Text("Noch keine Nachrichten. Frag den Lektor zum Beispiel: ‚Mach Kapitel 3 spannender‘ oder ‚Ist die Hauptfigur glaubwürdig?‘")
-                            .font(.callout)
-                            .foregroundStyle(StudioTheme.textFaint)
-                            .padding(.top, 24)
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Neue Besprechung")
+                                .font(.headline)
+                            Text("Wähle eine häufige Prüfung oder formuliere unten einen eigenen Auftrag.")
+                                .font(.caption)
+                                .foregroundStyle(StudioTheme.textMuted)
+                            HStack(spacing: 8) {
+                                suggestionButton("Figurenlogik prüfen")
+                                suggestionButton("Spannungsbogen bewerten")
+                                suggestionButton("Offene Handlungsfäden finden")
+                            }
+                        }
+                        .padding(16)
+                        .studioPanel(cornerRadius: 8, accent: StudioTheme.violet)
+                        .padding(.top, 12)
                     }
                     ForEach(messages) { msg in
                         bubble(msg).id(msg.id)
                     }
                     if isProcessing || isRepairing {
                         HStack(spacing: 8) {
-                            ProgressView().controlSize(.small)
+                            StudioLiveIndicator(color: StudioTheme.cyan, isActive: true)
                             Text(isRepairing ? "Lektor prüft und repariert …" : "Lektor denkt nach …")
                                 .font(.caption)
                                 .foregroundStyle(StudioTheme.textMuted)
@@ -128,20 +181,25 @@ struct EditorChatView: View {
         }
     }
 
+    private func suggestionButton(_ text: String) -> some View {
+        Button(text) { input = text }
+            .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.violet))
+    }
+
     private func bubble(_ msg: ChatMessage) -> some View {
         HStack {
             if msg.role == .user { Spacer(minLength: 60) }
             Text(msg.text)
                 .font(.callout)
-                .foregroundStyle(.white)
+                .foregroundStyle(msg.role == .user ? Color.black.opacity(0.86) : Color.white)
                 .textSelection(.enabled)
                 .padding(.vertical, 10).padding(.horizontal, 14)
                 .background {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(msg.role == .user
                               ? AnyShapeStyle(StudioTheme.brandGradient)
                               : AnyShapeStyle(StudioTheme.surfaceElevated))
-                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .strokeBorder(StudioTheme.hairline))
                 }
             if msg.role == .assistant { Spacer(minLength: 60) }
@@ -155,14 +213,14 @@ struct EditorChatView: View {
                 .lineLimit(1...4)
                 .textFieldStyle(.plain)
                 .padding(10)
-                .background(RoundedRectangle(cornerRadius: 12).fill(StudioTheme.glassBase)
-                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(StudioTheme.hairline)))
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(StudioTheme.hairline))
                 .onSubmit(send)
 
             Button(action: send) {
                 Image(systemName: "paperplane.fill")
                     .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color.black.opacity(0.86))
                     .frame(width: 40, height: 40)
                     .background(Circle().fill(StudioTheme.brandGradient))
             }
@@ -173,6 +231,8 @@ struct EditorChatView: View {
             .accessibilityLabel("Nachricht senden")
         }
         .padding(14)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) { StudioTheme.hairline.frame(height: 1) }
     }
 
     private func send() {

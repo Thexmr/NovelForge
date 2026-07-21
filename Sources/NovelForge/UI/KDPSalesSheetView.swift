@@ -19,7 +19,7 @@ struct KDPSalesSheetView: View {
 
     private var canGenerate: Bool {
         project.modelContext != nil && project.bookProfile != nil
-            && !isGenerating && !orchestrator.isRunning
+            && project.status == .completed && !isGenerating && !orchestrator.isRunning
     }
 
     var body: some View {
@@ -36,13 +36,13 @@ struct KDPSalesSheetView: View {
                     generate()
                 } label: {
                     if isGenerating {
-                        ProgressView().controlSize(.small)
+                        StudioLiveIndicator(color: StudioTheme.cyan, isActive: true)
                     } else {
                         Label(sheet.hasGeneratedMetadata ? "Neu generieren" : "Generieren",
                               systemImage: "sparkles")
                     }
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.cyan))
                 .disabled(!canGenerate)
                 .help("Viralen Verkaufstitel, Untertitel, Verkaufstext, Keywords und Kategorien per KI erzeugen.")
             }
@@ -117,7 +117,7 @@ struct KDPSalesSheetView: View {
                     if !sheet.keywordSlots.isEmpty {
                         Text("7 SUCHBEGRIFFE (KEYWORDS)")
                             .font(.system(.caption2, design: .monospaced).weight(.bold))
-                            .tracking(1).foregroundStyle(StudioTheme.textFaint)
+                            .foregroundStyle(StudioTheme.textFaint)
                         ForEach(Array(sheet.keywordSlots.prefix(7).enumerated()), id: \.offset) { i, kw in
                             uploadSlot("\(i + 1)", kw, accent: StudioTheme.violet)
                         }
@@ -125,7 +125,7 @@ struct KDPSalesSheetView: View {
                     if !sheet.categorySlots.isEmpty {
                         Text("KATEGORIEN (MAX. 3)")
                             .font(.system(.caption2, design: .monospaced).weight(.bold))
-                            .tracking(1).foregroundStyle(StudioTheme.textFaint)
+                            .foregroundStyle(StudioTheme.textFaint)
                             .padding(.top, 4)
                         ForEach(Array(sheet.categorySlots.prefix(3).enumerated()), id: \.offset) { i, cat in
                             uploadSlot("\(i + 1)", cat, accent: StudioTheme.cyan)
@@ -211,7 +211,8 @@ struct KDPSalesSheetView: View {
 /// Verkaufstexte (viraler Titel, Untertitel, Verkaufstext, Keywords, Kategorien)
 /// ansehen, kopieren oder neu generieren.
 struct KDPMarketingView: View {
-    @Query(sort: \Project.updatedAt, order: .reverse) private var projects: [Project]
+    private var _projects = Query<Project, [Project]>(sort: \Project.updatedAt, order: .reverse)
+    private var projects: [Project] { _projects.wrappedValue }
     @ObservedObject private var appState = AppState.shared
 
     private var eligibleProjects: [Project] {
@@ -234,6 +235,8 @@ struct KDPMarketingView: View {
                             .tag(project)
                         }
                     }
+                    .listStyle(.sidebar)
+                    .scrollContentBackground(.hidden)
                 }
             }
             .frame(minWidth: 200, idealWidth: 240, maxWidth: 300)
@@ -247,6 +250,7 @@ struct KDPMarketingView: View {
             }
             .frame(minWidth: 440, maxWidth: .infinity)
         }
+        .background(StudioBackground())
         .navigationTitle("Veröffentlichung")
     }
 }
@@ -271,16 +275,59 @@ struct PublishingDetailView: View {
     @State private var expandNote: String?
     @State private var expandTargetPages = 0
 
-    private var busy: Bool { isRunningPackage || isRepairing || isOptimizingOpening || isAddingCliffhanger || isExpanding || orchestrator.isRunning }
+    private var busy: Bool {
+        project.status != .completed || isRunningPackage || isRepairing
+            || isOptimizingOpening || isAddingCliffhanger || isExpanding || orchestrator.isRunning
+    }
+
+    private var readinessIssues: [String] {
+        PublicationReadiness.cachedCompletionBlockingIssues(project: project)
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(project.title).font(.title).fontWeight(.bold)
-                    Text("\(project.authorName) · \(project.genre)")
-                        .foregroundStyle(.secondary)
+                HStack(alignment: .top, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(project.title)
+                            .font(.title.weight(.bold))
+                            .foregroundStyle(StudioTheme.heroGradient)
+                        Text("\(project.authorName) · \(project.genre) · \(FormattingHelpers.formatWordCount(project.totalWordCount)) Wörter")
+                            .foregroundStyle(StudioTheme.textMuted)
+                    }
+                    Spacer()
+                    StudioStatusPill(text: readinessIssues.isEmpty ? "veröffentlichungsbereit" : "Prüfung nötig",
+                                     systemImage: readinessIssues.isEmpty ? "checkmark.seal.fill" : "exclamationmark.triangle.fill",
+                                     color: readinessIssues.isEmpty ? StudioTheme.lime : StudioTheme.amber)
                 }
+                .padding(18)
+                .studioFeaturedPanel(cornerRadius: 8)
+
+                if project.status != .completed {
+                    Label("Das Buch befindet sich noch in Produktion. Veröffentlichungsaktionen werden nach Abschluss freigeschaltet.",
+                          systemImage: "clock")
+                        .font(.caption)
+                        .foregroundStyle(StudioTheme.amber)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .studioGlassTile(cornerRadius: 8, accent: StudioTheme.amber, opacity: 0.88)
+                } else if !readinessIssues.isEmpty {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Label("Vor dem Export prüfen", systemImage: "checklist")
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(StudioTheme.amber)
+                        ForEach(readinessIssues.prefix(4), id: \.self) { issue in
+                            Text("• \(issue)")
+                                .font(.caption)
+                                .foregroundStyle(StudioTheme.textMuted)
+                        }
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .studioGlassTile(cornerRadius: 8, accent: StudioTheme.amber, opacity: 0.88)
+                }
+
+                CoverSection(project: project)
 
                 // Master: komplette Veröffentlichungs-Pipeline
                 VStack(alignment: .leading, spacing: 8) {
@@ -294,13 +341,14 @@ struct PublishingDetailView: View {
                             runPackage()
                         } label: {
                             if isRunningPackage {
-                                HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Pipeline läuft …") }
+                                HStack(spacing: 6) { StudioLiveIndicator(color: StudioTheme.cyan); Text("Pipeline läuft …") }
                             } else {
                                 Label("Komplettes Paket erstellen", systemImage: "sparkles")
                             }
                         }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(busy)
+                        .buttonStyle(StudioPrimaryButtonStyle())
+                        .frame(maxWidth: 230)
+                        .disabled(busy || project.status != .completed)
                     }
                     if let packageNote {
                         Text(packageNote)
@@ -311,12 +359,12 @@ struct PublishingDetailView: View {
                 }
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 10))
+                .studioFeaturedPanel(cornerRadius: 8)
 
                 // Nachbearbeitung einzeln
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Nachbearbeitung").font(.headline)
-                    Text("Die KI prüft das fertige Buch auf Unstimmigkeiten (Zeitlinie, Figurenwissen, Kontinuität, Logik) UND Lesesog (schwache Kapitel-Enden, durchhängende Spannung) und korrigiert gezielt nur die betroffenen Stellen – nach dem Proofreading.")
+                    Text("Die Nachbearbeitung prüft das fertige Buch auf Unstimmigkeiten (Zeitlinie, Figurenwissen, Kontinuität, Logik) und Lesesog und korrigiert gezielt nur die betroffenen Stellen – nach dem Proofreading.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     HStack(spacing: 10) {
@@ -324,11 +372,12 @@ struct PublishingDetailView: View {
                             repair()
                         } label: {
                             if isRepairing {
-                                HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Wird geprüft …") }
+                                HStack(spacing: 6) { StudioLiveIndicator(color: StudioTheme.lime); Text("Wird geprüft …") }
                             } else {
                                 Label("Konsistenz & Spannung prüfen", systemImage: "wand.and.stars")
                             }
                         }
+                        .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.lime))
                         .disabled(busy)
                         if let repairNote {
                             Text(repairNote).font(.caption).foregroundStyle(.secondary)
@@ -340,20 +389,22 @@ struct PublishingDetailView: View {
                 // Buch erweitern (Umfang vergrößern, Handlung bewahren)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Buch erweitern").font(.headline)
-                    Text("Bringt das Buch coherent auf mehr Umfang: jedes Kapitel wird vertieft (mehr Szene, Dialog, Sinnesdetails) – Handlung, Figuren und Reihenfolge bleiben exakt gleich.")
+                    Text("Bringt das Buch stimmig auf mehr Umfang: Jedes Kapitel wird vertieft, während Handlung, Figuren und Reihenfolge erhalten bleiben.")
                         .font(.caption).foregroundStyle(.secondary)
                     HStack(spacing: 10) {
-                        Stepper("Zielumfang: \(expandTargetPages) Seiten", value: $expandTargetPages, in: 100...1000, step: 50)
+                        Stepper("Zielumfang: \(expandTargetPages) Seiten", value: $expandTargetPages,
+                                in: AppConstants.minPageCount...AppConstants.maxPageCount, step: 50)
                             .frame(maxWidth: 280)
                         Button {
                             expandBook()
                         } label: {
                             if isExpanding {
-                                HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Wird erweitert …") }
+                                HStack(spacing: 6) { StudioLiveIndicator(color: StudioTheme.violet); Text("Wird erweitert …") }
                             } else {
                                 Label("Buch erweitern", systemImage: "book")
                             }
                         }
+                        .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.violet))
                         .disabled(busy || expandTargetPages <= project.targetPageCount)
                     }
                     if let expandNote {
@@ -364,14 +415,15 @@ struct PublishingDetailView: View {
                 .onAppear {
                     if expandTargetPages == 0 {
                         let currentPages = max(project.totalWordCount / 250, project.targetPageCount)
-                        expandTargetPages = min(1000, max(currentPages + 50, currentPages * 2))
+                        expandTargetPages = min(AppConstants.maxPageCount,
+                                                max(currentPages + 50, currentPages * 2))
                     }
                 }
 
                 // Blick ins Buch (Conversion-Hebel)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Blick ins Buch").font(.headline)
-                    Text("Die Amazon-Leseprobe (erste Seiten) entscheidet den Kauf. Die KI schärft den Anfang des ersten Kapitels auf maximalen Lesesog – Hook in Zeile 1, sofort Stakes, ohne die Handlung zu ändern.")
+                    Text("Die Amazon-Leseprobe entscheidet häufig über den Kauf. Die Nachbearbeitung schärft den Anfang des ersten Kapitels auf Lesesog, ohne die Handlung zu ändern.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     HStack(spacing: 10) {
@@ -379,11 +431,12 @@ struct PublishingDetailView: View {
                             optimizeOpening()
                         } label: {
                             if isOptimizingOpening {
-                                HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Wird optimiert …") }
+                                HStack(spacing: 6) { StudioLiveIndicator(color: StudioTheme.cyan); Text("Wird optimiert …") }
                             } else {
                                 Label("Anfang optimieren", systemImage: "text.alignleft")
                             }
                         }
+                        .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.cyan))
                         .disabled(busy)
                         if let openingNote {
                             Text(openingNote).font(.caption).foregroundStyle(.secondary)
@@ -395,7 +448,7 @@ struct PublishingDetailView: View {
                 // Serie / Read-Through
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Serie · Read-Through").font(.headline)
-                    Text("Auf Kindle liegt das Geld in Reihen: Leser bingen Band für Band. Die KI baut am Ende einen Cliffhanger + Teaser auf den nächsten Band ein – der Abschluss dieses Buches bleibt erhalten.")
+                    Text("Für Reihen kann am Ende ein Cliffhanger mit Teaser auf den nächsten Band ergänzt werden, während der Abschluss dieses Buches erhalten bleibt.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     HStack(spacing: 10) {
@@ -403,11 +456,12 @@ struct PublishingDetailView: View {
                             addCliffhanger()
                         } label: {
                             if isAddingCliffhanger {
-                                HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Wird eingebaut …") }
+                                HStack(spacing: 6) { StudioLiveIndicator(color: StudioTheme.amber); Text("Wird eingebaut …") }
                             } else {
                                 Label("Cliffhanger + Teaser einbauen", systemImage: "books.vertical")
                             }
                         }
+                        .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.amber))
                         .disabled(busy)
                         if let cliffhangerNote {
                             Text(cliffhangerNote).font(.caption).foregroundStyle(.secondary)
@@ -528,7 +582,7 @@ struct CoverPromptsView: View {
 
     private var canGenerate: Bool {
         project.modelContext != nil && project.bookProfile != nil
-            && !isGenerating && !orchestrator.isRunning
+            && project.status == .completed && !isGenerating && !orchestrator.isRunning
     }
 
     var body: some View {
@@ -545,12 +599,12 @@ struct CoverPromptsView: View {
                     generate()
                 } label: {
                     if isGenerating {
-                        ProgressView().controlSize(.small)
+                        StudioLiveIndicator(color: StudioTheme.violet, isActive: true)
                     } else {
                         Label(prompts.isEmpty ? "Generieren" : "Neu generieren", systemImage: "sparkles")
                     }
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.violet))
                 .disabled(!canGenerate)
                 .help("Fertige Bild-Prompts erzeugen, die du direkt in ChatGPT/DALL·E einfügst, um das Cover zu erstellen.")
             }
@@ -589,17 +643,17 @@ struct CoverPromptsView: View {
                             } label: {
                                 Label("Kopieren", systemImage: "doc.on.doc")
                             }
-                            .buttonStyle(.borderless)
+                            .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.violet))
                             Button {
                                 generateImage(prompt: concept.text, index: concept.id)
                             } label: {
                                 if generatingImageIndex == concept.id {
-                                    HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Bild …") }
+                                    HStack(spacing: 6) { StudioLiveIndicator(color: StudioTheme.cyan); Text("Bild wird erstellt …") }
                                 } else {
                                     Label("Als Cover-Bild erzeugen", systemImage: "photo.badge.plus")
                                 }
                             }
-                            .buttonStyle(.borderless)
+                            .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.cyan))
                             .disabled(generatingImageIndex != nil || orchestrator.isRunning)
                         }
                     }
@@ -614,7 +668,7 @@ struct CoverPromptsView: View {
             } label: {
                 Label("Im KDP Cover Studio öffnen (druckfertiges Cover)", systemImage: "shippingbox")
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.amber))
             .help("Öffnet das KDP Cover Studio für druckfertige Paperback-/Hardcover-Wraps (exakte KDP-Maße, 300 DPI, mehrere Bild-Anbieter). Der erste Cover-Prompt wird in die Zwischenablage gelegt.")
         }
     }
@@ -674,6 +728,118 @@ struct CoverPromptsView: View {
             modelContext.saveOrLog()
             statusNote = result
             isGenerating = false
+        }
+    }
+}
+
+/// Cover-Erzeugung fürs eBook: nutzt die generierten Cover-Prompts + OpenAI-Bild-API,
+/// zeigt Vorschau und Regenerieren an. Ohne OpenAI-Key erscheint ein Hinweis.
+struct CoverSection: View {
+    let project: Project
+    @State private var isGenerating = false
+    @State private var note: String?
+    @State private var coverURL: URL?
+    @State private var reloadToken = UUID()
+    @State private var provider: CoverArtService.Provider = CoverArtService.selectedProvider
+
+    private var ready: Bool { CoverArtService.isReady(provider) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Cover (eBook)")
+                .font(.headline)
+            Text("Erzeugt ein KDP-fertiges eBook-Cover (1600×2560) aus den Cover-Prompts dieses Buchs.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Picker("Bild-Anbieter", selection: $provider) {
+                ForEach(CoverArtService.Provider.allCases) { p in
+                    Text(p.label).tag(p)
+                }
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: provider) { _, new in CoverArtService.selectedProvider = new }
+
+            HStack(alignment: .top, spacing: 14) {
+                Group {
+                    if let url = coverURL, let img = NSImage(contentsOf: url) {
+                        Image(nsImage: img)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 96, height: 154)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(StudioTheme.hairline))
+                    } else {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(StudioTheme.glassInk.opacity(0.5))
+                            .frame(width: 96, height: 154)
+                            .overlay(Image(systemName: "photo").foregroundStyle(StudioTheme.textFaint))
+                    }
+                }
+                .id(reloadToken)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    if provider == .openAI && !ready {
+                        Label("Kein OpenAI-API-Key hinterlegt. In Einstellungen → KI-Provider → OpenAI eintragen — oder den kostenlosen Anbieter wählen.",
+                              systemImage: "key")
+                            .font(.caption)
+                            .foregroundStyle(StudioTheme.amber)
+                    } else if provider == .pollinations {
+                        Label("Kostenlos, ohne Key, ohne Konto (Flux). Ideal für die autonome Fabrik.",
+                              systemImage: "gift")
+                            .font(.caption)
+                            .foregroundStyle(StudioTheme.lime)
+                    }
+                    Button {
+                        generate()
+                    } label: {
+                        if isGenerating {
+                            HStack(spacing: 6) { StudioLiveIndicator(color: StudioTheme.cyan); Text("Cover wird erzeugt …") }
+                        } else {
+                            Label(coverURL == nil ? "Cover erzeugen" : "Cover neu erzeugen",
+                                  systemImage: "wand.and.stars")
+                        }
+                    }
+                    .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.cyan))
+                    .disabled(isGenerating || !ready || project.status != .completed)
+
+                    if let url = coverURL {
+                        Button {
+                            NSWorkspace.shared.activateFileViewerSelecting([url])
+                        } label: { Label("Im Finder zeigen", systemImage: "folder") }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                    }
+                    if let note {
+                        Text(note).font(.caption).foregroundStyle(StudioTheme.textMuted)
+                    }
+                }
+                Spacer()
+            }
+        }
+        .padding(18)
+        .studioFeaturedPanel(cornerRadius: 8)
+        .onAppear { coverURL = CoverArtService.coverURL(for: project) }
+    }
+
+    private func generate() {
+        isGenerating = true
+        note = nil
+        Task {
+            do {
+                let result = try await CoverArtService.generateCover(for: project, provider: provider)
+                await MainActor.run {
+                    coverURL = result.url
+                    reloadToken = UUID()
+                    note = "Cover erstellt (\(result.provider.label))."
+                    isGenerating = false
+                }
+            } catch {
+                await MainActor.run {
+                    note = (error as? AIError)?.errorDescription ?? error.localizedDescription
+                    isGenerating = false
+                }
+            }
         }
     }
 }

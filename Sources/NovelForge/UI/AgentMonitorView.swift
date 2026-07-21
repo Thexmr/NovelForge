@@ -2,10 +2,24 @@ import SwiftUI
 import SwiftData
 
 struct AgentMonitorView: View {
-    @Query(sort: \PipelineJob.createdAt, order: .reverse) var jobs: [PipelineJob]
-    @Query(sort: \Project.updatedAt, order: .reverse) var projects: [Project]
+    private static let queriedJobLimit = 1_000
+    private static let visibleJobLimit = 250
+
+    private var _jobs: Query<PipelineJob, [PipelineJob]>
+    private var jobs: [PipelineJob] { _jobs.wrappedValue }
+    private var _projects = Query<Project, [Project]>(sort: \Project.updatedAt, order: .reverse)
+    var projects: [Project] { _projects.wrappedValue }
+    @ObservedObject private var orchestrator = PipelineOrchestrator.shared
     @State private var selectedStatus: JobStatusFilter = .all
     @State private var selectedProjectID: UUID?
+
+    init() {
+        var descriptor = FetchDescriptor<PipelineJob>(
+            sortBy: [SortDescriptor(\PipelineJob.createdAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = Self.queriedJobLimit
+        _jobs = Query(descriptor)
+    }
 
     enum JobStatusFilter: String, CaseIterable {
         case all = "Alle"
@@ -20,7 +34,10 @@ struct AgentMonitorView: View {
         case .all:
             result = jobs
         case .active:
-            result = jobs.filter { $0.status == .running || $0.status == .writing || $0.status == .checking || $0.status == .revising }
+            result = jobs.filter {
+                $0.status == .running || $0.status == .writing || $0.status == .checking
+                    || $0.status == .revising || $0.status == .retrying
+            }
         case .completed:
             result = jobs.filter { $0.status == .completed }
         case .failed:
@@ -32,47 +49,177 @@ struct AgentMonitorView: View {
         return result
     }
 
+    private var displayedJobs: [PipelineJob] {
+        Array(filteredJobs.prefix(Self.visibleJobLimit))
+    }
+
+    private var entryCountText: String {
+        let filteredCount = filteredJobs.count
+        let loadedSuffix = jobs.count >= Self.queriedJobLimit ? " · letzte 1.000 geladen" : ""
+        if filteredCount > displayedJobs.count {
+            return "\(displayedJobs.count) von \(filteredCount) Einträgen\(loadedSuffix)"
+        }
+        return "\(filteredCount) Einträge\(loadedSuffix)"
+    }
+
+    private var activeJobs: [PipelineJob] {
+        jobs.filter { $0.status == .running || $0.status == .writing || $0.status == .checking || $0.status == .revising || $0.status == .retrying }
+    }
+
+    private var completedJobs: [PipelineJob] {
+        jobs.filter { $0.status == .completed }
+    }
+
+    private var failedJobs: [PipelineJob] {
+        jobs.filter { $0.status == .failed }
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Picker("Status", selection: $selectedStatus) {
-                    ForEach(JobStatusFilter.allCases, id: \.self) { filter in
-                        Text(filter.rawValue).tag(filter)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                monitorHeader
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 12)], spacing: 12) {
+                    monitorMetric(title: "Aktiv", value: activeJobs.count,
+                                  icon: "bolt.horizontal.fill", color: StudioTheme.cyan)
+                    monitorMetric(title: "Abgeschlossen", value: completedJobs.count,
+                                  icon: "checkmark.seal.fill", color: StudioTheme.lime)
+                    monitorMetric(title: "Fehlgeschlagen", value: failedJobs.count,
+                                  icon: "exclamationmark.triangle.fill", color: StudioTheme.danger)
+                    monitorMetric(title: "Tokens", value: jobs.reduce(0) { $0 + $1.tokenUsage },
+                                  icon: "number", color: StudioTheme.amber, formatted: true)
+                }
+
+                HStack(spacing: 12) {
+                    Picker("Status", selection: $selectedStatus) {
+                        ForEach(JobStatusFilter.allCases, id: \.self) { filter in
+                            Text(filter.rawValue).tag(filter)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(maxWidth: 390)
+
+                    Picker("Projekt", selection: $selectedProjectID) {
+                        Text("Alle Projekte").tag(UUID?.none)
+                        ForEach(projects) { project in
+                            Text(project.title).tag(Optional(project.id))
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 250)
+
+                    Spacer()
+
+                    Text(entryCountText)
+                        .font(.caption.weight(.medium))
+                        .monospacedDigit()
+                        .foregroundStyle(StudioTheme.textMuted)
+                }
+                .padding(12)
+                .studioPanel(cornerRadius: 8, accent: StudioTheme.violet)
+
+                if filteredJobs.isEmpty {
+                    monitorEmptyState
+                } else {
+                    LazyVStack(spacing: 8) {
+                        ForEach(displayedJobs) { job in
+                            AgentJobRow(job: job)
+                        }
                     }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(maxWidth: 380)
-
-                Picker("Projekt", selection: $selectedProjectID) {
-                    Text("Alle Projekte").tag(UUID?.none)
-                    ForEach(projects) { project in
-                        Text(project.title).tag(Optional(project.id))
-                    }
-                }
-                .labelsHidden()
-                .frame(maxWidth: 220)
-
-                Spacer()
-
-                Text("\(filteredJobs.count) Einträge")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
-            .padding(12)
+            .padding(24)
+            .frame(maxWidth: 1080, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .background(StudioBackground())
+        .animation(Motion.standard, value: filteredJobs.count)
+        .navigationTitle("Agenten-Monitor")
+    }
 
-            Divider()
-
-            if filteredJobs.isEmpty {
-                ContentUnavailableView("Keine Agenten-Aktivität", systemImage: "cpu",
-                                       description: Text("Hier erscheinen alle Arbeitsschritte der KI-Agenten in Echtzeit."))
-            } else {
-                List(filteredJobs) { job in
-                    AgentJobRow(job: job)
+    private var monitorHeader: some View {
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 7) {
+                    StudioLiveIndicator(color: StudioTheme.lime, isActive: orchestrator.isRunning)
+                    Text(orchestrator.isRunning ? "Live-Überwachung" : "Produktionsprotokoll")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(orchestrator.isRunning ? StudioTheme.lime : StudioTheme.textMuted)
+                }
+                Text("Agentenaktivität")
+                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                    .foregroundStyle(StudioTheme.heroGradient)
+                Text("Alle Produktionsschritte, Laufzeiten, Wiederholungen und Fehler chronologisch nachvollziehen.")
+                    .font(.subheadline)
+                    .foregroundStyle(StudioTheme.textMuted)
+            }
+            Spacer()
+            if orchestrator.isRunning {
+                VStack(alignment: .trailing, spacing: 5) {
+                    Text(orchestrator.currentAgent.isEmpty ? orchestrator.currentPhase.rawValue : orchestrator.currentAgent)
+                        .font(.callout.weight(.semibold))
+                        .lineLimit(1)
+                    Text("\(Int(orchestrator.progress * 100)) %")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(StudioTheme.textMuted)
+                    StudioProgressBar(value: orchestrator.progress)
+                        .frame(width: 180)
                 }
             }
         }
-        .navigationTitle("Agenten-Monitor")
+        .padding(18)
+        .studioFeaturedPanel(cornerRadius: 8)
+    }
+
+    private func monitorMetric(title: String, value: Int, icon: String,
+                               color: Color, formatted: Bool = false) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(color)
+                .frame(width: 30, height: 30)
+                .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(StudioTheme.textMuted)
+                Text(formatted ? FormattingHelpers.formatWordCount(value) : "\(value)")
+                    .font(.title3.weight(.semibold).monospacedDigit())
+                    .contentTransition(.numericText())
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .studioGlassTile(cornerRadius: 8, accent: color, opacity: 0.86)
+    }
+
+    private var monitorEmptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "line.3.horizontal.decrease.circle")
+                .font(.system(size: 28, weight: .medium))
+                .foregroundStyle(StudioTheme.violet)
+            Text(jobs.isEmpty ? "Noch keine Produktionsschritte" : "Keine passenden Einträge")
+                .font(.headline)
+            Text(jobs.isEmpty
+                 ? "Beim Start einer Produktion erscheinen die Arbeitsschritte hier in Echtzeit."
+                 : "Der gewählte Status- oder Projektfilter liefert keine Treffer.")
+                .font(.caption)
+                .foregroundStyle(StudioTheme.textMuted)
+                .multilineTextAlignment(.center)
+            if !jobs.isEmpty {
+                Button {
+                    selectedStatus = .all
+                    selectedProjectID = nil
+                } label: {
+                    Label("Filter zurücksetzen", systemImage: "arrow.counterclockwise")
+                }
+                .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.violet))
+            }
+        }
+        .padding(28)
+        .frame(maxWidth: .infinity)
+        .studioPanel(cornerRadius: 8, accent: StudioTheme.violet)
     }
 }
 
@@ -81,20 +228,30 @@ struct AgentJobRow: View {
 
     var statusColor: Color {
         switch job.status {
-        case .running, .writing, .checking, .revising, .retrying: return .blue
-        case .completed: return .green
-        case .failed: return .red
-        case .paused: return .orange
-        default: return .gray
+        case .running, .writing, .checking, .revising: return StudioTheme.cyan
+        case .retrying: return StudioTheme.amber
+        case .completed: return StudioTheme.lime
+        case .failed: return StudioTheme.danger
+        case .paused: return StudioTheme.amber
+        default: return StudioTheme.textFaint
         }
     }
 
+    private var isActive: Bool {
+        job.status == .running || job.status == .writing || job.status == .checking
+            || job.status == .revising || job.status == .retrying
+    }
+
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 8, height: 8)
-                .padding(.top, 6)
+        HStack(alignment: .top, spacing: 13) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(statusColor.opacity(0.10))
+                Image(systemName: job.phase.iconName)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(statusColor)
+            }
+            .frame(width: 34, height: 34)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
@@ -102,11 +259,15 @@ struct AgentJobRow: View {
                         .font(.headline)
                     Spacer()
                     Text(job.status.rawValue)
-                        .font(.caption)
+                        .font(.caption.weight(.semibold))
                         .foregroundStyle(statusColor)
                         .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .background(statusColor.opacity(0.1), in: Capsule())
+                        .padding(.vertical, 3)
+                        .background(statusColor.opacity(0.10),
+                                    in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                    if isActive {
+                        StudioLiveIndicator(color: statusColor, isActive: true)
+                    }
                 }
 
                 HStack(spacing: 6) {
@@ -143,22 +304,26 @@ struct AgentJobRow: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
 
-                if job.status == .failed, let result = job.result, !result.isEmpty {
+                if (job.status == .failed || job.status == .paused),
+                   let result = job.result, !result.isEmpty {
                     Text(result)
                         .font(.caption2)
-                        .foregroundStyle(.red)
-                        .lineLimit(2)
+                        .foregroundStyle(job.status == .failed ? StudioTheme.danger : StudioTheme.amber)
+                        .lineLimit(4)
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(13)
+        .studioGlassTile(cornerRadius: 8, accent: statusColor, opacity: isActive ? 0.96 : 0.76)
+        .studioHoverable()
     }
 }
 
 // MARK: - Export
 
 struct ExportView: View {
-    @Query(sort: \Project.updatedAt, order: .reverse) var projects: [Project]
+    private var _projects = Query<Project, [Project]>(sort: \Project.updatedAt, order: .reverse)
+    var projects: [Project] { _projects.wrappedValue }
     @ObservedObject private var appState = AppState.shared
 
     /// Alle Projekte mit mindestens einem Kapitel sind exportierbar (auch Zwischenstände).
@@ -183,6 +348,8 @@ struct ExportView: View {
                             .tag(project)
                         }
                     }
+                    .listStyle(.sidebar)
+                    .scrollContentBackground(.hidden)
                 }
             }
             .frame(minWidth: 200, idealWidth: 240, maxWidth: 300)
@@ -199,6 +366,7 @@ struct ExportView: View {
             }
             .frame(minWidth: 440, maxWidth: .infinity)
         }
+        .background(StudioBackground())
         .navigationTitle("Export")
     }
 }
@@ -217,7 +385,12 @@ struct ExportDetailView: View {
         guard project.modelContext != nil else {
             return QualityScores(structure: 0, characters: 0, style: 0, consistency: 0, kdp: 0)
         }
-        return QualityScores.compute(for: project)
+        return QualityScores.cached(for: project)
+    }
+
+    private var readinessIssues: [String] {
+        guard project.modelContext != nil else { return ["Projekt nicht mehr verfügbar."] }
+        return PublicationReadiness.cachedCompletionBlockingIssues(project: project)
     }
 
     var body: some View {
@@ -226,23 +399,45 @@ struct ExportDetailView: View {
         if project.modelContext == nil {
             ContentUnavailableView("Projekt nicht mehr verfügbar", systemImage: "square.and.arrow.up")
         } else {
+            let displayedScores = scores
             ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(project.title)
-                        .font(.title)
-                        .fontWeight(.bold)
-                    Text("\(project.authorName) · \(project.genre) · \(FormattingHelpers.formatWordCount(project.totalWordCount)) Wörter")
-                        .foregroundStyle(.secondary)
+                HStack(alignment: .top, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(project.title)
+                            .font(.title.weight(.bold))
+                            .foregroundStyle(StudioTheme.heroGradient)
+                        Text("\(project.authorName) · \(project.genre) · \(FormattingHelpers.formatWordCount(project.recordedWordCount)) Wörter")
+                            .foregroundStyle(StudioTheme.textMuted)
+                    }
+                    Spacer()
+                    StudioStatusPill(text: readinessIssues.isEmpty ? "bereit" : "Prüfung nötig",
+                                     systemImage: readinessIssues.isEmpty ? "checkmark.seal.fill" : "exclamationmark.triangle.fill",
+                                     color: readinessIssues.isEmpty ? StudioTheme.lime : StudioTheme.amber)
                 }
+                .padding(18)
+                .studioFeaturedPanel(cornerRadius: 8)
 
-                if project.status != .completed {
+                if project.status == .completed, !readinessIssues.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Abschlussprüfung nicht bestanden", systemImage: "exclamationmark.octagon.fill")
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(StudioTheme.danger)
+                        ForEach(readinessIssues.prefix(6), id: \.self) { issue in
+                            Text("• \(issue)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(12)
+                    .studioGlassTile(cornerRadius: 8, accent: StudioTheme.danger, opacity: 0.88)
+                } else if project.status != .completed {
                     Label("Dieses Projekt ist noch nicht fertig produziert – Exporte enthalten den aktuellen Zwischenstand.",
                           systemImage: "info.circle")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(StudioTheme.amber)
                         .padding(10)
-                        .background(.yellow.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                        .studioGlassTile(cornerRadius: 8, accent: StudioTheme.amber, opacity: 0.88)
                 }
 
                 CoverStudioPanel(project: project)
@@ -251,7 +446,7 @@ struct ExportDetailView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Nachbearbeitung")
                         .font(.headline)
-                    Text("Die KI prüft das fertige Buch auf inhaltliche Unstimmigkeiten (Zeitlinie, Figurenwissen, Kontinuität, Logik) und korrigiert gezielt nur die betroffenen Stellen – nach dem Proofreading.")
+                    Text("Die Nachbearbeitung prüft das fertige Buch auf inhaltliche Unstimmigkeiten (Zeitlinie, Figurenwissen, Kontinuität, Logik) und korrigiert gezielt nur die betroffenen Stellen – nach dem Proofreading.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     HStack(spacing: 10) {
@@ -260,13 +455,14 @@ struct ExportDetailView: View {
                         } label: {
                             if isRepairing {
                                 HStack(spacing: 6) {
-                                    ProgressView().controlSize(.small)
+                                    StudioLiveIndicator(color: StudioTheme.lime)
                                     Text("Wird geprüft …")
                                 }
                             } else {
                                 Label("Konsistenz prüfen & reparieren", systemImage: "wand.and.stars")
                             }
                         }
+                        .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.lime))
                         .disabled(isRepairing || orchestrator.isRunning)
                         if let repairNote {
                             Text(repairNote)
@@ -289,6 +485,7 @@ struct ExportDetailView: View {
                     } label: {
                         Label("Nächsten Band erzeugen", systemImage: "books.vertical")
                     }
+                    .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.violet))
                     .disabled(orchestrator.isRunning || project.modelContext == nil)
                     if let seriesNote {
                         Text(seriesNote)
@@ -315,7 +512,6 @@ struct ExportDetailView: View {
                     ExportFormatRow(format: .metadata, project: project)
                     ExportFormatRow(format: .report, project: project)
                     ExportFormatRow(format: .log, project: project)
-                    ExportFormatRow(format: .disclosure, project: project)
                 }
 
                 Divider()
@@ -323,11 +519,12 @@ struct ExportDetailView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Qualitätsmetriken")
                         .font(.headline)
-                    QualityMetricRow(label: "Struktur", score: scores.structure)
-                    QualityMetricRow(label: "Figuren", score: scores.characters)
-                    QualityMetricRow(label: "Stil", score: scores.style)
-                    QualityMetricRow(label: "Konsistenz", score: scores.consistency)
-                    QualityMetricRow(label: "KDP-Format", score: scores.kdp)
+                    QualityMetricRow(label: "Struktur", score: displayedScores.structure)
+                    QualityMetricRow(label: project.isNonfiction ? "Lesernutzen" : "Figuren",
+                                     score: displayedScores.characters)
+                    QualityMetricRow(label: "Stil", score: displayedScores.style)
+                    QualityMetricRow(label: "Konsistenz", score: displayedScores.consistency)
+                    QualityMetricRow(label: "KDP-Format", score: displayedScores.kdp)
                     Text("Automatisch aus den Projektdaten berechnet.")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
@@ -624,7 +821,6 @@ enum ExportFormat: String {
     case metadata = "KDP-Metadaten"
     case report = "KDP-Bericht"
     case log = "Produktionsprotokoll"
-    case disclosure = "KI-Offenlegung"
 
     var icon: String {
         switch self {
@@ -635,7 +831,6 @@ enum ExportFormat: String {
         case .metadata: return "tag"
         case .report: return "chart.bar.doc.horizontal"
         case .log: return "list.clipboard"
-        case .disclosure: return "checkmark.shield"
         }
     }
 
@@ -648,7 +843,6 @@ enum ExportFormat: String {
         case .metadata: return "Verkaufstext, 7 Keywords & Kategorien für die Veröffentlichung"
         case .report: return "Formatprüfung und Qualitätsbewertung"
         case .log: return "Alle Pipeline-Schritte im Detail"
-        case .disclosure: return "Nachweis der KI-Unterstützung (KDP-Richtlinie)"
         }
     }
 }
@@ -660,6 +854,14 @@ struct ExportFormatRow: View {
     @State private var isExporting = false
     @State private var exportedURL: URL?
     @State private var errorMessage: String?
+
+    private var blockingIssues: [String] {
+        format == .log ? [] : PublicationReadiness.cachedExportBlockingIssues(project: project)
+    }
+
+    private var canExport: Bool {
+        project.modelContext != nil && blockingIssues.isEmpty && !isExporting
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -685,20 +887,35 @@ struct ExportFormatRow: View {
             Spacer()
 
             if let url = exportedURL {
-                Button("Im Finder zeigen") {
+                Button {
                     NSWorkspace.shared.activateFileViewerSelecting([url])
+                } label: {
+                    Label("Im Finder", systemImage: "folder")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.violet))
             }
 
-            Button(isExporting ? "Exportiere …" : "Exportieren") {
+            Button {
                 export()
+            } label: {
+                if isExporting {
+                    HStack(spacing: 6) {
+                        StudioLiveIndicator(color: StudioTheme.cyan)
+                        Text("Exportiert …")
+                    }
+                } else {
+                    Label("Exportieren", systemImage: "square.and.arrow.up")
+                }
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(isExporting)
+            .buttonStyle(StudioPrimaryButtonStyle())
+            .frame(width: 150)
+            .disabled(!canExport)
+            .help(blockingIssues.first ?? "\(format.rawValue) erstellen")
         }
         .padding(12)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+        .studioGlassTile(cornerRadius: 8,
+                         accent: blockingIssues.isEmpty ? StudioTheme.cyan : StudioTheme.amber,
+                         opacity: 0.82)
     }
 
     private func export() {
@@ -711,25 +928,31 @@ struct ExportFormatRow: View {
                 let url: URL
                 switch format {
                 case .epub:
-                    url = try ExportEngine.exportToEPUB(project: project)
+                    let snapshot = try ExportEngine.prepareSnapshot(for: project)
+                    url = try await ExportEngine.exportPreparedToEPUBInBackground(snapshot)
                 case .pdf:
-                    url = try ExportEngine.exportToPDF(project: project)
+                    let snapshot = try ExportEngine.prepareSnapshot(for: project)
+                    url = try await ExportEngine.exportPreparedToPDFInBackground(snapshot)
                 case .docx:
-                    url = try ExportEngine.exportToDOCX(project: project)
+                    let snapshot = try ExportEngine.prepareSnapshot(for: project)
+                    url = try await ExportEngine.exportPreparedToDOCXInBackground(snapshot)
                 case .sample:
-                    url = try ExportEngine.exportToEPUB(project: project, sampleChapterCount: 3)
+                    let snapshot = try ExportEngine.prepareSnapshot(for: project)
+                    url = try await ExportEngine.exportPreparedToEPUBInBackground(
+                        snapshot,
+                        sampleChapterCount: 3
+                    )
                 case .metadata:
+                    try PublicationReadiness.validateForExport(project: project)
                     url = try writeText(ExportEngine.generateKDPMetadataReport(project: project),
                                         fileName: "KDP-Metadaten.txt")
                 case .report:
+                    try PublicationReadiness.validateForExport(project: project)
                     url = try writeText(ExportEngine.generateKDPReport(project: project),
                                         fileName: "KDP-Bericht.txt")
                 case .log:
                     url = try writeText(ExportEngine.generateProductionLog(project: project),
                                         fileName: "Produktionsprotokoll.txt")
-                case .disclosure:
-                    url = try writeText(generateDisclosureReport(project: project),
-                                        fileName: "KI-Offenlegung.txt")
                 }
                 exportedURL = url
             } catch {
@@ -743,37 +966,6 @@ struct ExportFormatRow: View {
         try text.write(to: url, atomically: true, encoding: .utf8)
         return url
     }
-}
-
-func generateDisclosureReport(project: Project) -> String {
-    var report = "KI-OFFENLEGUNGSBERICHT\n"
-    report += String(repeating: "=", count: 25) + "\n\n"
-    report += "Projekt: \(project.title)\n"
-    report += "Autor: \(project.authorName)\n"
-    report += "Erstellt am: \(Date().formattedString())\n\n"
-
-    report += "Dieses Werk wurde mit Unterstützung von Künstlicher Intelligenz (KI) erstellt.\n\n"
-    report += "Verwendete KI-Tools:\n"
-    report += "- NovelForge (autonome Buchproduktions-Pipeline)\n"
-    report += "- Provider: \(project.preferredProviderRaw)"
-    if !project.preferredModel.isEmpty {
-        report += ", Modell: \(project.preferredModel)"
-    }
-    report += "\n\n"
-
-    if let jobs = project.pipelineJobs {
-        report += "Pipeline-Schritte: \(jobs.count)\n"
-        report += "Beteiligte Agenten:\n"
-        for agent in Set(jobs.map { $0.agentName }).sorted() {
-            report += "- \(agent)\n"
-        }
-    }
-
-    report += "\nHinweis:\n"
-    report += "Gemäß den Richtlinien von Amazon KDP und anderen Verlagsplattformen\n"
-    report += "müssen KI-generierte Inhalte offengelegt werden.\n"
-    report += "Dieser Bericht dient als Nachweis der KI-Unterstützung.\n"
-    return report
 }
 
 struct QualityMetricRow: View {

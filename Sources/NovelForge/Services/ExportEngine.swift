@@ -2,19 +2,138 @@ import Foundation
 import PDFKit
 import CoreText
 
+/// Unveränderliche, thread-sichere Exportansicht eines SwiftData-Projekts.
+/// Sie wird einmal auf dem MainActor erzeugt; ZIP-, DOCX- und PDF-Arbeit kann
+/// danach ohne Zugriff auf ModelContext/Relationships im Hintergrund laufen.
+struct BookExportSnapshot: Sendable {
+    struct Chapter: Sendable {
+        let chapterNumber: Int
+        let displayTitle: String
+        let text: String
+        let wordCount: Int
+    }
+
+    let title: String
+    let authorName: String
+    let languageCode: String
+    let trimSizeRaw: String
+    let targetPageCount: Int
+    let imprint: String
+    let authorBio: String
+    let kdpDescription: String
+    let isNonfiction: Bool
+    let bibliography: String
+    let chapters: [Chapter]
+
+    var totalWordCount: Int {
+        chapters.reduce(0) { $0 + $1.wordCount }
+    }
+
+    var trimSize: TrimSize {
+        TrimSize(rawValue: trimSizeRaw) ?? .sixByNine
+    }
+
+    @MainActor
+    init(project: Project) {
+        title = project.title
+        authorName = project.authorName
+        languageCode = project.languageCode
+        trimSizeRaw = project.trimSizeRaw
+        targetPageCount = project.targetPageCount
+        imprint = project.imprint
+        authorBio = project.authorBio
+        kdpDescription = project.bookProfile?.kdpDescription ?? ""
+        isNonfiction = project.isNonfiction
+        let bundle = NonfictionResearchService.decodeManifest(
+            project.bookProfile?.sourceManifest ?? ""
+        )
+        bibliography = bundle?.bibliography ?? ""
+        var contentChapters: [BookExportSnapshot.Chapter] = (project.chapters ?? [])
+            .sorted { $0.chapterNumber < $1.chapterNumber }
+            .compactMap { chapter in
+                guard let text = chapter.bestText,
+                      !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    return nil
+                }
+                return Chapter(
+                    chapterNumber: chapter.chapterNumber,
+                    displayTitle: chapter.displayTitle,
+                    text: text,
+                    wordCount: text.wordCount
+                )
+            }
+        if project.isNonfiction, !bibliography.isEmpty {
+            let title = project.languageCode == "en" ? "Sources" : "Quellenverzeichnis"
+            contentChapters.append(Chapter(
+                chapterNumber: (contentChapters.last?.chapterNumber ?? 0) + 1,
+                displayTitle: title,
+                text: bibliography,
+                wordCount: bibliography.wordCount
+            ))
+        }
+        chapters = contentChapters
+    }
+}
+
 struct ExportEngine {
 
     /// UserDefaults-Schlüssel für einen benutzerdefinierten Ausgabeordner
     /// (z.B. für die Dauerproduktion). Leer = Standard.
     static let exportRootDefaultsKey = "novelforge.exportRoot"
 
+    /// Startet rechen- und dateiintensive Exporte ohne MainActor-Bindung und
+    /// reicht einen Stop an den Worker weiter. Die Exportloops prüfen das
+    /// Abbruchsignal zusätzlich an Kapitel- bzw. Seitengrenzen.
+    private static func runInBackground<T: Sendable>(
+        _ operation: @escaping @Sendable () throws -> T
+    ) async throws -> T {
+        try Task.checkCancellation()
+        let worker = Task.detached(priority: .userInitiated) {
+            try operation()
+        }
+        return try await withTaskCancellationHandler {
+            try await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+    }
+
     /// Wurzel des Exportordners: benutzerdefiniert oder ~/Documents/NovelForge.
     static func exportRootDirectory() throws -> URL {
-        if let custom = UserDefaults.standard.string(forKey: exportRootDefaultsKey),
-           !custom.isEmpty {
-            let url = URL(fileURLWithPath: custom, isDirectory: true)
-            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-            return url
+        let defaults = UserDefaults.standard
+        if let custom = defaults.string(forKey: exportRootDefaultsKey) {
+            let normalizedPath = custom.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalizedPath.isEmpty {
+                let fileManager = FileManager.default
+                let originalURL = URL(fileURLWithPath: custom, isDirectory: true)
+                let normalizedURL = URL(fileURLWithPath: normalizedPath, isDirectory: true)
+
+                // Ein unsichtbares Leerzeichen am Ende erzeugt auf macOS einen
+                // anderen Ordner. Bestehende Exporte sicher an den sichtbaren Pfad
+                // verschieben, solange dort noch nichts kollidiert.
+                if originalURL.path != normalizedURL.path,
+                   fileManager.fileExists(atPath: originalURL.path),
+                   !fileManager.fileExists(atPath: normalizedURL.path) {
+                    do {
+                        try fileManager.moveItem(at: originalURL, to: normalizedURL)
+                    } catch {
+                        // Parallele Exportworker können dieselbe Migration sehen.
+                        // Hat ein anderer Worker sie bereits erledigt, ist alles gut.
+                        guard fileManager.fileExists(atPath: normalizedURL.path) else {
+                            throw AIError.systemError(
+                                "Exportordner konnte nicht bereinigt werden: \(error.localizedDescription)"
+                            )
+                        }
+                    }
+                }
+
+                if custom != normalizedPath {
+                    defaults.set(normalizedPath, forKey: exportRootDefaultsKey)
+                }
+                try fileManager.createDirectory(at: normalizedURL, withIntermediateDirectories: true)
+                return normalizedURL
+            }
+            defaults.removeObject(forKey: exportRootDefaultsKey)
         }
         guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
             throw AIError.systemError("Dokumente-Ordner nicht gefunden")
@@ -26,8 +145,12 @@ struct ExportEngine {
 
     /// Exportverzeichnis eines Projekts: <Wurzel>/<Projekttitel>/
     static func exportDirectory(for project: Project) throws -> URL {
+        try exportDirectory(forTitle: project.title)
+    }
+
+    private static func exportDirectory(forTitle title: String) throws -> URL {
         let dir = try exportRootDirectory()
-            .appendingPathComponent(sanitizeFileName(project.title), isDirectory: true)
+            .appendingPathComponent(sanitizeFileName(title), isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
@@ -38,20 +161,44 @@ struct ExportEngine {
     /// Leseprobe (erste N Kapitel + Abschlussseite) für Marketing und Testleser.
     /// Stoppt den Export, wenn (noch) kein Manuskripttext vorhanden ist – verhindert leere Bücher.
     private static func ensureExportable(_ project: Project) throws {
-        let hasText = (project.chapters ?? []).contains {
-            !(($0.bestText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)).isEmpty
-        }
-        guard hasText else {
-            throw AIError.systemError("Kein Manuskripttext vorhanden – das Buch wurde nicht (vollständig) erzeugt. Export abgebrochen.")
+        try PublicationReadiness.validateForExport(project: project)
+    }
+
+    @MainActor
+    static func prepareSnapshot(for project: Project) throws -> BookExportSnapshot {
+        try ensureExportable(project)
+        return BookExportSnapshot(project: project)
+    }
+
+    @MainActor
+    static func exportToEPUB(project: Project, sampleChapterCount: Int? = nil) throws -> URL {
+        try exportPreparedToEPUB(prepareSnapshot(for: project), sampleChapterCount: sampleChapterCount)
+    }
+
+    @MainActor
+    static func exportToEPUBInBackground(project: Project,
+                                         sampleChapterCount: Int? = nil) async throws -> URL {
+        let snapshot = try prepareSnapshot(for: project)
+        return try await exportPreparedToEPUBInBackground(
+            snapshot,
+            sampleChapterCount: sampleChapterCount
+        )
+    }
+
+    static func exportPreparedToEPUBInBackground(_ book: BookExportSnapshot,
+                                                 sampleChapterCount: Int? = nil) async throws -> URL {
+        try await runInBackground {
+            try exportPreparedToEPUB(book, sampleChapterCount: sampleChapterCount)
         }
     }
 
-    static func exportToEPUB(project: Project, sampleChapterCount: Int? = nil) throws -> URL {
-        try ensureExportable(project)
+    private static func exportPreparedToEPUB(_ book: BookExportSnapshot,
+                                             sampleChapterCount: Int? = nil) throws -> URL {
+        try Task.checkCancellation()
         let isSample = sampleChapterCount != nil
         let suffix = isSample ? "_Leseprobe" : "_ebook"
-        let epubURL = try exportDirectory(for: project)
-            .appendingPathComponent("\(sanitizeFileName(project.title))\(suffix).epub")
+        let epubURL = try exportDirectory(forTitle: book.title)
+            .appendingPathComponent("\(sanitizeFileName(book.title))\(suffix).epub")
 
         let tempDir = FileManager.default.temporaryDirectory
         let workDir = tempDir.appendingPathComponent(UUID().uuidString)
@@ -87,18 +234,17 @@ struct ExportEngine {
         try epubStylesheet.write(to: oebpsDir.appendingPathComponent("stylesheet.css"), atomically: true, encoding: .utf8)
         manifest += "    <item id=\"css\" href=\"stylesheet.css\" media-type=\"text/css\" />\n"
 
-        let titlePage = generateTitlePageHTML(project: project)
+        let titlePage = generateTitlePageHTML(book: book)
         try titlePage.write(to: oebpsDir.appendingPathComponent("titlepage.xhtml"), atomically: true, encoding: .utf8)
         manifest += "    <item id=\"titlepage\" href=\"titlepage.xhtml\" media-type=\"application/xhtml+xml\" />\n"
         spine += "    <itemref idref=\"titlepage\" />\n"
 
-        let copyrightPage = generateCopyrightPageHTML(project: project)
+        let copyrightPage = generateCopyrightPageHTML(book: book)
         try copyrightPage.write(to: oebpsDir.appendingPathComponent("copyright.xhtml"), atomically: true, encoding: .utf8)
         manifest += "    <item id=\"copyright\" href=\"copyright.xhtml\" media-type=\"application/xhtml+xml\" />\n"
         // Impressum/Copyright kommt ans ENDE des Buches (Spine-Eintrag unten), nicht an den Anfang.
 
-        let allChapters = (project.chapters ?? []).sorted { $0.chapterNumber < $1.chapterNumber }
-        let chapters = sampleChapterCount.map { Array(allChapters.prefix($0)) } ?? allChapters
+        let chapters = sampleChapterCount.map { Array(book.chapters.prefix($0)) } ?? book.chapters
 
         let tocPage = generateNavHTML(chapters: chapters)
         try tocPage.write(to: oebpsDir.appendingPathComponent("toc.xhtml"), atomically: true, encoding: .utf8)
@@ -110,6 +256,7 @@ struct ExportEngine {
         // – doppelte Nummern würden sonst die XHTML-Datei des ersten Kapitels überschreiben
         // und doppelte Manifest-/Spine-/NCX-IDs erzeugen (ungültiges, von KDP abgelehntes EPUB).
         for (index, chapter) in chapters.enumerated() {
+            try Task.checkCancellation()
             let chapterId = "chapter\(index + 1)"
             let chapterFile = "chapter\(index + 1).xhtml"
             let chapterContent = generateChapterHTML(chapter: chapter)
@@ -120,7 +267,7 @@ struct ExportEngine {
         }
 
         if isSample {
-            let endPage = generateSampleEndHTML(project: project)
+            let endPage = generateSampleEndHTML(book: book)
             try endPage.write(to: oebpsDir.appendingPathComponent("sample_end.xhtml"), atomically: true, encoding: .utf8)
             manifest += "    <item id=\"sampleend\" href=\"sample_end.xhtml\" media-type=\"application/xhtml+xml\" />\n"
             spine += "    <itemref idref=\"sampleend\" />\n"
@@ -132,12 +279,13 @@ struct ExportEngine {
         // NCX (EPUB-2-Kompatibilität) – muss im Manifest deklariert sein.
         manifest += "    <item id=\"ncx\" href=\"toc.ncx\" media-type=\"application/x-dtbncx+xml\" />\n"
 
-        let contentOPF = generateContentOPF(project: project, manifest: manifest, spine: spine)
+        let contentOPF = generateContentOPF(book: book, manifest: manifest, spine: spine)
         try contentOPF.write(to: oebpsDir.appendingPathComponent("content.opf"), atomically: true, encoding: .utf8)
 
-        let tocNCX = generateTOCNCX(project: project, chapterFiles: chapterFiles)
+        let tocNCX = generateTOCNCX(book: book, chapterFiles: chapterFiles)
         try tocNCX.write(to: oebpsDir.appendingPathComponent("toc.ncx"), atomically: true, encoding: .utf8)
 
+        try Task.checkCancellation()
         try createEPUBArchive(sourceDirectory: workDir, destination: epubURL)
         return epubURL
     }
@@ -159,13 +307,29 @@ struct ExportEngine {
         var numbering = false
     }
 
+    @MainActor
     static func exportToPDF(project: Project) throws -> URL {
-        try ensureExportable(project)
-        let url = try exportDirectory(for: project)
-            .appendingPathComponent("\(sanitizeFileName(project.title))_print.pdf")
+        try exportPreparedToPDF(prepareSnapshot(for: project))
+    }
 
-        let trim = project.trimSize
-        let estimatedPages = max(24, project.totalWordCount / AppConstants.wordsPerPage)
+    @MainActor
+    static func exportToPDFInBackground(project: Project) async throws -> URL {
+        try await exportPreparedToPDFInBackground(prepareSnapshot(for: project))
+    }
+
+    static func exportPreparedToPDFInBackground(_ book: BookExportSnapshot) async throws -> URL {
+        try await runInBackground {
+            try exportPreparedToPDF(book)
+        }
+    }
+
+    private static func exportPreparedToPDF(_ book: BookExportSnapshot) throws -> URL {
+        try Task.checkCancellation()
+        let url = try exportDirectory(forTitle: book.title)
+            .appendingPathComponent("\(sanitizeFileName(book.title))_print.pdf")
+
+        let trim = book.trimSize
+        let estimatedPages = max(24, book.totalWordCount / AppConstants.wordsPerPage)
         let layout = PrintLayout(
             pageWidth: trim.pageWidth,
             pageHeight: trim.pageHeight,
@@ -178,33 +342,50 @@ struct ExportEngine {
         let pdfDocument = PDFDocument()
         var state = PrintState()
 
-        appendCenteredPage(makeTitleAttributed(project: project), to: pdfDocument, layout: layout, state: &state)
-        appendFlowedText(makeTOCAttributed(project: project), to: pdfDocument, layout: layout, state: &state, numbered: false)
+        try appendCenteredPage(makeTitleAttributed(book: book), to: pdfDocument, layout: layout, state: &state)
+        try appendFlowedText(makeTOCAttributed(book: book), to: pdfDocument, layout: layout, state: &state, numbered: false)
 
         state.numbering = true
-        if let chapters = project.chapters?.sorted(by: { $0.chapterNumber < $1.chapterNumber }) {
-            for chapter in chapters {
-                guard let text = chapter.bestText else { continue }
-                let attributed = makeChapterAttributed(title: chapter.displayTitle, text: text)
-                appendFlowedText(attributed, to: pdfDocument, layout: layout, state: &state, numbered: true)
-            }
+        for chapter in book.chapters {
+            try Task.checkCancellation()
+            let attributed = makeChapterAttributed(title: chapter.displayTitle, text: chapter.text)
+            try appendFlowedText(attributed, to: pdfDocument, layout: layout, state: &state, numbered: true)
         }
 
         // Impressum/Copyright als letzte Seite (nicht am Anfang).
-        appendCenteredPage(makeCopyrightAttributed(project: project), to: pdfDocument, layout: layout, state: &state)
+        try appendCenteredPage(makeCopyrightAttributed(book: book), to: pdfDocument, layout: layout, state: &state)
 
-        guard pdfDocument.write(to: url) else {
+        let stagedURL = stagingURL(for: url)
+        defer { try? FileManager.default.removeItem(at: stagedURL) }
+        guard pdfDocument.write(to: stagedURL) else {
             throw AIError.systemError("PDF konnte nicht geschrieben werden")
         }
+        try installStagedFile(stagedURL, at: url)
         return url
     }
 
     // MARK: - DOCX
 
+    @MainActor
     static func exportToDOCX(project: Project) throws -> URL {
-        try ensureExportable(project)
-        let docxURL = try exportDirectory(for: project)
-            .appendingPathComponent("\(sanitizeFileName(project.title)).docx")
+        try exportPreparedToDOCX(prepareSnapshot(for: project))
+    }
+
+    @MainActor
+    static func exportToDOCXInBackground(project: Project) async throws -> URL {
+        try await exportPreparedToDOCXInBackground(prepareSnapshot(for: project))
+    }
+
+    static func exportPreparedToDOCXInBackground(_ book: BookExportSnapshot) async throws -> URL {
+        try await runInBackground {
+            try exportPreparedToDOCX(book)
+        }
+    }
+
+    private static func exportPreparedToDOCX(_ book: BookExportSnapshot) throws -> URL {
+        try Task.checkCancellation()
+        let docxURL = try exportDirectory(forTitle: book.title)
+            .appendingPathComponent("\(sanitizeFileName(book.title)).docx")
 
         let tempDir = FileManager.default.temporaryDirectory
         let workDir = tempDir.appendingPathComponent(UUID().uuidString)
@@ -247,7 +428,7 @@ struct ExportEngine {
 
         try docxStyles.write(to: wordDir.appendingPathComponent("styles.xml"), atomically: true, encoding: .utf8)
 
-        let documentXML = generateDOCXDocument(project: project)
+        let documentXML = try generateDOCXDocument(book: book)
         try documentXML.write(to: wordDir.appendingPathComponent("document.xml"), atomically: true, encoding: .utf8)
 
         try createZIPArchive(sourceDirectory: workDir, destination: docxURL)
@@ -281,20 +462,24 @@ struct ExportEngine {
         """
     }
 
-    private static func generateTitlePageHTML(project: Project) -> String {
-        xhtmlHeader(title: project.title) + """
+    private static func generateTitlePageHTML(book: BookExportSnapshot) -> String {
+        xhtmlHeader(title: book.title) + """
 
             <div class="titlepage">
-                <h1>\(escapeXML(project.title))</h1>
-                <p class="first" style="text-align: center; font-size: 1.2em;">\(escapeXML(project.authorName))</p>
+                <h1>\(escapeXML(book.title))</h1>
+                <p class="first" style="text-align: center; font-size: 1.2em;">\(escapeXML(book.authorName))</p>
             </div>
         </body>
         </html>
         """
     }
 
-    private static func generateCopyrightPageHTML(project: Project) -> String {
-        let lines = bookCopyrightPageText(project: project)
+    private static func generateCopyrightPageHTML(book: BookExportSnapshot) -> String {
+        let lines = bookCopyrightPageText(
+            authorName: book.authorName,
+            imprint: book.imprint,
+            authorBio: book.authorBio
+        )
             .components(separatedBy: .newlines)
             .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
             .map { "            <p class=\"first\" style=\"text-align: center;\">\(escapeXML($0))</p>" }
@@ -309,16 +494,16 @@ struct ExportEngine {
         """
     }
 
-    private static func generateSampleEndHTML(project: Project) -> String {
+    private static func generateSampleEndHTML(book: BookExportSnapshot) -> String {
         var teaser = ""
-        if let description = project.bookProfile?.kdpDescription, !description.isEmpty {
-            teaser = "\n        <p class=\"first\" style=\"text-align: center; margin-top: 2em;\">\(escapeXML(description.truncated(to: 400)))</p>"
+        if !book.kdpDescription.isEmpty {
+            teaser = "\n        <p class=\"first\" style=\"text-align: center; margin-top: 2em;\">\(escapeXML(book.kdpDescription.truncated(to: 400)))</p>"
         }
         return xhtmlHeader(title: "Ende der Leseprobe") + """
 
             <div class="copyrightpage">
                 <p class="first" style="text-align: center;">— Ende der Leseprobe —</p>
-                <p class="first" style="text-align: center; margin-top: 1em;">„\(escapeXML(project.title))“ von \(escapeXML(project.authorName))</p>\(teaser)
+                <p class="first" style="text-align: center; margin-top: 1em;">„\(escapeXML(book.title))“ von \(escapeXML(book.authorName))</p>\(teaser)
             </div>
         </body>
         </html>
@@ -326,7 +511,7 @@ struct ExportEngine {
     }
 
     /// EPUB-3-Navigationsdokument (nav epub:type="toc").
-    private static func generateNavHTML(chapters: [Chapter]) -> String {
+    private static func generateNavHTML(chapters: [BookExportSnapshot.Chapter]) -> String {
         var items = ""
         // Index-basierte Dateinamen – muss exakt zur Vergabe in exportToEPUB passen (siehe dort).
         for (index, chapter) in chapters.enumerated() {
@@ -344,29 +529,27 @@ struct ExportEngine {
         """
     }
 
-    private static func generateChapterHTML(chapter: Chapter) -> String {
+    private static func generateChapterHTML(chapter: BookExportSnapshot.Chapter) -> String {
         var content = xhtmlHeader(title: chapter.displayTitle)
         content += "\n    <h1>\(escapeXML(chapter.displayTitle))</h1>"
 
         var afterBreak = true // erster Absatz ohne Einzug (Verlagskonvention)
-        if let text = chapter.bestText {
-            for paragraph in text.components(separatedBy: .newlines) {
-                let trimmed = paragraph.trimmingCharacters(in: .whitespaces)
-                if trimmed.isEmpty { continue }
+        for paragraph in chapter.text.components(separatedBy: .newlines) {
+            let trimmed = paragraph.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { continue }
 
-                if isSceneBreakLine(trimmed) {
-                    // Szenenwechsel als ruhiger, leerer Abstand statt sichtbarer „* * *"
-                    // (die Sternchen wirken im eBook wie ein Fehler). Das geschützte
-                    // Leerzeichen hält den Absatz offen, sodass eine klare Lücke bleibt.
-                    content += "\n    <p class=\"scenebreak\">\u{00A0}</p>"
-                    afterBreak = true
-                    continue
-                }
-
-                let cssClass = afterBreak ? " class=\"first\"" : ""
-                content += "\n    <p\(cssClass)>\(escapeXML(trimmed))</p>"
-                afterBreak = false
+            if isSceneBreakLine(trimmed) {
+                // Szenenwechsel als ruhiger, leerer Abstand statt sichtbarer „* * *"
+                // (die Sternchen wirken im eBook wie ein Fehler). Das geschützte
+                // Leerzeichen hält den Absatz offen, sodass eine klare Lücke bleibt.
+                content += "\n    <p class=\"scenebreak\">\u{00A0}</p>"
+                afterBreak = true
+                continue
             }
+
+            let cssClass = afterBreak ? " class=\"first\"" : ""
+            content += "\n    <p\(cssClass)>\(escapeXML(trimmed))</p>"
+            afterBreak = false
         }
 
         content += "\n</body>\n</html>"
@@ -375,22 +558,22 @@ struct ExportEngine {
 
     // MARK: - OPF / NCX
 
-    private static func generateContentOPF(project: Project, manifest: String, spine: String) -> String {
+    private static func generateContentOPF(book: BookExportSnapshot, manifest: String, spine: String) -> String {
         let uuid = UUID().uuidString
         let date = ISO8601DateFormatter().string(from: Date())
 
         var descriptionXML = ""
-        if let description = project.bookProfile?.kdpDescription, !description.isEmpty {
-            descriptionXML = "\n        <dc:description>\(escapeXML(description))</dc:description>"
+        if !book.kdpDescription.isEmpty {
+            descriptionXML = "\n        <dc:description>\(escapeXML(book.kdpDescription))</dc:description>"
         }
 
         return """
         <?xml version="1.0" encoding="UTF-8"?>
         <package version="3.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid">
             <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/">
-                <dc:title>\(escapeXML(project.title))</dc:title>
-                <dc:creator>\(escapeXML(project.authorName))</dc:creator>
-                <dc:language>\(project.languageCode)</dc:language>
+                <dc:title>\(escapeXML(book.title))</dc:title>
+                <dc:creator>\(escapeXML(book.authorName))</dc:creator>
+                <dc:language>\(book.languageCode)</dc:language>
                 <dc:identifier id="bookid">urn:uuid:\(uuid)</dc:identifier>
                 <meta property="dcterms:modified">\(date)</meta>\(descriptionXML)
             </metadata>
@@ -402,7 +585,7 @@ struct ExportEngine {
         """
     }
 
-    private static func generateTOCNCX(project: Project, chapterFiles: [(id: String, file: String, title: String)]) -> String {
+    private static func generateTOCNCX(book: BookExportSnapshot, chapterFiles: [(id: String, file: String, title: String)]) -> String {
         let uuid = UUID().uuidString
         var navPoints = ""
         for (index, entry) in chapterFiles.enumerated() {
@@ -424,7 +607,7 @@ struct ExportEngine {
                 <meta name="dtb:totalPageCount" content="0" />
                 <meta name="dtb:maxPageNumber" content="0" />
             </head>
-            <docTitle><text>\(escapeXML(project.title))</text></docTitle>
+            <docTitle><text>\(escapeXML(book.title))</text></docTitle>
             <navMap>
         \(navPoints)    </navMap>
         </ncx>
@@ -465,37 +648,39 @@ struct ExportEngine {
     </w:styles>
     """
 
-    private static func generateDOCXDocument(project: Project) -> String {
+    private static func generateDOCXDocument(book: BookExportSnapshot) throws -> String {
         var body = ""
 
-        body += paragraph(text: project.title, style: "Title")
-        body += paragraph(text: project.authorName, style: "Subtitle")
+        body += paragraph(text: book.title, style: "Title")
+        body += paragraph(text: book.authorName, style: "Subtitle")
         body += "<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>"
 
-        if let chapters = project.chapters?.sorted(by: { $0.chapterNumber < $1.chapterNumber }) {
-            for chapter in chapters {
-                body += paragraph(text: chapter.displayTitle, style: "Heading1")
-                var afterBreak = true
-                if let text = chapter.bestText {
-                    for para in text.components(separatedBy: .newlines) {
-                        let trimmed = para.trimmingCharacters(in: .whitespaces)
-                        if trimmed.isEmpty { continue }
-                        if isSceneBreakLine(trimmed) {
-                            // Szenenwechsel als ruhiger Abstand statt sichtbarer „* * *".
-                            body += paragraph(text: "\u{00A0}", style: "SceneBreak")
-                            afterBreak = true
-                            continue
-                        }
-                        body += bodyParagraph(text: trimmed, indentFirstLine: !afterBreak)
-                        afterBreak = false
-                    }
+        for chapter in book.chapters {
+            try Task.checkCancellation()
+            body += paragraph(text: chapter.displayTitle, style: "Heading1")
+            var afterBreak = true
+            for para in chapter.text.components(separatedBy: .newlines) {
+                let trimmed = para.trimmingCharacters(in: .whitespaces)
+                if trimmed.isEmpty { continue }
+                if isSceneBreakLine(trimmed) {
+                    // Szenenwechsel als ruhiger Abstand statt sichtbarer „* * *".
+                    body += paragraph(text: "\u{00A0}", style: "SceneBreak")
+                    afterBreak = true
+                    continue
                 }
+                body += bodyParagraph(text: trimmed, indentFirstLine: !afterBreak)
+                afterBreak = false
             }
         }
 
         // Impressum/Copyright als letzte Seite (nicht am Anfang).
         body += "<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>"
-        for line in bookCopyrightPageText(project: project).components(separatedBy: .newlines) {
+        let copyright = bookCopyrightPageText(
+            authorName: book.authorName,
+            imprint: book.imprint,
+            authorBio: book.authorBio
+        )
+        for line in copyright.components(separatedBy: .newlines) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if !trimmed.isEmpty {
                 body += paragraph(text: trimmed, style: nil)
@@ -534,18 +719,18 @@ struct ExportEngine {
         line.replacingOccurrences(of: " ", with: "") == "***"
     }
 
-    private static func makeTitleAttributed(project: Project) -> NSAttributedString {
+    private static func makeTitleAttributed(book: BookExportSnapshot) -> NSAttributedString {
         let style = NSMutableParagraphStyle()
         style.alignment = .center
         style.paragraphSpacing = 18
 
         let result = NSMutableAttributedString()
-        result.append(NSAttributedString(string: project.title + "\n", attributes: [
+        result.append(NSAttributedString(string: book.title + "\n", attributes: [
             .font: bookFont(size: 24, bold: true),
             .paragraphStyle: style,
             .foregroundColor: NSColor.black
         ]))
-        result.append(NSAttributedString(string: project.authorName, attributes: [
+        result.append(NSAttributedString(string: book.authorName, attributes: [
             .font: bookFont(size: 13),
             .paragraphStyle: style,
             .foregroundColor: NSColor.black
@@ -553,12 +738,17 @@ struct ExportEngine {
         return result
     }
 
-    private static func makeCopyrightAttributed(project: Project) -> NSAttributedString {
+    private static func makeCopyrightAttributed(book: BookExportSnapshot) -> NSAttributedString {
         let style = NSMutableParagraphStyle()
         style.alignment = .center
         style.lineHeightMultiple = 1.4
 
-        return NSAttributedString(string: bookCopyrightPageText(project: project), attributes: [
+        let copyright = bookCopyrightPageText(
+            authorName: book.authorName,
+            imprint: book.imprint,
+            authorBio: book.authorBio
+        )
+        return NSAttributedString(string: copyright, attributes: [
             .font: bookFont(size: 9),
             .paragraphStyle: style,
             .foregroundColor: NSColor.black
@@ -566,27 +756,37 @@ struct ExportEngine {
     }
 
     static func bookCopyrightPageText(project: Project) -> String {
+        bookCopyrightPageText(
+            authorName: project.authorName,
+            imprint: project.imprint,
+            authorBio: project.authorBio
+        )
+    }
+
+    private static func bookCopyrightPageText(authorName: String,
+                                              imprint: String,
+                                              authorBio: String) -> String {
         let year = Calendar.current.component(.year, from: Date())
         var lines = [
-            "© \(year) \(project.authorName)",
+            "© \(year) \(authorName)",
             "Alle Rechte vorbehalten."
         ]
-        let imprint = project.imprint.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !imprint.isEmpty {
+        let cleanImprint = imprint.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanImprint.isEmpty {
             lines.append("")
-            lines.append(contentsOf: imprint.components(separatedBy: .newlines))
+            lines.append(contentsOf: cleanImprint.components(separatedBy: .newlines))
         }
-        let authorBio = project.authorBio.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !authorBio.isEmpty {
+        let cleanAuthorBio = authorBio.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanAuthorBio.isEmpty {
             lines.append("")
             lines.append("Über den Autor")
-            lines.append(authorBio)
+            lines.append(cleanAuthorBio)
         }
         lines.append("")
         return lines.joined(separator: "\n")
     }
 
-    private static func makeTOCAttributed(project: Project) -> NSAttributedString {
+    private static func makeTOCAttributed(book: BookExportSnapshot) -> NSAttributedString {
         let headingStyle = NSMutableParagraphStyle()
         headingStyle.alignment = .center
         headingStyle.paragraphSpacingBefore = 48
@@ -603,14 +803,12 @@ struct ExportEngine {
             .foregroundColor: NSColor.black
         ]))
 
-        if let chapters = project.chapters?.sorted(by: { $0.chapterNumber < $1.chapterNumber }) {
-            for chapter in chapters {
-                result.append(NSAttributedString(string: "\(chapter.chapterNumber)  ·  \(chapter.title)\n", attributes: [
-                    .font: bookFont(size: 10.5),
-                    .paragraphStyle: entryStyle,
-                    .foregroundColor: NSColor.black
-                ]))
-            }
+        for chapter in book.chapters {
+            result.append(NSAttributedString(string: "\(chapter.chapterNumber)  ·  \(chapter.displayTitle)\n", attributes: [
+                .font: bookFont(size: 10.5),
+                .paragraphStyle: entryStyle,
+                .foregroundColor: NSColor.black
+            ]))
         }
         return result
     }
@@ -675,7 +873,8 @@ struct ExportEngine {
 
     /// Einseitige, vertikal zentrierte Seite (Titel, Copyright).
     private static func appendCenteredPage(_ attributed: NSAttributedString, to document: PDFDocument,
-                                           layout: PrintLayout, state: inout PrintState) {
+                                           layout: PrintLayout, state: inout PrintState) throws {
+        try Task.checkCancellation()
         let inset: CGFloat = 44
         let rect = CGRect(x: inset, y: layout.pageHeight * 0.32,
                           width: layout.pageWidth - 2 * inset,
@@ -689,14 +888,18 @@ struct ExportEngine {
             framesetter, CFRangeMake(0, 0), nil,
             CGSize(width: rect.width, height: .greatestFiniteMagnitude), nil)
         if suggested.height > rect.height {
-            appendFlowedText(attributed, to: document, layout: layout, state: &state, numbered: false)
+            try appendFlowedText(attributed, to: document, layout: layout, state: &state, numbered: false)
             return
         }
 
         let pageData = NSMutableData()
-        guard let consumer = CGDataConsumer(data: pageData as CFMutableData) else { return }
+        guard let consumer = CGDataConsumer(data: pageData as CFMutableData) else {
+            throw AIError.systemError("PDF-Seite konnte nicht vorbereitet werden")
+        }
         var mediaBox = CGRect(x: 0, y: 0, width: layout.pageWidth, height: layout.pageHeight)
-        guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else { return }
+        guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
+            throw AIError.systemError("PDF-Zeichenkontext konnte nicht erstellt werden")
+        }
 
         context.beginPDFPage(nil)
         let frame = CTFramesetterCreateFrame(framesetter, CFRangeMake(0, 0),
@@ -706,20 +909,23 @@ struct ExportEngine {
         context.closePDF()
 
         state.pageIndex += 1
-        if let pageDoc = PDFDocument(data: pageData as Data), let page = pageDoc.page(at: 0) {
-            document.insert(page, at: document.pageCount)
+        guard let pageDoc = PDFDocument(data: pageData as Data), let page = pageDoc.page(at: 0) else {
+            throw AIError.systemError("PDF-Seite konnte nicht übernommen werden")
         }
+        document.insert(page, at: document.pageCount)
     }
 
     /// Fließtext über beliebig viele Seiten mit Spiegelrändern (Bundsteg)
     /// und optionaler Seitennummerierung.
     private static func appendFlowedText(_ attributed: NSAttributedString, to document: PDFDocument,
-                                         layout: PrintLayout, state: inout PrintState, numbered: Bool) {
+                                         layout: PrintLayout, state: inout PrintState,
+                                         numbered: Bool) throws {
         let framesetter = CTFramesetterCreateWithAttributedString(attributed as CFAttributedString)
         var location = 0
         let length = attributed.length
 
         while location < length {
+            try Task.checkCancellation()
             // Seite 0 (erste PDF-Seite) ist eine rechte Buchseite: Bund links.
             let isRecto = state.pageIndex % 2 == 0
             let leftMargin = isRecto ? layout.insideMargin : layout.outsideMargin
@@ -730,9 +936,13 @@ struct ExportEngine {
             let path = CGPath(rect: textRect, transform: nil)
 
             let pageData = NSMutableData()
-            guard let consumer = CGDataConsumer(data: pageData as CFMutableData) else { return }
+            guard let consumer = CGDataConsumer(data: pageData as CFMutableData) else {
+                throw AIError.systemError("PDF-Seite konnte nicht vorbereitet werden")
+            }
             var mediaBox = CGRect(x: 0, y: 0, width: layout.pageWidth, height: layout.pageHeight)
-            guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else { return }
+            guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
+                throw AIError.systemError("PDF-Zeichenkontext konnte nicht erstellt werden")
+            }
 
             context.beginPDFPage(nil)
             let frame = CTFramesetterCreateFrame(framesetter, CFRangeMake(location, 0), path, nil)
@@ -747,13 +957,16 @@ struct ExportEngine {
             context.closePDF()
 
             let visibleRange = CTFrameGetVisibleStringRange(frame)
-            if visibleRange.length <= 0 { break }
+            guard visibleRange.length > 0 else {
+                throw AIError.systemError("PDF-Buchsatz konnte einen Textabschnitt nicht umbrechen")
+            }
             location += visibleRange.length
             state.pageIndex += 1
 
-            if let pageDoc = PDFDocument(data: pageData as Data), let page = pageDoc.page(at: 0) {
-                document.insert(page, at: document.pageCount)
+            guard let pageDoc = PDFDocument(data: pageData as Data), let page = pageDoc.page(at: 0) else {
+                throw AIError.systemError("PDF-Seite konnte nicht übernommen werden")
             }
+            document.insert(page, at: document.pageCount)
         }
     }
 
@@ -788,7 +1001,14 @@ struct ExportEngine {
         } catch {
             throw AIError.systemError("ZIP-Prozess konnte nicht gestartet werden: \(error.localizedDescription)")
         }
-        process.waitUntilExit()
+        while process.isRunning {
+            if Task.isCancelled {
+                process.terminate()
+                process.waitUntilExit()
+                throw CancellationError()
+            }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
         if process.terminationStatus != 0 {
             throw AIError.systemError("ZIP-Erstellung fehlgeschlagen (Status \(process.terminationStatus))")
         }
@@ -796,17 +1016,44 @@ struct ExportEngine {
 
     /// EPUB-konformes ZIP: mimetype zuerst und unkomprimiert.
     private static func createEPUBArchive(sourceDirectory: URL, destination: URL) throws {
-        try? FileManager.default.removeItem(at: destination)
-        try runZip(arguments: ["-X", "-0", "-q", destination.path, "mimetype"],
+        let stagedURL = stagingURL(for: destination)
+        defer { try? FileManager.default.removeItem(at: stagedURL) }
+        try runZip(arguments: ["-X", "-0", "-q", stagedURL.path, "mimetype"],
                    workingDirectory: sourceDirectory)
-        try runZip(arguments: ["-X", "-9", "-q", "-r", destination.path, "META-INF", "OEBPS"],
+        try runZip(arguments: ["-X", "-9", "-q", "-r", stagedURL.path, "META-INF", "OEBPS"],
                    workingDirectory: sourceDirectory)
+        try installStagedFile(stagedURL, at: destination)
     }
 
     private static func createZIPArchive(sourceDirectory: URL, destination: URL) throws {
-        try? FileManager.default.removeItem(at: destination)
-        try runZip(arguments: ["-X", "-9", "-q", "-r", destination.path, "."],
+        let stagedURL = stagingURL(for: destination)
+        defer { try? FileManager.default.removeItem(at: stagedURL) }
+        try runZip(arguments: ["-X", "-9", "-q", "-r", stagedURL.path, "."],
                    workingDirectory: sourceDirectory)
+        try installStagedFile(stagedURL, at: destination)
+    }
+
+    private static func stagingURL(for destination: URL) -> URL {
+        destination.deletingLastPathComponent()
+            .appendingPathComponent(".\(destination.lastPathComponent).\(UUID().uuidString).partial")
+    }
+
+    /// Erst nach vollständig erfolgreicher Erzeugung wird die bisherige Datei
+    /// ersetzt. Bei Fehler oder Stop bleibt damit entweder der letzte gültige
+    /// Export erhalten oder es existiert gar keine öffentliche Ausgabedatei.
+    private static func installStagedFile(_ stagedURL: URL, at destination: URL) throws {
+        try Task.checkCancellation()
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: destination.path) {
+            _ = try fileManager.replaceItemAt(
+                destination,
+                withItemAt: stagedURL,
+                backupItemName: nil,
+                options: [.usingNewMetadataOnly]
+            )
+        } else {
+            try fileManager.moveItem(at: stagedURL, to: destination)
+        }
     }
 
     // MARK: - Utility
@@ -870,7 +1117,8 @@ struct ExportEngine {
         let scores = QualityScores.compute(for: project)
         report += "Qualitätsbewertung (intern):\n"
         report += String(format: "- Struktur: %.0f%%\n", scores.structure * 100)
-        report += String(format: "- Figuren: %.0f%%\n", scores.characters * 100)
+        report += String(format: "- %@: %.0f%%\n",
+                         project.isNonfiction ? "Lesernutzen" : "Figuren", scores.characters * 100)
         report += String(format: "- Stil: %.0f%%\n", scores.style * 100)
         report += String(format: "- Konsistenz: %.0f%%\n", scores.consistency * 100)
         report += String(format: "- KDP-Format: %.0f%%\n\n", scores.kdp * 100)

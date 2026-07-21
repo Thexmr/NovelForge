@@ -7,6 +7,39 @@ import SwiftData
 @MainActor
 final class ExportEngineTests: XCTestCase {
 
+    func testExportRootTrimsWhitespaceAndMovesExistingFolder() throws {
+        let defaults = UserDefaults.standard
+        let previous = defaults.string(forKey: ExportEngine.exportRootDefaultsKey)
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("novelforge-path-test-\(UUID().uuidString)", isDirectory: true)
+        let normalized = parent.appendingPathComponent("Books", isDirectory: true)
+        let accidentalPath = normalized.path + " "
+        let accidental = URL(fileURLWithPath: accidentalPath, isDirectory: true)
+
+        try FileManager.default.createDirectory(at: accidental, withIntermediateDirectories: true)
+        try "existing".write(
+            to: accidental.appendingPathComponent("marker.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        defaults.set(accidentalPath, forKey: ExportEngine.exportRootDefaultsKey)
+        defer {
+            if let previous {
+                defaults.set(previous, forKey: ExportEngine.exportRootDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: ExportEngine.exportRootDefaultsKey)
+            }
+            try? FileManager.default.removeItem(at: parent)
+        }
+
+        let result = try ExportEngine.exportRootDirectory()
+
+        XCTAssertEqual(result.standardizedFileURL.path, normalized.standardizedFileURL.path)
+        XCTAssertEqual(defaults.string(forKey: ExportEngine.exportRootDefaultsKey), normalized.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: normalized.appendingPathComponent("marker.txt").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: accidental.path))
+    }
+
     private func makeProjectWithChapter() throws -> (ModelContainer, Project) {
         let schema = Schema([
             Project.self, BookProfile.self, StoryBible.self, CharacterProfile.self,
@@ -62,6 +95,54 @@ final class ExportEngineTests: XCTestCase {
         XCTAssertEqual(String(data: nameData, encoding: .utf8), "mimetype")
     }
 
+    func testBackgroundDOCXExportCreatesReadableWordPackage() async throws {
+        let (container, project) = try makeProjectWithChapter()
+        defer { _ = container; cleanup(project) }
+
+        let docx = try await ExportEngine.exportToDOCXInBackground(project: project)
+        let data = try Data(contentsOf: docx)
+
+        XCTAssertGreaterThan(data.count, 100)
+        XCTAssertEqual(data.prefix(2), Data([0x50, 0x4B]), "DOCX muss ein ZIP-Paket sein")
+
+        let unpacked = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: unpacked, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: unpacked) }
+
+        let unzip = Process()
+        unzip.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        unzip.arguments = ["-o", "-q", docx.path, "-d", unpacked.path]
+        try unzip.run()
+        unzip.waitUntilExit()
+        XCTAssertEqual(unzip.terminationStatus, 0)
+
+        let document = try String(
+            contentsOf: unpacked.appendingPathComponent("word/document.xml"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(document.contains(project.title))
+        XCTAssertTrue(document.contains("Erster Absatz des Kapitels."))
+    }
+
+    func testPreCancelledBackgroundExportThrowsCancellationError() async throws {
+        let (container, project) = try makeProjectWithChapter()
+        defer { _ = container; cleanup(project) }
+
+        let task = Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await ExportEngine.exportToEPUBInBackground(project: project)
+        }
+
+        do {
+            _ = try await task.value
+            XCTFail("Ein bereits abgebrochener Export darf nicht gestartet werden")
+        } catch is CancellationError {
+            // Erwarteter Stop-Pfad.
+        } catch {
+            XCTFail("Erwartet wurde CancellationError, erhalten: \(error)")
+        }
+    }
+
     /// Verifiziert die drei besprochenen EPUB-Korrekturen am ECHTEN Export:
     /// Impressum am Ende (nicht vorn), kein sichtbarer Sternchen-Trenner, und
     /// generische Kapiteltitel erscheinen als Kapitel N (displayTitle).
@@ -104,6 +185,18 @@ final class ExportEngineTests: XCTestCase {
         XCTAssertTrue(report.contains("Trim-Größe"))
         XCTAssertFalse(report.localizedCaseInsensitiveContains("KI-Offenlegung"))
         XCTAssertFalse(report.localizedCaseInsensitiveContains("KI-Unterstützung"))
+    }
+
+    func testExportRejectsGeneratedDisclosureInChapterText() throws {
+        let (container, project) = try makeProjectWithChapter()
+        defer { _ = container; cleanup(project) }
+        project.chapters?.first?.finalText =
+            "Eine vollständige Szene. Dieses Werk wurde mit KI erstellt."
+
+        XCTAssertThrowsError(try ExportEngine.exportToEPUB(project: project)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("Export blockiert"))
+            XCTAssertTrue(error.localizedDescription.contains("Kapitel 1"))
+        }
     }
 
     func testKDPReportContainsImprintAndStoryMemorySignature() throws {

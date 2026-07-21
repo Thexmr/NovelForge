@@ -106,4 +106,31 @@ final class QualityScoreTests: XCTestCase {
         // 3 schwere Befunde à 10% Abzug.
         XCTAssertEqual(scores.consistency, 0.7, accuracy: 0.0001)
     }
+
+    func testCachedScoresInvalidateAfterSceneUpdate() throws {
+        let (container, project) = try makeProject()
+        defer { _ = container }
+
+        let chapter = Chapter(chapterNumber: 1, title: "Eins",
+                              goal: "Klares Ziel", targetWordCount: 100)
+        let scene = StoryScene(sceneNumber: 1, perspective: "Er", location: "Hafen",
+                               goal: "Fliehen", targetWordCount: 100)
+        scene.text = Array(repeating: "Wort", count: 100).joined(separator: " ")
+        scene.status = .written
+        scene.chapter = chapter
+        chapter.scenes = [scene]
+        chapter.actualWordCount = 100
+        chapter.finalText = scene.text
+        chapter.project = project
+        project.chapters = [chapter]
+        container.mainContext.insert(chapter)
+        container.mainContext.insert(scene)
+
+        XCTAssertEqual(QualityScores.cached(for: project).style, 1.0)
+
+        scene.text = Array(repeating: "Wort", count: 20).joined(separator: " ")
+        scene.updatedAt = scene.updatedAt.addingTimeInterval(1)
+
+        XCTAssertLessThan(QualityScores.cached(for: project).style, 1.0)
+    }
 }

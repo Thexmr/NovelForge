@@ -1,52 +1,46 @@
 import SwiftUI
 
-/// Branding „Studio Noir": ein ruhiges, professionelles Schreibstudio (Linear/Craft-
-/// Register). Tiefes, kühl-neutrales Anthrazit mit feinem Indigo-Unterton; EINE gedämpfte
-/// Indigo/Blau-Signatur, Farbe sonst nur für Bedeutung. Tiefe entsteht durch Helligkeits-
-/// Stufen + feine Kanten, nicht durch Glow. Premium durch Zurückhaltung.
+/// NovelForge's visual language: a quiet editorial workspace with translucent
+/// materials, precise borders and color reserved for state and action.
 enum StudioTheme {
-    // Tiefes, kühl-neutrales Anthrazit mit feinem Indigo-Unterton (Helligkeits-Leiter).
-    static let pageTop = Color(red: 0.062, green: 0.062, blue: 0.084)
-    static let pageMiddle = Color(red: 0.082, green: 0.082, blue: 0.110)
-    static let pageBottom = Color(red: 0.044, green: 0.044, blue: 0.062)
+    static let pageTop = Color(red: 0.040, green: 0.047, blue: 0.058)
+    static let pageMiddle = Color(red: 0.052, green: 0.060, blue: 0.071)
+    static let pageBottom = Color(red: 0.028, green: 0.033, blue: 0.041)
 
-    static let surface = Color(red: 0.104, green: 0.104, blue: 0.136)
-    static let surfaceElevated = Color(red: 0.142, green: 0.142, blue: 0.182)
-    static let surfaceDeep = Color(red: 0.072, green: 0.072, blue: 0.098)
-    static let glassBase = Color(red: 0.090, green: 0.090, blue: 0.120)
-    static let glassInk = Color(red: 0.040, green: 0.040, blue: 0.058)
-    static let hairline = Color.white.opacity(0.09)
-    static let hairlineBright = Color.white.opacity(0.18)
-    static let textMuted = Color.white.opacity(0.66)
-    static let textFaint = Color.white.opacity(0.42)
+    static let surface = Color(red: 0.090, green: 0.101, blue: 0.116)
+    static let surfaceElevated = Color(red: 0.128, green: 0.142, blue: 0.160)
+    static let surfaceDeep = Color(red: 0.047, green: 0.054, blue: 0.065)
+    static let glassBase = Color(red: 0.075, green: 0.086, blue: 0.101)
+    static let glassInk = Color(red: 0.024, green: 0.029, blue: 0.036)
+    static let hairline = Color.white.opacity(0.10)
+    static let hairlineBright = Color.white.opacity(0.20)
+    static let textMuted = Color.white.opacity(0.68)
+    static let textFaint = Color.white.opacity(0.44)
 
-    // EINE gedämpfte Indigo/Blau-Signatur; Akzente nur für Bedeutung (gedämpft).
-    static let cyan = Color(red: 0.42, green: 0.60, blue: 0.95)    // gedämpftes Blau (sekundär)
-    static let violet = Color(red: 0.56, green: 0.50, blue: 0.92)  // Indigo (primär)
-    static let magenta = Color(red: 0.78, green: 0.52, blue: 0.74) // gedämpftes Mauve (selten)
-    static let lime = Color(red: 0.36, green: 0.72, blue: 0.56)    // gedämpftes Grün (Erfolg)
-    static let amber = Color(red: 0.85, green: 0.66, blue: 0.34)   // gedämpftes Amber (Warnung)
-    static let danger = Color(red: 0.86, green: 0.40, blue: 0.44)  // gedämpftes Rot (Fehler)
+    static let cyan = Color(red: 0.27, green: 0.76, blue: 0.72)
+    static let violet = Color(red: 0.49, green: 0.61, blue: 0.94)
+    static let magenta = Color(red: 0.91, green: 0.49, blue: 0.53)
+    static let lime = Color(red: 0.43, green: 0.77, blue: 0.52)
+    static let amber = Color(red: 0.90, green: 0.68, blue: 0.32)
+    static let danger = Color(red: 0.93, green: 0.39, blue: 0.42)
 
-    /// Signatur-Verlauf: Neon-Blau → Neon-Lila (durchgängig in der ganzen App).
     static var brandGradient: LinearGradient {
-        LinearGradient(colors: [cyan, violet],
-                       startPoint: .topLeading, endPoint: .bottomTrailing)
+        LinearGradient(colors: [cyan, violet], startPoint: .leading, endPoint: .trailing)
     }
 
     static var heroGradient: LinearGradient {
-        LinearGradient(colors: [cyan, violet, magenta],
-                       startPoint: .leading, endPoint: .trailing)
+        LinearGradient(colors: [Color.white, cyan.opacity(0.94)],
+                       startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
     static func accentGradient(_ accent: Color) -> LinearGradient {
-        LinearGradient(colors: [accent, accent.opacity(0.6)],
+        LinearGradient(colors: [accent.opacity(0.98), accent.opacity(0.68)],
                        startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
     static var quietGradient: LinearGradient {
-        LinearGradient(colors: [surfaceElevated.opacity(0.86), surface.opacity(0.52)],
-                       startPoint: .topLeading, endPoint: .bottomTrailing)
+        LinearGradient(colors: [surfaceElevated.opacity(0.90), surface.opacity(0.72)],
+                       startPoint: .top, endPoint: .bottom)
     }
 
     @ViewBuilder
@@ -54,71 +48,59 @@ enum StudioTheme {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .strokeBorder(
                 LinearGradient(colors: [
-                    Color.white.opacity(0.54),
-                    accent.opacity(0.34),
-                    Color.white.opacity(0.08)
+                    Color.white.opacity(0.30),
+                    accent.opacity(0.18),
+                    Color.white.opacity(0.055)
                 ], startPoint: .topLeading, endPoint: .bottomTrailing),
                 lineWidth: 1
             )
     }
 }
 
-/// Ruhige, statische Atmosphäre statt zielloser Drift-Animation: zwei tiefe Neon-Halos
-/// (Cyan oben, Violett rechts) + ein feines Punkt-Raster (futuristische HUD-Textur, nur
-/// gefühlt). Bewegung ist dem aktiven Zustand vorbehalten, nicht dem Hintergrund.
 struct StudioBackground: View {
     var body: some View {
         ZStack {
             LinearGradient(colors: [StudioTheme.pageTop, StudioTheme.pageMiddle, StudioTheme.pageBottom],
                            startPoint: .top, endPoint: .bottom)
-            RadialGradient(colors: [StudioTheme.cyan.opacity(0.15), .clear],
-                           center: UnitPoint(x: 0.15, y: -0.05), startRadius: 40, endRadius: 760)
-            RadialGradient(colors: [StudioTheme.violet.opacity(0.17), .clear],
-                           center: UnitPoint(x: 0.92, y: 0.10), startRadius: 60, endRadius: 820)
-            DotGrid()
-            Rectangle().fill(.black.opacity(0.34))
+            StudioGrid()
+            Rectangle().fill(.black.opacity(0.14))
         }
         .ignoresSafeArea()
     }
 }
 
-/// Feines Punkt-Raster (sub-perzeptuell), gibt dem Hintergrund einen „System"-Charakter.
-struct DotGrid: View {
+private struct StudioGrid: View {
     var body: some View {
-        Canvas { ctx, size in
-            let step: CGFloat = 26
-            let dot: CGFloat = 1.0
-            let shading = GraphicsContext.Shading.color(.white.opacity(0.045))
+        Canvas { context, size in
+            let step: CGFloat = 36
+            var path = Path()
+            var x: CGFloat = step
+            while x < size.width {
+                path.move(to: CGPoint(x: x, y: 0))
+                path.addLine(to: CGPoint(x: x, y: size.height))
+                x += step
+            }
             var y: CGFloat = step
             while y < size.height {
-                var x: CGFloat = step
-                while x < size.width {
-                    ctx.fill(Path(ellipseIn: CGRect(x: x, y: y, width: dot, height: dot)), with: shading)
-                    x += step
-                }
+                path.move(to: CGPoint(x: 0, y: y))
+                path.addLine(to: CGPoint(x: size.width, y: y))
                 y += step
             }
+            context.stroke(path, with: .color(.white.opacity(0.024)), lineWidth: 0.5)
         }
         .allowsHitTesting(false)
-        .blendMode(.plusLighter)
     }
 }
 
-/// Bewegungs-Tokens für ein konsistentes Gefühl in der ganzen App.
 enum Motion {
     static let fast = Animation.easeOut(duration: 0.12)
-    static let standard = Animation.spring(response: 0.32, dampingFraction: 0.85)
-    static let expressive = Animation.spring(response: 0.5, dampingFraction: 0.72)
+    static let standard = Animation.spring(response: 0.34, dampingFraction: 0.86)
+    static let expressive = Animation.spring(response: 0.48, dampingFraction: 0.78)
 }
 
 extension View {
-    /// Echter Neon-Glow als gestaffeltes Licht-Decay (mehrere Schatten, ~2× Radius je Stufe)
-    /// statt eines einzelnen fetten Blurs. `intensity` skaliert die Stärke (0 = aus).
     func neonGlow(_ color: Color, intensity: Double = 1) -> some View {
-        self
-            .shadow(color: color.opacity(0.55 * intensity), radius: 4)
-            .shadow(color: color.opacity(0.32 * intensity), radius: 11)
-            .shadow(color: color.opacity(0.16 * intensity), radius: 22)
+        shadow(color: color.opacity(0.16 * intensity), radius: 8, x: 0, y: 3)
     }
 }
 
@@ -131,55 +113,29 @@ private struct GlassSurface: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .background(
+            .background {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(StudioTheme.glassBase.opacity(isInteractiveGlass ? 0.36 : 0.44))
-                    .overlay(
+                    .fill(.ultraThinMaterial)
+                    .overlay {
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(
-                                LinearGradient(colors: [
-                                    Color.white.opacity(isInteractiveGlass ? 0.18 : 0.12),
-                                    (tint ?? accent).opacity(isInteractiveGlass ? 0.08 : 0.055),
-                                    StudioTheme.glassInk.opacity(isInteractiveGlass ? 0.30 : 0.34)
-                                ], startPoint: .topLeading, endPoint: .bottomTrailing)
-                            )
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(
-                                LinearGradient(colors: [
-                                    Color.white.opacity(0.08),
-                                    Color.clear,
-                                    StudioTheme.glassInk.opacity(isInteractiveGlass ? 0.34 : 0.38)
-                                ], startPoint: .top, endPoint: .bottom)
-                            )
-                    )
+                            .fill(StudioTheme.glassBase.opacity(isInteractiveGlass ? 0.42 : 0.52))
+                    }
                     .overlay(alignment: .top) {
-                        LinearGradient(colors: [.white.opacity(0.42), .white.opacity(0.10), .clear],
-                                       startPoint: .top, endPoint: .bottom)
-                            .frame(height: max(18, cornerRadius * 1.8))
-                            .mask(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                        LinearGradient(colors: [
+                            Color.white.opacity(isInteractiveGlass ? 0.16 : 0.11),
+                            (tint ?? accent).opacity(0.035),
+                            .clear
+                        ], startPoint: .top, endPoint: .bottom)
+                        .frame(height: max(22, cornerRadius * 4))
+                        .mask(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                     }
-                    .overlay(alignment: .topLeading) {
-                        RadialGradient(colors: [accent.opacity(isInteractiveGlass ? 0.26 : 0.16), .clear],
-                                       center: .topLeading, startRadius: 8, endRadius: 240)
-                            .mask(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                    }
-                    .overlay(alignment: .leading) {
-                        LinearGradient(colors: [accent.opacity(isInteractiveGlass ? 0.20 : 0.12), .clear],
-                                       startPoint: .leading, endPoint: .trailing)
-                            .frame(width: 96)
-                            .mask(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                    }
-            )
-            .overlay { StudioTheme.glassEdge(cornerRadius, accent: accent) }
-            .overlay(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(Color.white.opacity(0.09), lineWidth: 3)
-                    .mask(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
-            .shadow(color: Color.black.opacity(0.22), radius: isInteractiveGlass ? 9 : 5, x: 0, y: isInteractiveGlass ? 7 : 3)
-            .shadow(color: accent.opacity(0.08 * Double(bloom)), radius: (isInteractiveGlass ? 11 : 7) * bloom, x: 0, y: 4)
+            .overlay { StudioTheme.glassEdge(cornerRadius, accent: accent) }
+            .shadow(color: .black.opacity(isInteractiveGlass ? 0.24 : 0.16),
+                    radius: isInteractiveGlass ? 10 : 5,
+                    x: 0,
+                    y: isInteractiveGlass ? 6 : 3)
+            .shadow(color: accent.opacity(0.035 * Double(bloom)), radius: 8 * bloom, x: 0, y: 2)
     }
 }
 
@@ -203,26 +159,39 @@ struct StudioPanel: ViewModifier {
 
     func body(content: Content) -> some View {
         content.glassSurface(cornerRadius: cornerRadius,
-                             bloom: 0.45,
+                             bloom: 0.35,
                              accent: accent,
                              isInteractiveGlass: false)
     }
 }
 
 struct StudioFeaturedPanel: ViewModifier {
-    var cornerRadius: CGFloat = 10
+    var cornerRadius: CGFloat = 8
 
     func body(content: Content) -> some View {
         content
             .glassSurface(cornerRadius: cornerRadius,
-                          bloom: 1.05,
+                          bloom: 0.65,
                           tint: StudioTheme.surfaceElevated,
                           accent: StudioTheme.cyan,
                           isInteractiveGlass: true)
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(StudioTheme.brandGradient.opacity(0.55), lineWidth: 1.5)
+                    .strokeBorder(StudioTheme.brandGradient.opacity(0.34), lineWidth: 1)
             }
+    }
+}
+
+private struct StudioHoverModifier: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovered = false
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(isHovered && !reduceMotion ? 1.008 : 1)
+            .offset(y: isHovered && !reduceMotion ? -1 : 0)
+            .animation(reduceMotion ? nil : Motion.standard, value: isHovered)
+            .onHover { isHovered = $0 }
     }
 }
 
@@ -231,100 +200,109 @@ extension View {
         modifier(StudioPanel(cornerRadius: cornerRadius, accent: accent))
     }
 
-    func studioFeaturedPanel(cornerRadius: CGFloat = 10) -> some View {
+    func studioFeaturedPanel(cornerRadius: CGFloat = 8) -> some View {
         modifier(StudioFeaturedPanel(cornerRadius: cornerRadius))
+    }
+
+    func studioHoverable() -> some View {
+        modifier(StudioHoverModifier())
     }
 }
 
 struct StudioPrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var gradient: LinearGradient = StudioTheme.brandGradient
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.callout.weight(.semibold))
-            .foregroundStyle(isEnabled ? Color.black.opacity(0.88) : StudioTheme.textFaint)
-            .padding(.vertical, 11)
-            .padding(.horizontal, 16)
-            .frame(maxWidth: .infinity, minHeight: 42)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .foregroundStyle(isEnabled ? Color.black.opacity(0.86) : StudioTheme.textFaint)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 15)
+            .frame(maxWidth: .infinity, minHeight: 40)
+            .background {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .fill(isEnabled ? gradient : StudioTheme.quietGradient)
                     .overlay(alignment: .top) {
-                        Color.white.opacity(isEnabled ? 0.34 : 0.10)
-                            .frame(height: 1)
+                        Color.white.opacity(isEnabled ? 0.30 : 0.08).frame(height: 1)
                     }
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(Color.white.opacity(isEnabled ? 0.24 : 0.08), lineWidth: 1)
             }
-            .shadow(color: StudioTheme.violet.opacity(isEnabled ? 0.30 : 0), radius: configuration.isPressed ? 7 : 14, x: 0, y: 6)
-            .shadow(color: StudioTheme.cyan.opacity(isEnabled ? 0.18 : 0), radius: configuration.isPressed ? 5 : 9, x: 0, y: 0)
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .overlay {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(Color.white.opacity(isEnabled ? 0.22 : 0.07), lineWidth: 1)
+            }
+            .shadow(color: StudioTheme.cyan.opacity(isEnabled ? 0.16 : 0),
+                    radius: configuration.isPressed ? 3 : 8,
+                    x: 0,
+                    y: configuration.isPressed ? 1 : 4)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
+            .animation(reduceMotion ? nil : Motion.fast, value: configuration.isPressed)
     }
 }
 
 struct StudioSecondaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var accent: Color = StudioTheme.cyan
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.callout.weight(.semibold))
             .foregroundStyle(isEnabled ? Color.primary : StudioTheme.textFaint)
-            .padding(.vertical, 10)
-            .padding(.horizontal, 14)
-            .frame(minHeight: 40)
-            .glassSurface(cornerRadius: 8,
-                          bloom: configuration.isPressed ? 0.35 : 0.8,
+            .padding(.vertical, 9)
+            .padding(.horizontal, 13)
+            .frame(minHeight: 38)
+            .glassSurface(cornerRadius: 7,
+                          bloom: configuration.isPressed ? 0.15 : 0.35,
                           tint: StudioTheme.surfaceElevated,
                           accent: isEnabled ? accent : .gray,
                           isInteractiveGlass: true)
-            .opacity(isEnabled ? 1 : 0.55)
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .opacity(isEnabled ? 1 : 0.54)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
+            .animation(reduceMotion ? nil : Motion.fast, value: configuration.isPressed)
     }
 }
 
 struct StudioProgressBar: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var value: Double
     var gradient: LinearGradient = StudioTheme.brandGradient
-    var height: CGFloat = 8
+    var height: CGFloat = 7
 
     var body: some View {
-        GeometryReader { geo in
-            // value kann aus einer 0/0-Division NaN/Inf werden (z.B. 0 von 0 Kapiteln).
-            // Auf 0 normalisieren, sonst zeigt der Balken fälschlich „voll" statt leer.
-            let safeValue = value.isFinite ? value : 0
+        GeometryReader { geometry in
+            let safeValue = value.isFinite ? max(0, min(1, value)) : 0
             ZStack(alignment: .leading) {
-                Capsule().fill(StudioTheme.surfaceDeep.opacity(0.86))
-                Capsule().fill(Color.white.opacity(0.06))
+                Capsule().fill(StudioTheme.surfaceDeep.opacity(0.90))
+                Capsule().fill(Color.white.opacity(0.045))
                 Capsule()
                     .fill(gradient)
-                    .frame(width: max(0, min(1, safeValue)) * geo.size.width)
-                    .shadow(color: StudioTheme.cyan.opacity(0.24), radius: 4, y: 1)
+                    .frame(width: safeValue * geometry.size.width)
+                    .shadow(color: StudioTheme.cyan.opacity(0.15), radius: 3, y: 1)
             }
             .overlay { Capsule().strokeBorder(StudioTheme.hairline, lineWidth: 1) }
+            .animation(reduceMotion ? nil : Motion.standard, value: safeValue)
         }
         .frame(height: height)
+        .accessibilityValue("\(Int(max(0, min(1, value.isFinite ? value : 0)) * 100)) Prozent")
     }
 }
 
 struct StudioStatNumber: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let value: String
     var gradient: LinearGradient = StudioTheme.heroGradient
 
     var body: some View {
         Text(value)
-            .font(.system(size: 30, weight: .bold, design: .monospaced))
+            .font(.system(size: 28, weight: .bold, design: .rounded))
+            .monospacedDigit()
             .foregroundStyle(gradient)
             .lineLimit(1)
-            .minimumScaleFactor(0.5)
+            .minimumScaleFactor(0.55)
             .contentTransition(.numericText())
-            .animation(Motion.standard, value: value)
-            .shadow(color: StudioTheme.violet.opacity(0.16), radius: 7, x: 0, y: 0)
+            .animation(reduceMotion ? nil : Motion.standard, value: value)
     }
 }
 
@@ -333,29 +311,32 @@ struct StudioSegmentedPills: View {
     @Binding var selection: String
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 3) {
             ForEach(options, id: \.self) { option in
                 let active = option == selection
-                Text(option)
-                    .font(.subheadline.weight(.semibold))
-                    .padding(.vertical, 8)
-                    .padding(.horizontal, 16)
-                    .background {
-                        if active {
-                            Capsule()
-                                .fill(StudioTheme.brandGradient)
-                                .overlay(Capsule().strokeBorder(Color.white.opacity(0.28), lineWidth: 1))
-                                .shadow(color: StudioTheme.cyan.opacity(0.14), radius: 6, y: 3)
+                Button {
+                    withAnimation(Motion.fast) { selection = option }
+                } label: {
+                    Text(option)
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.vertical, 7)
+                        .padding(.horizontal, 14)
+                        .frame(maxWidth: .infinity)
+                        .foregroundStyle(active ? Color.black.opacity(0.86) : StudioTheme.textMuted)
+                        .background {
+                            if active {
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(StudioTheme.brandGradient)
+                            }
                         }
-                    }
-                    .foregroundStyle(active ? Color.black.opacity(0.86) : StudioTheme.textMuted)
-                    .contentShape(Capsule())
-                    .onTapGesture { selection = option }
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(active ? .isSelected : [])
             }
         }
-        .padding(5)
-        .background(Capsule().fill(StudioTheme.surfaceDeep.opacity(0.68)))
-        .overlay(Capsule().strokeBorder(StudioTheme.hairline, lineWidth: 1))
+        .padding(4)
+        .background(StudioTheme.surfaceDeep.opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(StudioTheme.hairline, lineWidth: 1))
     }
 }
 
@@ -370,17 +351,34 @@ struct StudioStatusPill: View {
                 Image(systemName: systemImage)
                     .font(.caption2.weight(.bold))
             }
-            Text(text.uppercased())
-                .tracking(0.8)
+            Text(text)
                 .lineLimit(1)
         }
-        .font(.system(.caption2, design: .monospaced).weight(.semibold))
+        .font(.caption.weight(.semibold))
         .foregroundStyle(color)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(color.opacity(0.12), in: Capsule())
-        .overlay(Capsule().strokeBorder(color.opacity(0.32), lineWidth: 1))
-        .shadow(color: color.opacity(0.14), radius: 4, x: 0, y: 0)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
+        .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(color.opacity(0.28), lineWidth: 1))
+    }
+}
+
+struct StudioLiveIndicator: View {
+    var color: Color = StudioTheme.lime
+    var isActive = true
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill((isActive ? color : StudioTheme.textFaint).opacity(0.16))
+                .frame(width: 13, height: 13)
+            Circle()
+                .fill(isActive ? color : StudioTheme.textFaint)
+                .frame(width: 7, height: 7)
+                .shadow(color: isActive ? color.opacity(0.55) : .clear, radius: 4)
+        }
+        .frame(width: 16, height: 16)
+        .accessibilityHidden(true)
     }
 }
 
@@ -391,33 +389,24 @@ struct StudioGlassTile: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .background(
+            .background {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(
-                        LinearGradient(colors: [
-                            Color.white.opacity(0.085 * opacity),
-                            accent.opacity(0.045 * opacity),
-                            StudioTheme.glassInk.opacity(0.30 * opacity)
-                        ], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    )
+                    .fill(StudioTheme.surface.opacity(0.58 * opacity))
                     .overlay(alignment: .top) {
-                        Color.white.opacity(0.20 * opacity)
-                            .frame(height: 1)
+                        Color.white.opacity(0.10 * opacity).frame(height: 1)
                     }
-            )
-            .overlay(
+            }
+            .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(
-                        LinearGradient(colors: [
-                            Color.white.opacity(0.24 * opacity),
-                            accent.opacity(0.18 * opacity),
-                            Color.white.opacity(0.055 * opacity)
-                        ], startPoint: .topLeading, endPoint: .bottomTrailing),
+                        LinearGradient(colors: [Color.white.opacity(0.17 * opacity),
+                                                accent.opacity(0.12 * opacity),
+                                                Color.white.opacity(0.045 * opacity)],
+                                       startPoint: .topLeading,
+                                       endPoint: .bottomTrailing),
                         lineWidth: 1
                     )
-            )
-            .shadow(color: Color.black.opacity(0.20 * opacity), radius: 5, x: 0, y: 3)
-            .shadow(color: accent.opacity(0.10 * opacity), radius: 10, x: 0, y: 0)
+            }
     }
 }
 
@@ -431,61 +420,54 @@ extension View {
 
 struct StudioSectionLabel: View {
     let text: String
+
     var body: some View {
-        Text(text.uppercased())
-            .font(.system(size: 10, weight: .bold, design: .monospaced))
+        Text(text)
+            .font(.caption.weight(.semibold))
             .foregroundStyle(StudioTheme.textMuted)
-            .tracking(1.5)
     }
 }
 
-/// Marken-Logo „Tinte & Papier": dunkles Emblem mit Gold-Kante, „N"-Monogramm im
-/// Salbei→Gold-Verlauf und einem Forge-Funken. Skaliert über `size`.
 struct NovelForgeLogo: View {
     var size: CGFloat = 44
 
     var body: some View {
-        let radius = size * 0.27
+        let radius = min(8, size * 0.20)
         RoundedRectangle(cornerRadius: radius, style: .continuous)
-            .fill(
-                LinearGradient(colors: [StudioTheme.surfaceElevated, StudioTheme.glassInk],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
-            )
+            .fill(.ultraThinMaterial)
             .frame(width: size, height: size)
-            .overlay(alignment: .top) {
-                LinearGradient(colors: [.white.opacity(0.16), .clear], startPoint: .top, endPoint: .bottom)
-                    .frame(height: size * 0.42)
-                    .mask(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(StudioTheme.glassBase.opacity(0.48))
             }
             .overlay {
                 NMonogram()
                     .stroke(StudioTheme.brandGradient,
-                            style: StrokeStyle(lineWidth: size * 0.13, lineCap: .round, lineJoin: .round))
+                            style: StrokeStyle(lineWidth: size * 0.12, lineCap: .round, lineJoin: .round))
                     .padding(.horizontal, size * 0.30)
-                    .padding(.vertical, size * 0.26)
+                    .padding(.vertical, size * 0.25)
             }
             .overlay(alignment: .topTrailing) {
                 Image(systemName: "sparkle")
-                    .font(.system(size: size * 0.20, weight: .bold))
+                    .font(.system(size: size * 0.18, weight: .bold))
                     .foregroundStyle(StudioTheme.amber)
-                    .padding(size * 0.10)
+                    .padding(size * 0.09)
             }
-            .overlay(
+            .overlay {
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .strokeBorder(StudioTheme.violet.opacity(0.55), lineWidth: max(1, size * 0.024))
-            )
-            .shadow(color: StudioTheme.violet.opacity(0.25), radius: size * 0.16, x: 0, y: size * 0.06)
+                    .strokeBorder(StudioTheme.hairlineBright, lineWidth: 1)
+            }
+            .shadow(color: StudioTheme.cyan.opacity(0.12), radius: size * 0.12, x: 0, y: size * 0.04)
     }
 }
 
-/// Geometrisches „N" als Pfad: links hoch, Diagonale runter, rechts hoch.
 struct NMonogram: Shape {
     func path(in rect: CGRect) -> Path {
-        var p = Path()
-        p.move(to: CGPoint(x: rect.minX, y: rect.maxY))
-        p.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
-        p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
-        return p
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        return path
     }
 }

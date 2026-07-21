@@ -2,22 +2,70 @@ import SwiftUI
 import SwiftData
 
 struct SettingsView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var selectedSection = SettingsSection.general
+
+    private enum SettingsSection: String, CaseIterable, Identifiable {
+        case general = "Allgemein"
+        case appearance = "Darstellung"
+        case providers = "Textmodelle"
+        case covers = "Cover"
+        case privacy = "Daten"
+
+        var id: String { rawValue }
+
+        var icon: String {
+            switch self {
+            case .general: return "slider.horizontal.3"
+            case .appearance: return "paintbrush"
+            case .providers: return "cpu"
+            case .covers: return "photo"
+            case .privacy: return "lock.shield"
+            }
+        }
+    }
+
     var body: some View {
-        TabView {
-            GeneralSettingsView()
-                .tabItem { Label("Allgemein", systemImage: "gear") }
+        ZStack {
+            StudioBackground()
 
-            AppearanceSettingsView()
-                .tabItem { Label("Erscheinungsbild", systemImage: "paintbrush") }
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Einstellungen")
+                            .font(.system(size: 30, weight: .bold, design: .rounded))
+                            .foregroundStyle(StudioTheme.heroGradient)
+                        Text("Vorgaben, Modelle, Cover-Erstellung und lokale Daten verwalten.")
+                            .font(.subheadline)
+                            .foregroundStyle(StudioTheme.textMuted)
+                    }
 
-            ProviderSettingsView()
-                .tabItem { Label("KI-Provider", systemImage: "cpu") }
+                    Picker("Bereich", selection: $selectedSection) {
+                        ForEach(SettingsSection.allCases) { section in
+                            Label(section.rawValue, systemImage: section.icon).tag(section)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+                .padding(20)
+                .background(.ultraThinMaterial)
+                .overlay(alignment: .bottom) { StudioTheme.hairline.frame(height: 1) }
 
-            CoverImageSettingsView()
-                .tabItem { Label("Cover-KI", systemImage: "photo") }
-
-            PrivacySettingsView()
-                .tabItem { Label("Datenschutz", systemImage: "lock.shield") }
+                Group {
+                    switch selectedSection {
+                    case .general: GeneralSettingsView()
+                    case .appearance: AppearanceSettingsView()
+                    case .providers: ProviderSettingsView()
+                    case .covers: CoverImageSettingsView()
+                    case .privacy: PrivacySettingsView()
+                    }
+                }
+                .id(selectedSection)
+                .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .trailing)))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .animation(reduceMotion ? nil : Motion.standard, value: selectedSection)
+            }
         }
         .frame(minWidth: 620, minHeight: 440)
         .navigationTitle("Einstellungen")
@@ -70,8 +118,7 @@ struct GeneralSettingsView: View {
                 }
 
                 Picker("Standard-Genre", selection: $defaultGenre) {
-                    ForEach(["Thriller", "Roman", "Fantasy", "Science Fiction", "Krimi",
-                             "Liebesroman", "Historischer Roman", "Horror"], id: \.self) {
+                    ForEach(UnlimitedSettings.genrePool, id: \.self) {
                         Text($0).tag($0)
                     }
                 }
@@ -79,12 +126,16 @@ struct GeneralSettingsView: View {
 
             Section("Schreibqualität · Autoren-Modell (Prosa)") {
                 Picker("Autoren-Modell", selection: $writingModel) {
-                    Text("Standard – kimi-k2.6 (schnell, empfohlen)").tag("")
-                    ForEach(OllamaCloudModelCatalog.fallbackModels, id: \.self) {
+                    Text("Beste Qualität – mistral-large-3:675b").tag("")
+                    Text("Schnell – kimi-k2.6").tag("__standard__")
+                    ForEach(OllamaCloudModelCatalog.fallbackModels.filter {
+                        $0 != OllamaCloudModelCatalog.defaultModel
+                            && $0 != OllamaCloudModelCatalog.recommendedWritingModel
+                    }, id: \.self) {
                         Text($0).tag($0)
                     }
                 }
-                Text("Steuert NUR die eigentliche Prosa (Szenen, Konzept, Plot, Repair); Hilfsschritte bleiben immer auf kimi-k2.6. Standard = kimi-k2.6 (schnell, wie bisher). Für mehr Tiefe/Ton bei viel mehr Rechenzeit ein stärkeres Modell wählen (z.B. mistral-large-3:675b oder deepseek-v4-pro). Gilt für Ollama Cloud; ein nicht verfügbares Modell weicht automatisch auf kimi aus.")
+                Text("Steuert kreative Prosa, Konzept, Struktur und Reparatur. Standard ist mistral-large-3:675b für mehr Tiefe und bessere Anweisungsbefolgung; Hilfsschritte bleiben auf kimi-k2.6. Der Schnellmodus reduziert Laufzeit. Ist ein Modell nicht verfügbar, weicht die Produktion automatisch auf kimi aus.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -104,6 +155,8 @@ struct GeneralSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
     }
 }
 
@@ -116,27 +169,27 @@ struct AppearanceSettingsView: View {
     var body: some View {
         Form {
             Section("Darstellung") {
-                Picker("Erscheinungsbild", selection: $colorScheme) {
-                    Text("System").tag("system")
-                    Text("Hell").tag("light")
-                    Text("Dunkel").tag("dark")
-                }
-                .pickerStyle(.segmented)
+                LabeledContent("Erscheinungsbild", value: "Studio Dunkel")
 
                 Picker("Akzentfarbe", selection: $accentColor) {
                     Text("Blau").tag("blue")
-                    Text("Violett").tag("purple")
                     Text("Indigo").tag("indigo")
                     Text("Teal").tag("teal")
+                    Text("Koralle").tag("coral")
                 }
             }
             Section {
-                Text("Änderungen werden sofort auf die gesamte App angewendet.")
+                Text("Das dunkle Studio-Design ist für lange Produktionsläufe optimiert. Die Akzentfarbe wird sofort auf interaktive Systemelemente angewendet.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
+        .onAppear {
+            colorScheme = "dark"
+        }
     }
 }
 
@@ -154,8 +207,12 @@ struct ProviderSettingsView: View {
                 } description: {
                     Text("Fügen Sie einen KI-Provider hinzu, um Bücher produzieren zu können. Der Provider kann auch direkt im Buch-Assistenten eingerichtet werden.")
                 } actions: {
-                    Button("Provider hinzufügen") { showingAddProvider = true }
-                        .buttonStyle(.borderedProminent)
+                    Button {
+                        showingAddProvider = true
+                    } label: {
+                        Label("Provider hinzufügen", systemImage: "plus")
+                    }
+                    .buttonStyle(StudioPrimaryButtonStyle())
                 }
             } else {
                 List {
@@ -171,15 +228,20 @@ struct ProviderSettingsView: View {
                         store.save()
                     }
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
 
                 Divider()
 
                 HStack {
                     Spacer()
-                    Button("Provider hinzufügen") {
+                    Button {
                         showingAddProvider = true
+                    } label: {
+                        Label("Provider hinzufügen", systemImage: "plus")
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(StudioPrimaryButtonStyle())
+                    .frame(width: 200)
                 }
                 .padding(12)
             }
@@ -236,17 +298,22 @@ struct ProviderRow: View {
                     }
 
                 if configuration.provider.requiresAPIKey {
-                    Button("API-Key …") {
+                    Button {
                         newKey = ""
                         showingKeyEditor = true
+                    } label: {
+                        Label("Schlüssel", systemImage: "key")
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.amber))
                 }
 
-                Button(isTesting ? "Teste …" : "Testen") {
+                Button {
                     runTest()
+                } label: {
+                    Label(isTesting ? "Wird geprüft" : "Testen",
+                          systemImage: isTesting ? "arrow.triangle.2.circlepath" : "network")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.cyan))
                 .disabled(isTesting)
 
                 if let succeeded = testSucceeded {
@@ -261,7 +328,7 @@ struct ProviderRow: View {
                     Image(systemName: "trash")
                 }
                 .buttonStyle(.borderless)
-                .help("Provider entfernen (API-Key bleibt in der Keychain)")
+                .help("Provider-Konfiguration entfernen; der API-Key bleibt gespeichert")
                 .accessibilityLabel("Provider entfernen")
             }
 
@@ -271,7 +338,12 @@ struct ProviderRow: View {
                     .foregroundStyle(.red)
             }
         }
-        .padding(.vertical, 4)
+        .padding(13)
+        .studioGlassTile(cornerRadius: 8,
+                         accent: configuration.isActive ? StudioTheme.cyan : StudioTheme.textFaint,
+                         opacity: 0.86)
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
         .sheet(isPresented: $showingKeyEditor) {
             VStack(alignment: .leading, spacing: 16) {
                 Text("API-Key für \(configuration.provider.rawValue)")
@@ -279,7 +351,7 @@ struct ProviderRow: View {
                 SecureField("API-Key einfügen", text: $newKey)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 360)
-                Text("Der Key wird ausschließlich in der macOS Keychain gespeichert.")
+                Text("Der Key wird lokal für NovelForge gespeichert und zusätzlich in der macOS Keychain gesichert.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 HStack {
@@ -331,6 +403,20 @@ struct AddProviderView: View {
         return custom.isEmpty ? selectedModel : custom
     }
 
+    private var canAdd: Bool {
+        guard !effectiveModel.isEmpty else { return false }
+        if selectedProvider.needsBaseURLInput
+            && baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return false
+        }
+        if selectedProvider.requiresAPIKey
+            && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !ProviderSettingsStore.shared.hasAPIKey(for: selectedProvider) {
+            return false
+        }
+        return true
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -347,7 +433,8 @@ struct AddProviderView: View {
                 DynamicModelPicker(provider: selectedProvider,
                                    selectedModel: $selectedModel,
                                    customModel: $customModel,
-                                   pendingAPIKey: apiKey)
+                                   pendingAPIKey: apiKey,
+                                   includeCustomField: selectedProvider != .ollamaCloud)
 
                 if selectedProvider.requiresAPIKey {
                     SecureField("API-Key", text: $apiKey)
@@ -358,6 +445,8 @@ struct AddProviderView: View {
                 }
             }
             .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+            .background(StudioBackground())
             .navigationTitle("Provider hinzufügen")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -374,7 +463,7 @@ struct AddProviderView: View {
                         onAdd(config, apiKey)
                         dismiss()
                     }
-                    .disabled(effectiveModel.isEmpty)
+                    .disabled(!canAdd)
                 }
             }
         }
@@ -461,6 +550,8 @@ struct CoverImageSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
     }
 
     private func binding(_ keyPath: WritableKeyPath<CoverImageSettings, String>) -> Binding<String> {
@@ -505,7 +596,8 @@ struct CoverImageSettingsView: View {
 
 struct PrivacySettingsView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query private var projects: [Project]
+    private var _projects = Query<Project, [Project]>()
+    private var projects: [Project] { _projects.wrappedValue }
     @ObservedObject private var orchestrator = PipelineOrchestrator.shared
 
     @State private var confirmDeleteKeys = false
@@ -515,7 +607,7 @@ struct PrivacySettingsView: View {
         Form {
             Section("Datenhaltung") {
                 LabeledContent("Projekte & Manuskripte", value: "Lokal auf diesem Mac")
-                LabeledContent("API-Keys", value: "macOS Keychain (verschlüsselt)")
+                LabeledContent("API-Keys", value: "Lokaler App-Speicher mit Keychain-Backup")
                 LabeledContent("Prompts", value: "Werden nur an den gewählten Provider gesendet")
             }
 
@@ -530,12 +622,14 @@ struct PrivacySettingsView: View {
             }
 
             Section {
-                Text("API-Keys werden ausschließlich in der macOS Keychain gespeichert und niemals unverschlüsselt abgelegt oder angezeigt.")
+                Text("API-Keys bleiben lokal und werden nie in Projektexporte oder Buchdateien geschrieben. Über „Alle API-Keys löschen“ werden App-Speicher und Keychain-Backup gemeinsam entfernt.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
         .confirmationDialog("Wirklich alle API-Keys löschen?", isPresented: $confirmDeleteKeys) {
             Button("Alle Keys löschen", role: .destructive) {
                 KeychainService.deleteAllAPIKeys()

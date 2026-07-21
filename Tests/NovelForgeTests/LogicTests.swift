@@ -13,11 +13,193 @@ final class LogicTests: XCTestCase {
         try ModelContainer(
             for: Schema([Project.self, BookProfile.self, StoryBible.self, CharacterProfile.self,
                          LocationProfile.self, Chapter.self, StoryScene.self,
-                         PipelineJob.self, QualityReport.self]),
+                         PipelineJob.self, QualityReport.self, ChatMessage.self]),
             configurations: [ModelConfiguration(isStoredInMemoryOnly: true)])
     }
 
+    @MainActor
+    func testPersistentModelsRoundTripRelationshipsAndCascadeDelete() throws {
+        let container = try makeInMemoryContainer()
+        let context = container.mainContext
+        let project = Project(title: "Persistenztest", authorName: "Autor", language: "Deutsch",
+                              genre: "Thriller", styleProfile: "präzise",
+                              targetPageCount: 240, outputFormats: ["EPUB", "PDF"])
+        let chapter = Chapter(chapterNumber: 1, title: "Auftakt", goal: "Konflikt eröffnen",
+                              targetWordCount: 2_500)
+        let scene = StoryScene(sceneNumber: 1, perspective: "Mara", location: "Berlin",
+                               goal: "Hinweis finden", targetWordCount: 900)
+
+        project.chapters = [chapter]
+        chapter.project = project
+        chapter.scenes = [scene]
+        scene.chapter = chapter
+        context.insert(project)
+        context.insert(chapter)
+        context.insert(scene)
+        try context.save()
+
+        let fetchedProjects = try context.fetch(FetchDescriptor<Project>())
+        let fetchedChapters = try context.fetch(FetchDescriptor<Chapter>())
+        let fetchedScenes = try context.fetch(FetchDescriptor<StoryScene>())
+        XCTAssertEqual(fetchedProjects.first?.preferredProviderRaw, AIProvider.ollamaCloud.rawValue)
+        XCTAssertEqual(fetchedProjects.first?.chapters?.first?.title, "Auftakt")
+        XCTAssertTrue(fetchedChapters.first?.project === fetchedProjects.first)
+        XCTAssertTrue(fetchedScenes.first?.chapter === fetchedChapters.first)
+
+        context.delete(project)
+        try context.save()
+        XCTAssertTrue(try context.fetch(FetchDescriptor<Project>()).isEmpty)
+        XCTAssertTrue(try context.fetch(FetchDescriptor<Chapter>()).isEmpty)
+        XCTAssertTrue(try context.fetch(FetchDescriptor<StoryScene>()).isEmpty)
+    }
+
     // MARK: - Sicherheit
+
+    func testPublicContentGuardBlocksDisclosureWithoutBlockingAlsKind() {
+        XCTAssertTrue(PublicContentGuard.disclosureViolation(
+            in: "Dieses Werk wurde mit Unterstützung von Künstlicher Intelligenz (KI) erstellt."
+        ))
+        XCTAssertTrue(PublicContentGuard.disclosureViolation(
+            in: "This book is AI-generated."
+        ))
+        XCTAssertTrue(PublicContentGuard.disclosureViolation(
+            in: "Als KI kann ich dieses Kapitel nicht schreiben."
+        ))
+        XCTAssertFalse(PublicContentGuard.disclosureViolation(
+            in: "Als Kind lief Mira jeden Morgen an diesem Haus vorbei."
+        ))
+        XCTAssertFalse(PublicContentGuard.disclosureViolation(
+            in: "Der Roman handelt von künstlicher Intelligenz und Verantwortung."
+        ))
+    }
+
+    @MainActor
+    func testPublicationReadinessBlocksTruncatedAndUnresolvedCriticalContent() throws {
+        let container = try makeInMemoryContainer()
+        let project = Project(title: "Prüfbuch", authorName: "Autor", language: "Deutsch",
+                              genre: "Thriller", styleProfile: "direkt",
+                              targetPageCount: 1, outputFormats: ["EPUB"])
+        project.targetWordCount = 100
+        project.imprint = "Muster-Impressum"
+        project.authorBio = "Autorprofil"
+        container.mainContext.insert(project)
+
+        let profile = BookProfile(premise: "Prämisse", theme: "Thema",
+                                  targetAudience: "Erwachsene", tonality: "direkt",
+                                  narrativePerspective: "personal", tense: "Präteritum")
+        profile.kdpTitle = "Die letzte Tür"
+        profile.kdpDescription = "Ein spannender Verkaufstext."
+        profile.kdpKeywords = "Thriller, Geheimnis, Spannung"
+        profile.kdpCategories = "Thriller"
+        profile.project = project
+        project.bookProfile = profile
+        container.mainContext.insert(profile)
+
+        let chapter = Chapter(chapterNumber: 1, title: "Die Tür", goal: "Entscheidung",
+                              targetWordCount: 100)
+        chapter.finalText = Array(repeating: "Wort", count: 99).joined(separator: " ") + " Ende."
+        chapter.actualWordCount = 100
+        chapter.status = .finalized
+        chapter.project = project
+        project.chapters = [chapter]
+        container.mainContext.insert(chapter)
+
+        XCTAssertTrue(PublicationReadiness.completionBlockingIssues(project: project).isEmpty)
+        XCTAssertTrue(PublicationReadiness.cachedCompletionBlockingIssues(project: project).isEmpty)
+
+        chapter.finalText = "[Diese Szene muss noch ausgeschrieben werden – bitte im Manuskript neu erzeugen.]"
+        chapter.updatedAt = chapter.updatedAt.addingTimeInterval(1)
+        XCTAssertTrue(PublicationReadiness.exportBlockingIssues(project: project)
+            .contains { $0.contains("Produktions- oder Platzhaltertext") })
+        XCTAssertTrue(PublicationReadiness.cachedExportBlockingIssues(project: project)
+            .contains { $0.contains("Produktions- oder Platzhaltertext") })
+        chapter.finalText = Array(repeating: "Wort", count: 99).joined(separator: " ") + " Ende."
+        chapter.updatedAt = chapter.updatedAt.addingTimeInterval(1)
+
+        profile.kdpKeywords = ""
+        XCTAssertTrue(PublicationReadiness.completionBlockingIssues(project: project)
+            .contains { $0.contains("KDP-Metadaten fehlen") })
+        XCTAssertTrue(PublicationReadiness.cachedCompletionBlockingIssues(project: project)
+            .contains { $0.contains("KDP-Metadaten fehlen") })
+        profile.kdpKeywords = "Thriller, Geheimnis, Spannung"
+
+        chapter.finalText = Array(repeating: "Wort", count: 99).joined(separator: " ") + " mitten im"
+        chapter.updatedAt = chapter.updatedAt.addingTimeInterval(1)
+        XCTAssertTrue(PublicationReadiness.completionBlockingIssues(project: project)
+            .contains { $0.contains("Abgeschnittene Kapitelenden") })
+        XCTAssertTrue(PublicationReadiness.cachedCompletionBlockingIssues(project: project)
+            .contains { $0.contains("Abgeschnittene Kapitelenden") })
+        chapter.finalText = Array(repeating: "Wort", count: 99).joined(separator: " ") + " Ende."
+        chapter.updatedAt = chapter.updatedAt.addingTimeInterval(1)
+
+        let report = QualityReport(checkedArea: "Kapitel 1", checkType: "Konsistenz",
+                                   result: "Zeitlinie widerspricht sich", severity: .critical,
+                                   recommendation: "Zeitlinie reparieren")
+        report.project = project
+        project.qualityReports = [report]
+        container.mainContext.insert(report)
+
+        XCTAssertTrue(PublicationReadiness.completionBlockingIssues(project: project)
+            .contains { $0.contains("1 kritisch") })
+
+        let repair = PipelineJob(agentName: "Repair Editor", phase: .manuscriptRevision,
+                                 chapterNumber: 1)
+        repair.status = .completed
+        repair.createdAt = report.createdAt.addingTimeInterval(1)
+        repair.project = project
+        project.pipelineJobs = [repair]
+        container.mainContext.insert(repair)
+
+        XCTAssertTrue(PublicationReadiness.completionBlockingIssues(project: project)
+            .contains { $0.contains("1 kritisch") },
+            "Ein beliebiger späterer Reparatur-Job darf den konkreten Befund nicht verdecken.")
+
+        report.autoFixed = true
+        XCTAssertFalse(PublicationReadiness.completionBlockingIssues(project: project)
+            .contains { $0.contains("Qualitätsbefunde") })
+    }
+
+    func testRewriteRejectsTokenLimitedResponseEvenWithSentenceEnding() {
+        let source = String(repeating: "Ein vollständiger Satz. ", count: 60)
+        XCTAssertFalse(AutonomousContentQuality.isAcceptableRewrite(
+            source: source,
+            candidate: source,
+            finishReason: "length"
+        ))
+        XCTAssertTrue(AutonomousContentQuality.isAcceptableRewrite(
+            source: source,
+            candidate: source,
+            finishReason: "stop"
+        ))
+    }
+
+    func testGlobalRepairIssueExpandsToEveryNamedChapter() {
+        let parsed = RepairIssueParser.parse(
+            "REPAIR|Kritisch|Gesamtmanuskript|Zeitlinie|Kapitel 18 widerspricht Kapitel 49 und Kapitel 55|Todesursache vereinheitlichen"
+        )
+        let expanded = RepairIssueParser.expandingGlobalChapterReferences(parsed)
+
+        XCTAssertEqual(expanded.compactMap(\.chapterNumber), [18, 49, 55])
+    }
+
+    func testDraftSceneRejectsTextAboveOneHundredTwentyFivePercent() {
+        let accepted = Array(repeating: "Wort", count: 99).joined(separator: " ") + " Ende."
+        let oversized = Array(repeating: "Wort", count: 126).joined(separator: " ") + "."
+
+        XCTAssertTrue(AutonomousContentQuality.acceptsDraftScene(accepted, targetWords: 100))
+        XCTAssertFalse(AutonomousContentQuality.acceptsDraftScene(oversized, targetWords: 100))
+    }
+
+    func testContinuationMergePreservesFinalPunctuation() {
+        let repeated = "Ein langer abgeschlossener Satz bildet hier den sicheren Übergang."
+        let merged = AutonomousContentQuality.mergingContinuation(
+            base: repeated,
+            continuation: repeated + " Danach öffnete sie die Tür."
+        )
+
+        XCTAssertEqual(merged, repeated + "\n\nDanach öffnete sie die Tür.")
+        XCTAssertTrue(AutonomousContentQuality.hasCompleteSentenceEnding(merged))
+    }
 
     /// Regressionsschutz: Der API-Key darf NIEMALS mitserialisiert werden
     /// (er gehört ausschließlich in die Keychain).
@@ -45,13 +227,18 @@ final class LogicTests: XCTestCase {
         XCTAssertEqual(AIProvider.ollamaCloud.suggestedModels.first, "kimi-k2.6")
     }
 
-    func testOllamaCloudKeepsCuratedModelDespiteCodeSuffix() {
-        // kimi-k2.7-code schreibt verifiziert exzellente Prosa und ist kuratiert –
-        // die "-code"-Sperre darf es NICHT verwerfen.
-        XCTAssertTrue(OllamaCloudModelCatalog.isUsefulForLongFormCloudModel("kimi-k2.7-code"))
-        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "kimi-k2.7-code"), "kimi-k2.7-code")
-        // Ein echtes Coder-Modell bleibt ausgeschlossen.
+    func testOllamaCloudExcludesCodingFocusedModels() {
+        XCTAssertFalse(OllamaCloudModelCatalog.isUsefulForLongFormCloudModel("kimi-k2.7-code"))
+        XCTAssertEqual(OllamaCloudModelCatalog.bestModel(preferred: "kimi-k2.7-code"), "kimi-k2.6")
         XCTAssertFalse(OllamaCloudModelCatalog.isUsefulForLongFormCloudModel("qwen3-coder:480b"))
+    }
+
+    func testOllamaCloudExcludesRetiredAndImminentlyRetiringModels() {
+        XCTAssertFalse(OllamaCloudModelCatalog.isUsefulForLongFormCloudModel("kimi-k2:1t"))
+        XCTAssertFalse(OllamaCloudModelCatalog.isUsefulForLongFormCloudModel("deepseek-v3.2:cloud"))
+        XCTAssertFalse(OllamaCloudModelCatalog.isUsefulForLongFormCloudModel("glm-4.7"))
+        XCTAssertTrue(OllamaCloudModelCatalog.isUsefulForLongFormCloudModel("glm-5.2"))
+        XCTAssertTrue(OllamaCloudModelCatalog.isUsefulForLongFormCloudModel("gemma4:31b"))
     }
 
     func testNewProjectsDefaultToOllamaCloud() {
@@ -78,13 +265,43 @@ final class LogicTests: XCTestCase {
         XCTAssertEqual(names, ["kimi-k2.6:cloud", "deepseek-v4-pro:cloud"])
     }
 
-    func testOllamaCloudModelCatalogKeepsRealLiveModels() {
-        // Echte vom Server gemeldete Schreib-Modelle dürfen NICHT herausgefiltert werden.
-        let models = OllamaCloudModelCatalog.mergeWithFallbacks(["kimi-k2.6:cloud", "glm-5.1:cloud"])
+    func testOllamaLengthDoneReasonIsNotMisreportedAsStop() throws {
+        let data = """
+        {
+          "message": { "content": "Der Satz endet mitten im", "thinking": null },
+          "done": true,
+          "done_reason": "length",
+          "eval_count": 40
+        }
+        """.data(using: .utf8)!
 
-        XCTAssertEqual(models.first, "kimi-k2.6")
-        XCTAssertTrue(models.contains("kimi-k2.6:cloud"))
-        XCTAssertTrue(models.contains("glm-5.1:cloud"))
+        let decoded = try JSONDecoder().decode(OllamaChatResponse.self, from: data)
+        let normalized = NormalizedOllamaResponse(
+            text: decoded.message.content,
+            done: decoded.done,
+            doneReason: decoded.done_reason,
+            eval_count: decoded.eval_count,
+            thinking: decoded.message.thinking
+        )
+
+        XCTAssertEqual(normalized.finishReason, "length")
+        XCTAssertTrue(AutonomousContentQuality.finishReasonIndicatesTruncation(normalized.finishReason))
+    }
+
+    func testOllamaCloudModelCatalogKeepsRealLiveModels() {
+        let models = OllamaCloudModelCatalog.mergeWithFallbacks([
+            "kimi-k2.6:cloud",
+            "glm-5.1:cloud",
+            "brand-new-prose:cloud",
+        ])
+
+        XCTAssertEqual(models, ["kimi-k2.6", "glm-5.1", "brand-new-prose:cloud"])
+        XCTAssertFalse(models.contains("qwen3.5"), "Nicht gemeldete Fallbacks dürfen live nicht erscheinen")
+    }
+
+    func testOllamaCloudModelCatalogUsesFallbacksOnlyWhenLiveListIsEmpty() {
+        XCTAssertEqual(OllamaCloudModelCatalog.mergeWithFallbacks([]),
+                       OllamaCloudModelCatalog.fallbackModels)
     }
 
     func testOllamaCloudModelCatalogFiltersOnlyUnsuitableModels() {
@@ -92,16 +309,18 @@ final class LogicTests: XCTestCase {
             "qwen3-coder:30b",
             "qwen3-vl:235b",
             "nomic-embed-text",
+            "nemotron-3-nano:30b",
             "kimi-k2.6:cloud",
             "minimax-m2.5:cloud"
         ])
 
         // Schreib-Modelle bleiben erhalten …
-        XCTAssertTrue(models.contains("kimi-k2.6:cloud"))
+        XCTAssertTrue(models.contains("kimi-k2.6"))
         // … Coder/Vision/Embedding und das leer liefernde minimax werden entfernt.
         XCTAssertFalse(models.contains("qwen3-coder:30b"))
         XCTAssertFalse(models.contains("qwen3-vl:235b"))
         XCTAssertFalse(models.contains("nomic-embed-text"))
+        XCTAssertFalse(models.contains("nemotron-3-nano:30b"))
         XCTAssertFalse(models.contains("minimax-m2.5:cloud"))
     }
 
@@ -202,6 +421,100 @@ final class LogicTests: XCTestCase {
         XCTAssertTrue(out.contains("12–13"))            // Zahlenbereich bleibt
         XCTAssertTrue(out.contains("Sie sah ihn an, lange."))
         XCTAssertTrue(out.contains("frisch gebacken, noch warm."))
+    }
+
+    func testDraftQualityPenaltyRewardsConcreteProse() {
+        let formulaic = "Für einen Moment hielt sie den Atem an. Ihr Herz schlug schneller."
+        let concrete = "Sie schob den Riegel vor und stellte den nassen Schuh gegen die Tür."
+
+        XCTAssertGreaterThan(
+            AutonomousContentQuality.draftQualityPenalty(formulaic),
+            AutonomousContentQuality.draftQualityPenalty(concrete)
+        )
+        XCTAssertEqual(
+            Set(AutonomousContentQuality.aiTellMatches(in: formulaic)),
+            Set(["für einen moment", "ihr herz schlug schneller", "sie hielt den atem an"])
+        )
+        XCTAssertEqual(
+            AutonomousContentQuality.circumlocutionMatches(in: "Sie sah etwas, das sie nicht benennen konnte."),
+            ["etwas, das", "nicht benennen"]
+        )
+    }
+
+    func testClarityContractRejectsDenseVaguenessAndAcceptsConcreteAction() {
+        let vagueBeat = "Sie spürte etwas in ihr, das sie nicht benennen konnte, als würde eine unsichtbare Kraft auf sie warten. "
+        let vague = String(repeating: vagueBeat, count: 12)
+        let concreteBeat = "Lena schloss das Fenster, legte den Brief auf den Tisch und fragte Jonas nach dem fehlenden Schlüssel. "
+        let concrete = String(repeating: concreteBeat, count: 12)
+
+        let vagueAssessment = AutonomousContentQuality.clarityAssessment(vague)
+        let concreteAssessment = AutonomousContentQuality.clarityAssessment(concrete)
+
+        XCTAssertFalse(vagueAssessment.isAcceptable)
+        XCTAssertGreaterThan(vagueAssessment.vagueReferences, 0)
+        XCTAssertGreaterThan(vagueAssessment.hypotheticalComparisons, 0)
+        XCTAssertGreaterThan(vagueAssessment.filterReactions, 0)
+        XCTAssertTrue(concreteAssessment.isAcceptable)
+        XCTAssertGreaterThan(
+            AutonomousContentQuality.draftQualityPenalty(vague),
+            AutonomousContentQuality.draftQualityPenalty(concrete)
+        )
+    }
+
+    func testClarityContractAllowsOnePurposefulComparison() {
+        let concrete = String(repeating: "Mara prüfte die Adresse, rief den Hausmeister an und notierte seine Antwort. ", count: 18)
+            + "Der leere Stuhl stand am Fenster, als hätte ihn jemand gerade verlassen."
+
+        XCTAssertTrue(AutonomousContentQuality.clarityAssessment(concrete).isAcceptable)
+    }
+
+    func testSceneFittingRatioAllowsLargeButTargetSizedCondensation() {
+        let ratio = SceneFittingSizing.minimumSourceRatio(
+            sourceWords: 983,
+            targetWords: 449
+        )
+
+        XCTAssertLessThan(ratio, 0.50)
+        XCTAssertGreaterThanOrEqual(ratio, 0.25)
+        XCTAssertGreaterThan(Double(449) / 983.0, ratio)
+        XCTAssertEqual(
+            SceneFittingSizing.minimumSourceRatio(sourceWords: 600, targetWords: 500),
+            0.50,
+            accuracy: 0.0001
+        )
+    }
+
+    func testRecoveryPolicyOnlyAutoResumesAppInterruptions() {
+        XCTAssertTrue(ProductionRecoveryPolicy.shouldAutoResume(
+            result: "Die App wurde während Draft Writer (Kapitel 3, Szene 2) beendet. Der gespeicherte Stand ist vollständig und kann fortgesetzt werden.",
+            projectStatus: .paused
+        ))
+        XCTAssertFalse(ProductionRecoveryPolicy.shouldAutoResume(
+            result: "Produktion pausiert; gespeicherter Stand bleibt erhalten.",
+            projectStatus: .paused
+        ))
+        XCTAssertFalse(ProductionRecoveryPolicy.shouldAutoResume(
+            result: "Die App wurde während Export beendet.",
+            projectStatus: .completed
+        ))
+    }
+
+    func testImmediateSentenceRepeatsCollapseWithoutChangingLaterRefrain() {
+        let sentence = "Sie legte den Schlüssel langsam auf den Tisch."
+        let input = "\(sentence) \(sentence) Dazwischen verging eine Stunde. \(sentence)"
+
+        XCTAssertEqual(
+            AutonomousContentQuality.collapsingImmediateRepeats(input),
+            "\(sentence) Dazwischen verging eine Stunde. \(sentence)"
+        )
+    }
+
+    func testImmediateRepeatCleanupHandlesLongNonRepeatingProse() {
+        let input = (0..<2_000)
+            .map { "Satz Nummer \($0) beschreibt einen jeweils anderen konkreten Vorgang." }
+            .joined(separator: " ")
+
+        XCTAssertEqual(AutonomousContentQuality.collapsingImmediateRepeats(input), input)
     }
 
     // MARK: - Pipeline-Invarianten
@@ -847,6 +1160,65 @@ final class LogicTests: XCTestCase {
         XCTAssertTrue(prompt.contains("ÜBERSTRAPAZIERTE"))
     }
 
+    func testReviseChapterRequestsTargetedCompressionForOversizedSource() {
+        let oversized = String(repeating: "Wort ", count: 5_500) + "Ende."
+        let prompt = PromptFactory.reviseChapter(
+            language: "Deutsch",
+            style: "klar",
+            tonality: "spannend",
+            chapterNumber: 8,
+            chapterTitle: "Die Grenze",
+            text: oversized,
+            targetWords: 2_500
+        )
+
+        XCTAssertTrue(prompt.contains("auf ca. 2500 Wörter"))
+        XCTAssertTrue(prompt.contains("Handlung vollständig"))
+        XCTAssertFalse(prompt.contains("Umfang bei (±10%)"))
+    }
+
+    func testReviseChapterKeepsNormalSizedSourceNearItsLength() {
+        let normal = String(repeating: "Wort ", count: 2_500) + "Ende."
+        let prompt = PromptFactory.reviseChapter(
+            language: "Deutsch",
+            style: "klar",
+            tonality: "spannend",
+            chapterNumber: 8,
+            chapterTitle: "Die Grenze",
+            text: normal,
+            targetWords: 2_500
+        )
+
+        XCTAssertTrue(prompt.contains("Umfang bei (±10%)"))
+        XCTAssertFalse(prompt.contains("auf ca. 2500 Wörter"))
+    }
+
+    func testChapterRevisionSizingAcceptsRequiredDeepCompression() {
+        let sourceWords = 6_354
+        let targetWords = 2_500
+
+        XCTAssertTrue(ChapterRevisionSizing.isOversized(
+            sourceWords: sourceWords,
+            targetWords: targetWords
+        ))
+        XCTAssertEqual(ChapterRevisionSizing.desiredOutputWords(
+            sourceWords: sourceWords,
+            targetWords: targetWords
+        ), targetWords)
+        XCTAssertEqual(ChapterRevisionSizing.maxOutputTokens(
+            sourceWords: sourceWords,
+            targetWords: targetWords
+        ), 7_500)
+
+        let minimumRatio = ChapterRevisionSizing.minimumSourceRatio(
+            sourceWords: sourceWords,
+            targetWords: targetWords
+        )
+        let targetCandidateRatio = Double(targetWords) / Double(sourceWords)
+        XCTAssertLessThan(minimumRatio, targetCandidateRatio)
+        XCTAssertGreaterThanOrEqual(minimumRatio, 0.20)
+    }
+
     // MARK: - Polarisierende Titel, Lesesog, Alltagssprache
 
     /// Polarisierende Titel (Tabu/Anschuldigung/Besitz) schlagen gefällige Titel im Score.
@@ -894,6 +1266,42 @@ final class LogicTests: XCTestCase {
         XCTAssertTrue(AutonomousContentQuality.soundsLikeAI(filler + crypto))
         XCTAssertFalse(AutonomousContentQuality.soundsLikeAI(filler))
         XCTAssertTrue(PromptFactory.humanCraftRules.contains("UMSCHREIBUNGEN STRENG BEGRENZEN"))
+    }
+
+    func testRepeatedSentenceCollisionsDetectPriorAndLocalDuplicates() {
+        let repeated = "Livia spürte, wie sich ihr Magen vor Angst und Anspannung zusammenzog"
+        let prior = "Am Fenster wartete sie. \(repeated). Danach ging das Licht aus."
+        let candidate = "Sie trat in den Flur. \(repeated). \(repeated). Niemand antwortete."
+
+        let collisions = AutonomousContentQuality.repeatedSentenceCollisions(
+            candidate: candidate,
+            priorTexts: [prior]
+        )
+
+        XCTAssertEqual(collisions.count, 1)
+        XCTAssertEqual(collisions.first, repeated)
+    }
+
+    func testRepeatedSentenceCollisionsIgnoreShortNaturalSentences() {
+        let candidate = "Sie nickte. Sie nickte. Dann öffnete sie vorsichtig die schwere Haustür."
+
+        XCTAssertTrue(AutonomousContentQuality.repeatedSentenceCollisions(
+            candidate: candidate,
+            priorTexts: ["Sie nickte. Es blieb still."]
+        ).isEmpty)
+    }
+
+    func testBlockingRepeatedSentencesFlagsDistinctiveSentenceTwice() {
+        let repeated = "Ihre Finger krallten sich fest in den kalten Türrahmen"
+        let chapters = [
+            "Der Flur war leer. \(repeated). Sie wartete.",
+            "Im oberen Stock knarrte Holz. \(repeated). Dann kam jemand."
+        ]
+
+        XCTAssertEqual(
+            AutonomousContentQuality.blockingRepeatedSentences(inChapters: chapters),
+            [repeated]
+        )
     }
 
     // MARK: - Bestseller-Runde (Figurenstimmen, Gefühlsbogen, Beziehungstemperatur)

@@ -1,1 +1,15 @@
+# Swift Package Manager Build-Cache
 .build/
+
+# Fertige App-Bundles / Installer (werden gebaut, nicht versioniert)
+build/
+*.dmg
+
+# KDP-Sidecar-Abhängigkeiten (per `npm install` reproduzierbar)
+kdp-sidecar/node_modules/
+
+# Arbeits-/Scratch-Ausgaben
+Scratch/
+
+# macOS
+.DS_Store

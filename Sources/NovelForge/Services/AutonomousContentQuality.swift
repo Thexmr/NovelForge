@@ -1,6 +1,340 @@
 import Foundation
 
+struct ProseClarityAssessment {
+    let vagueReferences: Int
+    let hypotheticalComparisons: Int
+    let filterReactions: Int
+    let vagueReferenceLimit: Int
+    let hypotheticalComparisonLimit: Int
+    let filterReactionLimit: Int
+
+    var isAcceptable: Bool {
+        vagueReferences <= vagueReferenceLimit
+            && hypotheticalComparisons <= hypotheticalComparisonLimit
+            && filterReactions <= filterReactionLimit
+            && vagueReferences + hypotheticalComparisons + filterReactions
+                <= vagueReferenceLimit + hypotheticalComparisonLimit + filterReactionLimit
+    }
+}
+
+enum SceneFittingSizing {
+    static func minimumSourceRatio(sourceWords: Int, targetWords: Int) -> Double {
+        guard sourceWords > 0, targetWords > 0 else { return 0.50 }
+        guard Double(sourceWords) > Double(targetWords) * 1.25 else { return 0.50 }
+        let lowerTargetRatio = Double(targetWords) * 0.75 / Double(sourceWords)
+        return min(0.50, max(0.25, lowerTargetRatio * 0.90))
+    }
+}
+
 enum AutonomousContentQuality {
+    private static let kinshipTerms = [
+        "vater", "mutter", "schwester", "bruder", "tante", "onkel", "nichte", "neffe",
+        "tochter", "sohn", "ehefrau", "ehemann", "großmutter", "grossmutter", "großvater",
+        "grossvater"
+    ]
+    private static let deathTerms = [
+        "tod", "tot", "verstorben", "starb", "gestorben", "erhangte", "suizid", "umgebracht"
+    ]
+
+    static func safeFictionScene(number: Int, chapterTitle: String, chapterGoal: String,
+                                 chapterConflict: String, perspective: String) -> PlannedScene {
+        let goal = chapterGoal.isEmpty ? "Die Hauptfigur verfolgt das konkrete Kapitelziel" : chapterGoal
+        let conflict = chapterConflict.isEmpty
+            ? "Ein bereits etablierter Widerstand erschwert den nächsten Schritt"
+            : chapterConflict
+        let beats = [
+            (
+                "\(goal). Die Perspektivfigur setzt dafür eine konkrete Handlung in Gang.",
+                "\(conflict). Die erste praktische Lösung reicht nicht aus.",
+                "Eine eigene Entscheidung bindet die Perspektivfigur an den nächsten Schritt."
+            ),
+            (
+                "\(goal). Die Perspektivfigur versucht einen zweiten, aktiveren Zugang.",
+                "\(conflict). Ein konkretes praktisches Hindernis verschärft sich.",
+                "Die eigene Handlung der Perspektivfigur schafft eine neue unmittelbare Folge."
+            ),
+            (
+                "Die Perspektivfigur bewältigt eine praktische Folge der vorherigen Szene und verfolgt dadurch \(goal.lowercased()).",
+                "\(conflict). Die gewählte Lösung fordert sichtbaren Aufwand oder Verzicht.",
+                "Das konkrete Ergebnis erzwingt den nächsten Schritt, ohne Rätsel, Fundstück oder neue Vorgeschichte."
+            ),
+            (
+                "\(goal). Die Perspektivfigur handelt auf Grundlage der bisherigen Szenen.",
+                "\(conflict). Die Entscheidung fordert eine unmittelbare persönliche Konsequenz.",
+                "Die Konsequenz führt kausal in das folgende Kapitel, ohne neue Vorgeschichte zu erfinden."
+            )
+        ]
+        let beat = beats[(max(1, number) - 1) % beats.count]
+        return PlannedScene(number: number, perspective: perspective,
+                            location: "", time: "fortlaufend",
+                            goal: beat.0, obstacle: beat.1, turn: beat.2)
+    }
+
+    static func hasScenePlanGenreDrift(_ text: String, genre: String, canon: String) -> Bool {
+        !scenePlanGenreDriftMarkers(text, genre: genre, canon: canon).isEmpty
+    }
+
+    static func scenePlanGenreDriftMarkers(_ text: String, genre: String,
+                                           canon: String) -> [String] {
+        let normalizedGenre = canonNormalized(genre)
+        guard !normalizedGenre.contains("horror"),
+              !normalizedGenre.contains("mystery"),
+              !normalizedGenre.contains("thriller"),
+              !normalizedGenre.contains("krimi") else { return [] }
+        let candidate = canonNormalized(text)
+        let established = canonNormalized(canon)
+        var matches: [String] = []
+        if candidate.contains("schatten"),
+           candidate.contains("waldrand") || candidate.contains("zwischen den baumen") {
+            matches.append("Schatten am Waldrand/zwischen den Bäumen")
+        }
+        if candidate.contains("beobacht"),
+           candidate.contains("waldrand") || candidate.contains("heimlich") {
+            matches.append("heimliche Beobachtung/am Waldrand")
+        }
+        if containsStandaloneMarker("gestalt", in: candidate),
+           ["waldrand", "vor dem fenster", "hinter dem fenster", "gestalt im schatten", "verfolg"]
+            .contains(where: candidate.contains) {
+            matches.append("bedrohliche Gestalt")
+        }
+        if containsStandaloneMarker("axt", in: candidate)
+            || containsStandaloneMarker("beil", in: candidate) {
+            if ["wie eine waffe", "drohte", "bedrohte", "erhob", "schwang", "griff an",
+                "zwischen den baumen", "trat hervor", "waldrand"]
+                .contains(where: candidate.contains) {
+                matches.append("Axt/Beil als Bedrohung")
+            }
+        }
+        if candidate.contains("jemand"),
+           ["wahrend sie schlief", "wahrend sie geschlafen", "hereingelegt", "war im haus",
+            "abdruck eines kopfes", "nicht der ihre", "wer hier gewesen", "vorhange zuruckgezogen"]
+            .contains(where: candidate.contains) {
+            matches.append("unbekannte Person im Haus")
+        }
+        if candidate.contains("hinter der tur") && candidate.contains("unter dem bett") {
+            matches.append("Eindringlings-/Horrorinszenierung")
+        }
+        if candidate.contains("das haus"),
+           ["haus atmete", "atmete nicht", "schien zu warten", "als wurde es warten"]
+            .contains(where: candidate.contains) {
+            matches.append("bedrohlich vermenschlichtes Haus")
+        }
+        if ["haustur offen stand", "tur stand offen", "tur wieder offen"]
+            .contains(where: candidate.contains),
+           ["obwohl", "nachdem", "niemand", "von selbst", "unerklart"]
+            .contains(where: candidate.contains) {
+            matches.append("unerklärlich offene Tür")
+        }
+        let driftMarkers = [
+            "menschliche silhouette", "gestalt am waldrand",
+            "geruch nach verwesung", "verwesung", "einbrecher", "geistererscheinung",
+            "stimme flustert", "stimme flusterte", "ein schatten bewegte sich",
+            "wie eine waffe", "kein tier",
+            "bemerkt nicht den forster", "beobachtet sie vom waldrand",
+            "sie beobachten mich", "nicht jeder hier freut sich", "schatten zwischen den baumen",
+            "schlussel, der nicht",
+            "einzelnen schlussel", "fremden schlussel", "unbekannten schlussel",
+            "frischer abdruck", "frische mulde", "wer hier gewesen war"
+        ]
+        matches.append(contentsOf: driftMarkers.filter { marker in
+            containsStandaloneMarker(marker, in: candidate)
+                && !containsStandaloneMarker(marker, in: established)
+        })
+        return Array(Set(matches)).sorted()
+    }
+
+    private static func containsStandaloneMarker(_ marker: String, in text: String) -> Bool {
+        if marker.contains(" ") || marker.contains(",") { return text.contains(marker) }
+        let pattern = #"\b"# + NSRegularExpression.escapedPattern(for: marker) + #"\b"#
+        return text.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    static func summaryIntroducesUnsupportedSpecifics(_ summary: String,
+                                                       evidence: String) -> Bool {
+        let candidate = canonNormalized(summary)
+        let source = canonNormalized(evidence)
+        let riskStems = [
+            "eltern", "mutter", "schwester", "bruder", "tante", "onkel", "kind",
+            "schwanger", "verstorben", "gestorben", "starb", "tod", "ermordet",
+            "uberwacht", "heimlich", "mysterios", "waffe", "suizid", "erhangt"
+        ]
+        return riskStems.contains { stem in
+            candidate.contains(stem) && !source.contains(stem)
+        }
+    }
+
+    static func unexpectedCharacterNames(in text: String, allowedContext: String,
+                                         characterNames: [String]) -> [String] {
+        let candidate = canonNormalized(text)
+        let allowed = canonNormalized(allowedContext)
+        return characterNames.filter { name in
+            let normalized = canonNormalized(name)
+            let first = normalized.split(separator: " ").first.map(String.init) ?? normalized
+            let appears = candidate.contains(normalized) || candidate.contains(first)
+            let isAllowed = allowed.contains(normalized) || allowed.contains(first)
+            return appears && !isAllowed
+        }
+    }
+
+    static func unexpectedStoryArtifacts(in text: String, allowedContext: String) -> [String] {
+        let candidate = canonNormalized(text)
+        let allowed = canonNormalized(allowedContext)
+        let artifacts = [
+            (#"\bbrief[\p{L}-]*"#, "Brief"), (#"\bfoto[\p{L}-]*"#, "Foto"),
+            (#"\btagebuch[\p{L}-]*"#, "Tagebuch"), (#"\bnotizbuch[\p{L}-]*"#, "Notizbuch"),
+            (#"\bzettel[\p{L}-]*"#, "Zettel"), (#"\bnotiz(?:en)?\b"#, "Notiz"),
+            (#"\bring(?:s)?\b"#, "Ring"), (#"\bultraschall[\p{L}-]*"#, "Ultraschallbild"),
+            (#"\bkaufvertrag[\p{L}-]*"#, "Kaufvertrag")
+        ]
+        return artifacts.compactMap { pattern, label in
+            let appears = candidate.range(of: pattern, options: .regularExpression) != nil
+            let isAllowed = allowed.range(of: pattern, options: .regularExpression) != nil
+            return appears && !isAllowed ? label : nil
+        }
+    }
+
+    static func removingScenePlanViolations(from text: String,
+                                            characterNames: [String],
+                                            artifactLabels: [String]) -> String {
+        let normalizedNames = characterNames.flatMap { name -> [String] in
+            let normalized = canonNormalized(name)
+            let first = normalized.split(separator: " ").first.map(String.init) ?? normalized
+            return [normalized, first].filter { $0.count >= 3 }
+        }
+        let artifactPatterns: [String: String] = [
+            "Brief": #"\bbrief[\p{L}-]*"#,
+            "Foto": #"\bfoto[\p{L}-]*"#,
+            "Tagebuch": #"\btagebuch[\p{L}-]*"#,
+            "Notizbuch": #"\bnotizbuch[\p{L}-]*"#,
+            "Zettel": #"\bzettel[\p{L}-]*"#,
+            "Notiz": #"\bnotiz(?:en)?\b"#,
+            "Ring": #"\bring(?:s)?\b"#,
+            "Ultraschallbild": #"\bultraschall[\p{L}-]*"#,
+            "Kaufvertrag": #"\bkaufvertrag[\p{L}-]*"#
+        ]
+        let activePatterns = artifactLabels.compactMap { artifactPatterns[$0] }
+        var kept: [String] = []
+        text.enumerateSubstrings(in: text.startIndex..<text.endIndex, options: .bySentences) {
+            substring, _, _, _ in
+            guard let sentence = substring?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !sentence.isEmpty else { return }
+            let normalized = canonNormalized(sentence)
+            let hasName = normalizedNames.contains { containsStandaloneMarker($0, in: normalized) }
+            let hasArtifact = activePatterns.contains {
+                normalized.range(of: $0, options: .regularExpression) != nil
+            }
+            if !hasName && !hasArtifact { kept.append(sentence) }
+        }
+        return kept.joined(separator: " ")
+    }
+
+    /// Blocks newly assigned family relationships before they can enter a plan or manuscript.
+    /// The guard is intentionally narrow: it only judges explicit kinship claims for known names.
+    static func unsupportedCanonClaims(in candidate: String, canon: String,
+                                       characterNames: [String]) -> [String] {
+        let canonClauses = relationshipClauses(in: canon)
+        let aliases = Array(Set(characterNames.flatMap { name -> [String] in
+            let normalized = canonNormalized(name)
+            let first = normalized.split(separator: " ").first.map(String.init) ?? normalized
+            return [normalized, first].filter { $0.count >= 3 }
+        })).sorted { $0.count > $1.count }
+
+        return relationshipClauses(in: candidate).compactMap { original, normalized in
+            let mentioned = aliases.filter { normalized.contains($0) }
+            guard !mentioned.isEmpty else { return nil }
+
+            if let term = kinshipTerms.first(where: { containsWordStem($0, in: normalized) }) {
+                let directPossessors = aliases.filter {
+                    hasDirectKinshipClaim(possessor: $0, term: term, in: normalized)
+                }
+                let supported: Bool
+                if !directPossessors.isEmpty {
+                    supported = directPossessors.allSatisfy { possessor in
+                        canonClauses.contains { _, clause in
+                            hasDirectKinshipClaim(possessor: possessor, term: term, in: clause)
+                        }
+                    }
+                } else {
+                    let propertyClaim = normalized.contains("haus") || normalized.contains("erb")
+                    supported = canonClauses.contains { _, clause in
+                        containsWordStem(term, in: clause)
+                            && mentioned.allSatisfy { clause.contains($0) }
+                            && (!propertyClaim || clause.contains("haus") || clause.contains("erb"))
+                    }
+                }
+                if !supported { return original }
+            }
+
+            let deathSubjects = aliases.filter { hasDirectDeathClaim(subject: $0, in: normalized) }
+            if !deathSubjects.isEmpty {
+                let supported = deathSubjects.allSatisfy { subject in
+                    canonClauses.contains { _, clause in
+                        hasDirectDeathClaim(subject: subject, in: clause)
+                    }
+                }
+                if !supported { return original }
+            }
+            return nil
+        }
+    }
+
+    static func groundedRelationships(_ candidate: String, canon: String,
+                                      characterNames: [String], subject: String = "") -> String {
+        candidate.components(separatedBy: CharacterSet(charactersIn: ";\n"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { clause in
+                let claim = subject.isEmpty ? clause : "\(subject) ist \(clause)"
+                return !clause.isEmpty
+                    && kinshipTerms.contains(where: { containsWordStem($0, in: canonNormalized(clause)) })
+                    && unsupportedCanonClaims(
+                        in: claim, canon: canon, characterNames: characterNames
+                    ).isEmpty
+            }
+            .joined(separator: "; ")
+    }
+
+    private static func relationshipClauses(in text: String) -> [(String, String)] {
+        text.components(separatedBy: CharacterSet(charactersIn: ".!?;\n"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .map { ($0, canonNormalized($0)) }
+    }
+
+    private static func canonNormalized(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+            .replacingOccurrences(of: "’", with: "'")
+    }
+
+    private static func containsWordStem(_ term: String, in text: String) -> Bool {
+        text.range(of: #"\b"# + NSRegularExpression.escapedPattern(for: term) + #"(?:s|es|e|en|er)?\b"#,
+                   options: .regularExpression) != nil
+    }
+
+    private static func hasDirectKinshipClaim(possessor: String, term: String,
+                                               in text: String) -> Bool {
+        let escapedPossessor = NSRegularExpression.escapedPattern(for: possessor)
+        let escapedTerm = NSRegularExpression.escapedPattern(for: term)
+        let pattern = #"\b"# + escapedPossessor
+            + #"(?:s|['’])?\s+(?:[\p{L}-]+\s+){0,2}"#
+            + escapedTerm + #"(?:s|es|e|en|er)?\b"#
+        return text.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    private static func hasDirectDeathClaim(subject: String, in text: String) -> Bool {
+        let escaped = NSRegularExpression.escapedPattern(for: subject)
+        let death = deathTerms.map(NSRegularExpression.escapedPattern(for:)).joined(separator: "|")
+        let possessive = #"\b"# + escaped + #"(?:s|['’])\s+(?:[\p{L}-]+\s+)?(?:"#
+            + death + #")[\p{L}-]*\b"#
+        let subjectVerb = #"\b"# + escaped + #"\s+(?:[\p{L}-]+\s+){0,2}(?:"#
+            + death + #")[\p{L}-]*\b"#
+        let deathOf = #"\b(?:"# + death + #")[\p{L}-]*\s+(?:von\s+)?(?:[\p{L}-]+\s+){0,2}"#
+            + escaped + #"\b"#
+        return [possessive, subjectVerb, deathOf].contains {
+            text.range(of: $0, options: .regularExpression) != nil
+        }
+    }
+
     static func hasUsableIdea(_ idea: ParsedIdea?) -> Bool {
         guard let idea else { return false }
         let title = idea.title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -98,7 +432,10 @@ enum AutonomousContentQuality {
         }
         if isUsableTitle(best, genre: genre) { return best }
         let usable = candidates.filter { isUsableTitle($0, genre: genre) }
-        if let top = usable.max(by: { titleViralityScore($0) < titleViralityScore($1) }) { return top }
+        let score: (String) -> Int = BookContentType.infer(from: genre) == .nonfiction
+            ? nonfictionTitleScore
+            : titleViralityScore
+        if let top = usable.max(by: { score($0) < score($1) }) { return top }
         return best.isEmpty ? (candidates.first ?? "") : best
     }
 
@@ -122,7 +459,21 @@ enum AutonomousContentQuality {
         let low = t.lowercased()
         let genreLabels = ["liebesroman", "erotik-roman", "erotikroman", "erotik", "thriller", "krimi",
                            "roman", "dark romance", "romance", "fantasy", "new adult", "romantasy"]
-        return genreLabels.contains(low) || low == genre.lowercased()
+        let nonfictionLabels = BookContentType.nonfictionGenres.map { $0.lowercased() }
+        return genreLabels.contains(low) || nonfictionLabels.contains(low) || low == genre.lowercased()
+    }
+
+    private static func nonfictionTitleScore(_ title: String) -> Int {
+        let words = title.split(whereSeparator: \.isWhitespace).count
+        var score = 70
+        if (2...6).contains(words) { score += 16 }
+        if title.contains(":") { score += 6 }
+        let lower = title.lowercased()
+        if ["garantiert", "mühelos", "sofort reich", "für immer", "wunder"].contains(where: lower.contains) {
+            score -= 50
+        }
+        if lower.hasPrefix("ich ") || lower.hasPrefix("du ") { score -= 8 }
+        return max(0, score)
     }
 
     static func hasUsableChapterPlan(_ chapters: [PlannedChapter]) -> Bool {
@@ -142,6 +493,8 @@ enum AutonomousContentQuality {
                 && scene.obstacle.wordCount >= 3
                 && scene.turn.wordCount >= 3
                 && !isGenericPlaceholder(scene.goal)
+                && !isGenericPlaceholder(scene.obstacle)
+                && !isGenericPlaceholder(scene.turn)
         }
     }
 
@@ -149,8 +502,20 @@ enum AutonomousContentQuality {
         let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty else { return false }
         guard !containsMetaRequest(cleaned) else { return false }
+        guard hasCompleteSentenceEnding(cleaned) else { return false }
+        guard !PublicContentGuard.disclosureViolation(in: cleaned) else { return false }
         let minimum = max(80, Int(Double(targetWords) * 0.55))
-        return cleaned.wordCount >= minimum
+        let maximum = max(minimum, Int(Double(targetWords) * 1.25))
+        return cleaned.wordCount >= minimum && cleaned.wordCount <= maximum
+    }
+
+    static func isWithinWordTarget(_ text: String, targetWords: Int,
+                                   lowerRatio: Double = 0.75,
+                                   upperRatio: Double = 1.25) -> Bool {
+        guard targetWords > 0 else { return !text.isEmpty }
+        let count = text.wordCount
+        return count >= Int(Double(targetWords) * lowerRatio)
+            && count <= Int(Double(targetWords) * upperRatio)
     }
 
     static func isGenericPlaceholder(_ text: String) -> Bool {
@@ -170,7 +535,15 @@ enum AutonomousContentQuality {
             "nächstes buch",
             "untitled"
         ]
-        return patterns.contains { normalized == $0 || normalized.hasPrefix($0) }
+        if patterns.contains(where: { normalized == $0 || normalized.hasPrefix($0) }) { return true }
+        let hollowPlanningPhrases = [
+            "bringt die hauptfigur durch",
+            "blockiert das unmittelbare vorankommen",
+            "eine neue wendung verschiebt die lage",
+            "enthüllt eine information, die das kräfteverhältnis",
+            "lässt einen rückschlag den einsatz"
+        ]
+        return hollowPlanningPhrases.contains(where: normalized.contains)
     }
 
     /// Verhindert Auto-Buchtitel nach schwachen Berufs-Hooks wie
@@ -241,6 +614,9 @@ enum AutonomousContentQuality {
             "keine szene bereitgestellt",
             "szene fehlt",
             "szenentext fehlt",
+            "muss noch ausgeschrieben werden",
+            "im manuskript neu erzeugen",
+            "geplanter inhalt:",
             "ich kann die szene leider nicht schreiben",
             "ich benötige noch",
             "fehlende angaben",
@@ -329,7 +705,8 @@ enum AutonomousContentQuality {
         "ziel:", "hindernis:", "wendung am ende:", "wendung:", "figuren:",
         "szene:", "thema:", "zielumfang:", "zielwörter:", "zielwortzahl:",
         "genre:", "tonalität:", "kapitel:", "- ort:", "- zeit:", "- ziel:",
-        "- hindernis:", "- wendung"
+        "- hindernis:", "- wendung", "verdichtete fassung", "überarbeitete fassung",
+        "ueberarbeitete fassung", "endfassung"
     ]
 
     /// Hat das Modell eine Prompt-Anweisung/-Label in die Prosa durchsickern lassen?
@@ -440,14 +817,49 @@ enum AutonomousContentQuality {
             }
             deduped.append(line)
         }
-        var result = deduped.joined(separator: "\n")
-        // 2) Unmittelbar wiederholten Satz (>=12 Zeichen) innerhalb einer Zeile einklappen.
-        //    Zweimal angewandt: Tripel → Dublette → Einzel.
-        let pattern = "([^\\n]{12,}?[.!?…\"”])\\s+\\1"
-        for _ in 0..<2 {
-            result = result.replacingOccurrences(of: pattern, with: "$1", options: .regularExpression)
+        // 2) Unmittelbar wiederholte Sätze innerhalb jeder Zeile einklappen. Der frühere
+        // Regex mit Rückreferenz konnte auf längerer Prosa exponentiell zurückspringen
+        // und den Produktionsprozess minutenlang bei 100 % CPU festhalten.
+        return deduped
+            .map(collapseImmediateSentenceRepeats)
+            .joined(separator: "\n")
+    }
+
+    private static func collapseImmediateSentenceRepeats(in line: String) -> String {
+        let characters = Array(line)
+        let sentenceEndings = Set<Character>([".", "!", "?", "…"])
+        let closingQuotes = Set<Character>(["\"", "”", "“", "’", "'", "»", "›"])
+        var output = ""
+        var previousSentence: String?
+        var segmentStart = 0
+        var index = 0
+
+        while index < characters.count {
+            guard sentenceEndings.contains(characters[index]) else {
+                index += 1
+                continue
+            }
+
+            var segmentEnd = index + 1
+            while segmentEnd < characters.count,
+                  closingQuotes.contains(characters[segmentEnd]) {
+                segmentEnd += 1
+            }
+            let segment = String(characters[segmentStart..<segmentEnd])
+            let normalized = segment.trimmingCharacters(in: .whitespacesAndNewlines)
+            let isSignificant = normalized.count >= 12
+            if !isSignificant || normalized != previousSentence {
+                output += segment
+            }
+            previousSentence = isSignificant ? normalized : nil
+            segmentStart = segmentEnd
+            index = segmentEnd
         }
-        return result
+
+        if segmentStart < characters.count {
+            output += String(characters[segmentStart...])
+        }
+        return output
     }
 
     /// Entfernt eine erste Textzeile/einen ersten Satz, der die Kapitelüberschrift wörtlich
@@ -512,7 +924,8 @@ enum AutonomousContentQuality {
         "ein knoten in ihrem magen", "die luft war zum schneiden", "ein teil von ihr", "ein teil von ihm",
         "ein gefühl von", "ein gefühl der", "ein gefühl überkam sie", "eine mischung aus", "ein gemisch aus",
         "ein hauch von", "ein anflug von", "ein schwall von", "eine welle der", "eine welle von", "eine welle aus",
-        "etwas in ihr", "etwas in ihm", "etwas in ihrem inneren", "etwas regte sich in ihr",
+        "etwas in ihr", "etwas in ihm", "etwas in ihrem inneren", "in ihr begann etwas",
+        "in ihm begann etwas", "etwas regte sich in ihr",
         "etwas regte sich in ihm", "etwas in ihr zerbrach", "in diesem moment", "in diesem augenblick",
         "für einen moment", "für einen augenblick", "einen moment lang", "einen augenblick lang",
         "einen herzschlag lang", "einen wimpernschlag lang", "sie atmete tief durch", "er atmete tief durch",
@@ -591,6 +1004,30 @@ enum AutonomousContentQuality {
         return count
     }
 
+    static func aiTellMatches(in text: String, maxResults: Int = 20) -> [String] {
+        let lower = text.lowercased()
+        var matches: [String] = []
+        for phrase in aiTellPhrases where lower.contains(phrase) {
+            guard !matches.contains(phrase) else { continue }
+            matches.append(phrase)
+            if matches.count >= maxResults { break }
+        }
+        return matches
+    }
+
+    static func draftQualityPenalty(_ text: String) -> Int {
+        let clarity = clarityAssessment(text)
+        return aiTellCount(text) * 10
+            + circumlocutionCount(text) * 3
+            + jargonTellCount(text) * 15
+            + archaicTellCount(text) * 15
+            + clarity.vagueReferences * 5
+            + clarity.hypotheticalComparisons * 4
+            + clarity.filterReactions * 3
+            + (containsPromptArtifacts(text) || containsMetaRequest(text) ? 100 : 0)
+            + (isLikelyTruncated(text) ? 100 : 0)
+    }
+
     /// Altertümliche/„mittelalterliche“, geschwollene Wörter, die moderne Profi-Prosa
     /// NICHT verwendet. Schon wenige Treffer lassen einen Text antiquiert klingen.
     static let archaicTellPhrases: [String] = [
@@ -620,6 +1057,65 @@ enum AutonomousContentQuality {
         "etwas härterem als", "etwas anderem als", "aus etwas, das"
     ]
 
+    static let vagueReferenceMarkers: [String] = [
+        "etwas, das", "etwas in ihr", "etwas in ihm", "irgendetwas",
+        "nicht benennen", "nicht einordnen", "nicht deuten", "nicht erklären konnte",
+        "konnte nicht sagen", "was er nicht aussprach",
+        "was sie nicht aussprach", "ohne zu wissen warum", "ohne zu wissen, warum",
+        "eine art ", "so etwas wie"
+    ]
+
+    static let hypotheticalComparisonMarkers: [String] = [
+        "als würde", "als hätte", "als wäre", "als ob", "als wollte", "als könnte", "als müsste",
+        "als sollte", "als gehöre", "als fürchte"
+    ]
+
+    static let filterReactionMarkers: [String] = [
+        "sie spürte", "er spürte", "sie bemerkte", "er bemerkte",
+        "sie fühlte", "er fühlte", "sie wusste nicht", "er wusste nicht",
+        "ihr wurde klar", "ihm wurde klar", "sie konnte nicht verstehen",
+        "er konnte nicht verstehen"
+    ]
+
+    static func clarityAssessment(_ text: String) -> ProseClarityAssessment {
+        let words = max(1, text.wordCount)
+        return ProseClarityAssessment(
+            vagueReferences: phraseOccurrenceCount(in: text, phrases: vagueReferenceMarkers),
+            hypotheticalComparisons: phraseOccurrenceCount(
+                in: text, phrases: hypotheticalComparisonMarkers),
+            filterReactions: phraseOccurrenceCount(in: text, phrases: filterReactionMarkers),
+            vagueReferenceLimit: max(1, words / 300),
+            hypotheticalComparisonLimit: max(2, words / 220),
+            filterReactionLimit: max(2, words / 250)
+        )
+    }
+
+    static func clarityRepairPhrases(in text: String, maxResults: Int = 30) -> [String] {
+        let lower = text.lowercased()
+        var matches: [String] = []
+        for phrase in vagueReferenceMarkers
+            + hypotheticalComparisonMarkers
+            + filterReactionMarkers where lower.contains(phrase) {
+            guard !matches.contains(phrase) else { continue }
+            matches.append(phrase)
+            if matches.count >= maxResults { break }
+        }
+        return matches
+    }
+
+    private static func phraseOccurrenceCount(in text: String, phrases: [String]) -> Int {
+        let lower = text.lowercased()
+        var count = 0
+        for phrase in phrases {
+            var searchRange = lower.startIndex..<lower.endIndex
+            while let match = lower.range(of: phrase, range: searchRange) {
+                count += 1
+                searchRange = match.upperBound..<lower.endIndex
+            }
+        }
+        return count
+    }
+
     /// Zählt Umschreibungs-Marker (Gesamtvorkommen).
     static func circumlocutionCount(_ text: String) -> Int {
         let lower = text.lowercased()
@@ -633,6 +1129,17 @@ enum AutonomousContentQuality {
             }
         }
         return count
+    }
+
+    static func circumlocutionMatches(in text: String, maxResults: Int = 20) -> [String] {
+        let lower = text.lowercased()
+        var matches: [String] = []
+        for phrase in circumlocutionMarkers where lower.contains(phrase) {
+            guard !matches.contains(phrase) else { continue }
+            matches.append(phrase)
+            if matches.count >= maxResults { break }
+        }
+        return matches
     }
 
     /// Zählt Fachvokabular-Marker (Gesamtvorkommen).
@@ -663,6 +1170,67 @@ enum AutonomousContentQuality {
             }
         }
         return count
+    }
+
+    // MARK: - Stilticks (Frequenz-Übernutzung, an der Leser KI-Prosa erkennen)
+
+    /// Deterministische Frequenz-Prüfung auf stilistische Ticks, die einzeln legitim
+    /// sind, aber gehäuft sofort nach KI klingen. Aus der Diagnose echter Produktionen:
+    /// „Nicht …“-Satzanfänge (die LLM-Rhetorik „Nicht X. Sondern Y.“) standen 365× in
+    /// einem einzigen Buch; dazu Körper-Beat-Lexeme (schlucken/Atem/hämmern) und
+    /// Adverb-Krücken (leise/langsam/fast). Liefert konkrete, prompt-taugliche
+    /// Anweisungen. WEICHES Signal: fließt in Neufassungs-Hinweise ein, wirft NIE
+    /// und blockiert NIE die Freigabe (Anti-Hänger-Regel).
+    static func styleTicViolations(in text: String) -> [String] {
+        let words = text.wordCount
+        guard words >= 200 else { return [] }
+        var violations: [String] = []
+
+        // 1) „Nicht …“ als Satzanfang: budgetiert auf ~1 je 350 Wörter.
+        var nichtStarts = 0
+        for raw in text.components(separatedBy: CharacterSet(charactersIn: ".!?…\n")) {
+            let s = raw.trimmingCharacters(in: CharacterSet(charactersIn: " \t„“”»«‚'\""))
+            if s.hasPrefix("Nicht ") || s.hasPrefix("Kein ") || s.hasPrefix("Keine ") {
+                nichtStarts += 1
+            }
+        }
+        // Kalibriert an 184 echten Szenen (Trip-Rate ~20%): nur klar auffällige
+        // Szenen lösen die eine zusätzliche Neufassung aus, nicht jede zweite.
+        let nichtBudget = max(4, words / 150)
+        if nichtStarts > nichtBudget {
+            violations.append("„Nicht/Kein …“-Satzanfänge: \(nichtStarts)× (erlaubt \(nichtBudget)). Formuliere positiv, was IST – die Verneinungs-Rhetorik „Nicht X. Sondern Y.“ höchstens einmal.")
+        }
+
+        // 2) Körper-Beat-Lexeme: zusammen budgetiert auf ~1 je 300 Wörter.
+        let lower = text.lowercased()
+        let beatLexemes = ["schluckte", "atemzug", "hämmerte", "stockte", "zog sich zusammen",
+                           "krampfte", "kribbelte", "zitterte", "bebte"]
+        var beatCounts: [(String, Int)] = []
+        var beatTotal = 0
+        for lex in beatLexemes {
+            let c = lower.components(separatedBy: lex).count - 1
+            if c > 0 { beatCounts.append((lex, c)); beatTotal += c }
+        }
+        let beatBudget = max(3, words / 200)
+        if beatTotal > beatBudget {
+            let list = beatCounts.sorted { $0.1 > $1.1 }.prefix(4).map { "\($0.0) \($0.1)×" }.joined(separator: ", ")
+            violations.append("Körpersignal-Beats gehäuft (\(beatTotal)×, erlaubt \(beatBudget)): \(list). Ersetze durch konkrete Handlung, Blickrichtung, Objekt oder Dialog – nicht durch ein anderes Körpersignal.")
+        }
+
+        // 3) Adverb-Krücken: zusammen budgetiert auf ~1 je 200 Wörter.
+        let crutches = ["leise", "langsam", "plötzlich", "einfach", "irgendwie"]
+        var crutchTotal = 0
+        var crutchCounts: [(String, Int)] = []
+        for c in crutches {
+            let n = lower.components(separatedBy: c).count - 1
+            if n > 0 { crutchCounts.append((c, n)); crutchTotal += n }
+        }
+        let crutchBudget = max(5, words / 120)
+        if crutchTotal > crutchBudget {
+            let list = crutchCounts.sorted { $0.1 > $1.1 }.prefix(3).map { "\($0.0) \($0.1)×" }.joined(separator: ", ")
+            violations.append("Adverb-Krücken gehäuft (\(crutchTotal)×, erlaubt \(crutchBudget)): \(list). Zeige das Tempo/die Lautstärke über die Handlung selbst.")
+        }
+        return violations
     }
 
     /// Weiches Gate: Klingt die Szene maschinell ODER altertümlich (für ihre Länge)?
@@ -741,6 +1309,142 @@ enum AutonomousContentQuality {
         return results
     }
 
+    /// Exakte längere Satzduplikate sind in erzählender Prosa und Sachtext ein starkes
+    /// Zeichen für Copy-/Template-Artefakte. Kurze Alltagssätze werden bewusst ignoriert.
+    static func repeatedSentences(inChapters chapters: [String],
+                                  minimumOccurrences: Int = 3,
+                                  maxResults: Int = 10) -> [String] {
+        var counts: [String: Int] = [:]
+        var spelling: [String: String] = [:]
+        for chapter in chapters {
+            // Auch an Zeilenumbrüchen trennen: Dialogzeilen enden oft ohne Satzzeichen
+            // („…Text“\n\nNächster Satz.“), sonst zöge der Umbruch in den „Satz" hinein
+            // und der Treffer ließe sich später absatzweise nicht wiederfinden.
+            let rawSentences = chapter.components(separatedBy: CharacterSet(charactersIn: ".!?…\n"))
+            for raw in rawSentences {
+                let sentence = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard sentence.wordCount >= 5, sentence.wordCount <= 40 else { continue }
+                let key = sentence.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                    .lowercased()
+                    .replacingOccurrences(of: #"[^a-z0-9äöüß ]+"#, with: " ", options: .regularExpression)
+                    .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+                guard key.count >= 26 else { continue }
+                counts[key, default: 0] += 1
+                if spelling[key] == nil { spelling[key] = sentence }
+            }
+        }
+        return counts.filter { $0.value >= minimumOccurrences }
+            .sorted { ($0.value, $0.key.count) > ($1.value, $1.key.count) }
+            .prefix(maxResults)
+            .map { spelling[$0.key] ?? $0.key }
+    }
+
+    /// Wie `repeatedSentences`, aber mit Häufigkeit UND Wortzahl je Satz. Grundlage
+    /// für die abgestufte, professionelle Freigabe: nicht jede Wiederholung wiegt
+    /// gleich schwer.
+    static func repeatedSentenceStats(inChapters chapters: [String],
+                                      minimumOccurrences: Int = 3
+    ) -> [(sentence: String, occurrences: Int, words: Int)] {
+        var counts: [String: Int] = [:]
+        var spelling: [String: String] = [:]
+        for chapter in chapters {
+            let rawSentences = chapter.components(separatedBy: CharacterSet(charactersIn: ".!?…\n"))
+            for raw in rawSentences {
+                let sentence = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard sentence.wordCount >= 5, sentence.wordCount <= 40 else { continue }
+                let key = sentence.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                    .lowercased()
+                    .replacingOccurrences(of: #"[^a-z0-9äöüß ]+"#, with: " ", options: .regularExpression)
+                    .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+                guard key.count >= 26 else { continue }
+                counts[key, default: 0] += 1
+                if spelling[key] == nil { spelling[key] = sentence }
+            }
+        }
+        return counts.filter { $0.value >= minimumOccurrences }
+            .sorted { ($0.value, $0.key.count) > ($1.value, $1.key.count) }
+            .map { (spelling[$0.key] ?? $0.key, $0.value, (spelling[$0.key] ?? $0.key).wordCount) }
+    }
+
+    /// Wiederholungen, die eine Veröffentlichung wirklich blockieren (professioneller
+    /// Maßstab): EGREGIÖSE Fälle. Ein Roman darf ein paar kurze, wiederkehrende Beats
+    /// haben – aber KEINE distinktiven längeren Sätze wortgleich mehrfach und KEINEN
+    /// Satz, der geradezu gehämmert wird. Diese Liste bestimmt sowohl die Freigabe als
+    /// auch, was die Schlussreparatur gezielt entfernt (so konvergiert sie, statt kurze
+    /// Beats endlos gegeneinander auszutauschen).
+    static func blockingRepeatedSentences(inChapters chapters: [String]) -> [String] {
+        repeatedSentenceStats(inChapters: chapters, minimumOccurrences: 2).compactMap { stat in
+            let isDistinctive = stat.words >= 7 && stat.occurrences >= 2
+            let isHammered = stat.occurrences >= 5
+            return (isDistinctive || isHammered) ? stat.sentence : nil
+        }
+    }
+
+    /// Findet längere Sätze eines neuen Entwurfs, die im bisherigen Manuskript
+    /// bereits wörtlich vorkommen. Anders als der buchweite Report meldet diese
+    /// Prüfung nur Kollisionen, die der neue Text tatsächlich einführt.
+    static func repeatedSentenceCollisions(candidate: String,
+                                           priorTexts: [String],
+                                           maxResults: Int = 12) -> [String] {
+        let priorKeys = Set(priorTexts.flatMap { significantSentenceRecords(in: $0).map(\.key) })
+        var seenInCandidate = Set<String>()
+        var collisions: [String] = []
+        for record in significantSentenceRecords(in: candidate) {
+            let duplicatesInsideCandidate = !seenInCandidate.insert(record.key).inserted
+            guard priorKeys.contains(record.key) || duplicatesInsideCandidate else { continue }
+            guard !collisions.contains(where: {
+                normalizedSentenceKey($0) == record.key
+            }) else { continue }
+            collisions.append(record.spelling)
+            if collisions.count >= maxResults { break }
+        }
+        return collisions
+    }
+
+    private static func significantSentenceRecords(in text: String) -> [(key: String, spelling: String)] {
+        text.components(separatedBy: CharacterSet(charactersIn: ".!?…\n")).compactMap { raw in
+            let sentence = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard sentence.wordCount >= 5, sentence.wordCount <= 40 else { return nil }
+            let key = normalizedSentenceKey(sentence)
+            guard key.count >= 26 else { return nil }
+            return (key, sentence)
+        }
+    }
+
+    private static func normalizedSentenceKey(_ sentence: String) -> String {
+        sentence.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+            .replacingOccurrences(of: #"[^a-z0-9äöüß ]+"#,
+                                  with: " ", options: .regularExpression)
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+    }
+
+    static func nonfictionPracticalCoverage(_ chapters: [String]) -> Double {
+        guard !chapters.isEmpty else { return 0 }
+        let markers = ["beispiel", "übung", "checkliste", "nächster schritt",
+                       "so gehst du", "in der praxis", "reflexion", "aufgabe"]
+        let useful = chapters.filter { chapter in
+            let normalized = chapter.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            return markers.contains(where: normalized.contains)
+        }.count
+        return Double(useful) / Double(chapters.count)
+    }
+
+    static func satisfiesNonfictionSectionContract(_ text: String,
+                                                   sectionKind: String,
+                                                   takeaway: String) -> Bool {
+        let expected = "\(sectionKind) \(takeaway)"
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        let candidate = text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        if expected.contains("checkliste") { return candidate.contains("checkliste") }
+        if expected.contains("ubung") || expected.contains("aufgabe") {
+            return candidate.contains("ubung") || candidate.contains("aufgabe")
+        }
+        if expected.contains("beispiel") { return candidate.contains("beispiel") }
+        return true
+    }
+
     // MARK: - Romance-Eskalation (Beziehungstemperatur)
 
     /// Romance-artige Genres, deren Kernversprechen eine ESKALIERENDE Beziehung ist.
@@ -760,19 +1464,81 @@ enum AutonomousContentQuality {
 
     // MARK: - Rewrite-Abnahme (Revision/Korrektorat)
 
+    static func hasCompleteSentenceEnding(_ text: String) -> Bool {
+        var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let closingCharacters = CharacterSet(charactersIn: "\"'“”„«»’)]}")
+        trimmed = trimmed.trimmingCharacters(in: closingCharacters)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let last = trimmed.last else { return false }
+        return ".!?…".contains(last)
+    }
+
+    static func finishReasonIndicatesTruncation(_ finishReason: String?) -> Bool {
+        guard let reason = finishReason?.lowercased() else { return false }
+        return ["length", "max_token", "token_limit", "max_output", "incomplete"]
+            .contains { reason.contains($0) }
+    }
+
+    static func isLikelyTruncated(_ text: String, finishReason: String? = nil) -> Bool {
+        finishReasonIndicatesTruncation(finishReason) || !hasCompleteSentenceEnding(text)
+    }
+
+    /// Schneidet nur das technisch unvollständige Satzfragment am Ende ab. Bereits
+    /// abgeschlossene Sätze bleiben bytegenau erhalten und bilden den Fortsetzungspunkt.
+    static func safePrefixBeforeTruncation(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !hasCompleteSentenceEnding(trimmed) else { return trimmed }
+        guard let boundary = trimmed.lastIndex(where: { ".!?…".contains($0) }) else { return "" }
+        return String(trimmed[...boundary]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Verbindet eine Modell-Fortsetzung ohne den häufig wiederholten letzten Absatz/Satz.
+    static func mergingContinuation(base: String, continuation: String) -> String {
+        let left = base.trimmingCharacters(in: .whitespacesAndNewlines)
+        var right = continuation.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !left.isEmpty else { return right }
+        guard !right.isEmpty else { return left }
+
+        let lastParagraph = left.components(separatedBy: "\n\n").last?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let sentenceParts = left.components(separatedBy: CharacterSet(charactersIn: ".!?…"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let lastSentenceStem = sentenceParts.last ?? ""
+        let candidates = [lastParagraph, lastSentenceStem]
+            .filter { $0.count >= 24 }
+            .sorted { $0.count > $1.count }
+        for repeated in candidates where right.hasPrefix(repeated) {
+            right.removeFirst(repeated.count)
+            right = String(right.drop(while: \.isWhitespace))
+            let leftoverClosers = CharacterSet(charactersIn: ".!?…)]}”’»")
+            while let first = right.unicodeScalars.first, leftoverClosers.contains(first) {
+                right.removeFirst()
+            }
+            right = String(right.drop(while: \.isWhitespace))
+            break
+        }
+        return right.isEmpty ? left : left + "\n\n" + right
+    }
+
     /// Prüft, ob eine Überarbeitung als Ersatz für die Quelle akzeptiert werden darf.
     /// Vorher genügten 50% der Wortzahl – ein bei maxTokens ABGESCHNITTENES Kapitel
     /// (endet mitten im Satz, Szenentrenner fehlen) wurde stillschweigend übernommen
     /// und landete halbiert beim Leser.
     static func isAcceptableRewrite(source: String, candidate: String,
-                                    minRatio: Double = 0.8) -> Bool {
+                                    minRatio: Double = 0.8,
+                                    maxRatio: Double? = nil,
+                                    finishReason: String? = nil) -> Bool {
         let sourceWords = source.wordCount
         let candidateWords = candidate.wordCount
         guard sourceWords > 0 else { return !candidate.isEmpty }
         guard Double(candidateWords) >= Double(sourceWords) * minRatio else { return false }
-        // Abgeschnittene Antwort: endet nicht auf Satzschluss-Zeichen.
-        let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let last = trimmed.last, ".!?…«»\"'“”’".contains(last) else { return false }
+        // Obergrenze: Eine Politur/Reparatur darf ein Kapitel NICHT aufblähen. Ohne
+        // dieses Limit vervielfachten die ganz-Kapitel-Umschreibungen die Länge (z.B.
+        // 873 → 2.344 Wörter) und machten die sonst zielgenaue Rohfassung kaputt.
+        if let maxRatio, Double(candidateWords) > Double(sourceWords) * maxRatio { return false }
+        guard !isLikelyTruncated(candidate, finishReason: finishReason) else { return false }
         // Szenentrenner müssen erhalten bleiben (beide Prompts fordern es; verlorene
         // Trenner zerstören die Szenenwechsel im Export).
         let sourceSeparators = source.components(separatedBy: "***").count - 1

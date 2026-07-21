@@ -2,7 +2,8 @@ import SwiftUI
 import SwiftData
 
 struct ManuscriptView: View {
-    @Query(sort: \Project.updatedAt, order: .reverse) var projects: [Project]
+    private var _projects = Query<Project, [Project]>(sort: \Project.updatedAt, order: .reverse)
+    var projects: [Project] { _projects.wrappedValue }
     @ObservedObject private var appState = AppState.shared
     @State private var selectedChapter: Chapter?
     @State private var viewMode: ViewMode = .read
@@ -50,6 +51,8 @@ struct ManuscriptView: View {
                     .tag(project)
                 }
             }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
             .frame(minWidth: 190, idealWidth: 220, maxWidth: 280)
 
             // Kapitel
@@ -67,7 +70,7 @@ struct ManuscriptView: View {
                             Label("Gesamtes Buch lesen", systemImage: "book")
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.cyan))
                         .padding(10)
 
                         Divider()
@@ -91,6 +94,8 @@ struct ManuscriptView: View {
                                 .tag(chapter)
                             }
                         }
+                        .listStyle(.plain)
+                        .scrollContentBackground(.hidden)
                         }
                     }
                 } else {
@@ -112,6 +117,7 @@ struct ManuscriptView: View {
             }
             .frame(minWidth: 400, maxWidth: .infinity)
         }
+        .background(StudioBackground())
         .navigationTitle("Manuskript")
         .onAppear { autoSelect() }
         .onChange(of: projects.count) { autoSelect() }
@@ -192,7 +198,9 @@ struct BookReaderView: View {
                         .monospacedDigit()
 
                     Button {
-                        selectedIndex = max(0, selectedIndex - 1)
+                        withAnimation(Motion.standard) {
+                            selectedIndex = max(0, selectedIndex - 1)
+                        }
                     } label: {
                         Image(systemName: "chevron.left")
                     }
@@ -201,7 +209,9 @@ struct BookReaderView: View {
                     .accessibilityLabel("Vorheriges Kapitel")
 
                     Button {
-                        selectedIndex = min(chapters.count - 1, selectedIndex + 1)
+                        withAnimation(Motion.standard) {
+                            selectedIndex = min(chapters.count - 1, selectedIndex + 1)
+                        }
                     } label: {
                         Image(systemName: "chevron.right")
                     }
@@ -211,7 +221,7 @@ struct BookReaderView: View {
                 }
             }
             .padding(12)
-            .background(.bar)
+            .background(.ultraThinMaterial)
 
             Divider()
 
@@ -297,7 +307,7 @@ struct ChapterDetailView: View {
                     .foregroundStyle(.secondary)
             }
             .padding(12)
-            .background(.bar)
+            .background(.ultraThinMaterial)
 
             Divider()
 
@@ -385,7 +395,8 @@ struct ChapterDetailView: View {
                     chapter.updatedAt = Date()
                     hasUnsavedChanges = false
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(StudioPrimaryButtonStyle())
+                .frame(width: 130)
                 .disabled(!hasUnsavedChanges)
             }
             .padding(12)
@@ -495,7 +506,7 @@ struct SceneCard: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+        .studioGlassTile(cornerRadius: 8, accent: StudioTheme.violet, opacity: 0.82)
     }
 
     @ViewBuilder
@@ -515,7 +526,8 @@ struct SceneCard: View {
 // MARK: - Story Bible
 
 struct StoryBibleView: View {
-    @Query(sort: \Project.updatedAt, order: .reverse) var projects: [Project]
+    private var _projects = Query<Project, [Project]>(sort: \Project.updatedAt, order: .reverse)
+    var projects: [Project] { _projects.wrappedValue }
     @ObservedObject private var appState = AppState.shared
     @State private var selectedTab: BibleTab = .characters
 
@@ -535,6 +547,8 @@ struct StoryBibleView: View {
                         .tag(project)
                 }
             }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
             .frame(minWidth: 190, idealWidth: 220, maxWidth: 280)
 
             Group {
@@ -570,6 +584,7 @@ struct StoryBibleView: View {
             }
             .frame(minWidth: 420, maxWidth: .infinity)
         }
+        .background(StudioBackground())
         .navigationTitle("Story Bible")
     }
 
@@ -646,7 +661,7 @@ struct CharacterCard: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+        .studioGlassTile(cornerRadius: 8, accent: StudioTheme.amber, opacity: 0.82)
     }
 
     @ViewBuilder
@@ -702,6 +717,8 @@ struct LocationsTabView: View {
                 }
                 .padding(.vertical, 4)
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
         }
     }
 }

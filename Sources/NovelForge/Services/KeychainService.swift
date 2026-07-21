@@ -34,14 +34,7 @@ enum KeychainService {
     }
 
     static func getAPIKey(for provider: AIProvider) -> String? {
-        if let cached = cachedAPIKeys[provider] {
-            return cached
-        }
-        // 1) Prompt-freier App-Einstellungs-Speicher.
-        if let stored = UserDefaults.standard.string(forKey: defaultsKey(for: provider)),
-           let value = decode(stored), !value.isEmpty {
-            cachedAPIKeys[provider] = value
-            missingProviders.remove(provider)
+        if let value = storedAPIKeyWithoutPrompt(for: provider) {
             return value
         }
         if missingProviders.contains(provider) {
@@ -102,12 +95,20 @@ enum KeychainService {
     /// Prompt-freier Check, ob ein Key hinterlegt ist (Cache oder App-Einstellungen,
     /// nie Keychain). Für den Render-Pfad geeignet – löst keinen Dialog aus.
     static func hasStoredAPIKey(for provider: AIProvider) -> Bool {
-        if hasCachedAPIKey(for: provider) { return true }
+        storedAPIKeyWithoutPrompt(for: provider) != nil
+    }
+
+    /// Liest Cache oder App-Einstellungen, aber niemals die Keychain. Geeignet für
+    /// Modelllisten und Renderpfade, die garantiert keinen Passwortdialog auslösen dürfen.
+    static func storedAPIKeyWithoutPrompt(for provider: AIProvider) -> String? {
+        if let cached = cachedAPIKeys[provider], !cached.isEmpty { return cached }
         if let stored = UserDefaults.standard.string(forKey: defaultsKey(for: provider)),
            let value = decode(stored), !value.isEmpty {
-            return true
+            cachedAPIKeys[provider] = value
+            missingProviders.remove(provider)
+            return value
         }
-        return false
+        return nil
     }
     
     static func deleteAPIKey(for provider: AIProvider) {

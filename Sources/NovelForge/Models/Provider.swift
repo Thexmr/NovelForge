@@ -59,8 +59,8 @@ enum AIProvider: String, Codable, CaseIterable, Identifiable, Sendable {
 }
 
 /// Konfiguration eines Providers. Der API-Key wird bewusst NICHT mitkodiert
-/// (CodingKeys ohne apiKey) – er liegt ausschließlich in der macOS Keychain
-/// und wird zur Laufzeit nachgeladen.
+/// (CodingKeys ohne apiKey). Er wird getrennt von der Provider-Konfiguration
+/// im lokalen Schlüsselspeicher verwaltet und zur Laufzeit nachgeladen.
 struct ProviderConfiguration: Codable, Identifiable, Equatable, Sendable {
     var id: UUID
     var provider: AIProvider

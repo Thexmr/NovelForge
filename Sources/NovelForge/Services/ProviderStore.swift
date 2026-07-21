@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Zentrale Verwaltung der Provider-Konfigurationen.
 /// Konfigurationen (ohne API-Keys) liegen in UserDefaults,
-/// API-Keys ausschließlich in der macOS Keychain.
+/// API-Keys im promptfreien lokalen Schlüsselspeicher mit Keychain-Backup.
 @MainActor
 final class ProviderSettingsStore: ObservableObject {
     static let shared = ProviderSettingsStore()
@@ -69,7 +69,7 @@ final class ProviderSettingsStore: ObservableObject {
     }
 
     /// Baut die Laufzeitkonfiguration für ein Projekt zusammen:
-    /// gespeicherte Provider-Einstellung + projektspezifisches Modell + Keychain-Key.
+    /// gespeicherte Provider-Einstellung + projektspezifisches Modell + API-Key.
     static func configuration(for project: Project) -> ProviderConfiguration {
         let provider = AIProvider(rawValue: project.preferredProviderRaw) ?? .openAI
         var config = shared.configurations.first(where: { $0.provider == provider })

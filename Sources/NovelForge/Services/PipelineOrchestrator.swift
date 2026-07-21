@@ -19,6 +19,9 @@ struct UnlimitedSettings {
     /// Optionale eigene Ideen des Autors (eine pro Eintrag), die in die Bücher
     /// einfließen. Leer = die Auto-Produktion erfindet alles selbst.
     var ideaSeeds: [String]
+    /// Nach App-Neustart passende pausierte/fehlgeschlagene Bücher zuerst
+    /// idempotent fertigstellen, bevor neue Projekte angelegt werden.
+    var resumeInterruptedBooks: Bool
 
     static let randomToken = "Zufällig"
     static let genrePool = [
@@ -61,7 +64,7 @@ struct UnlimitedSettings {
         // Horror / Komödie / Sonstiges
         "Splatterpunk", "Creature-Horror", "Folk Horror", "Komödie", "Schwarze Komödie",
         "Climate Fiction", "Familiendrama", "Generationenroman", "Roadtrip-Roman",
-        "Künstlerroman", "Briefroman"]
+        "Künstlerroman", "Briefroman"] + BookContentType.nonfictionGenres
     static let stylePool = ["düster", "literarisch", "dialogstark", "humorvoll", "episch",
                             "emotional", "sinnlich", "schnell erzählt", "minimalistisch",
                             "atmosphärisch", "actionreich", "psychologisch"]
@@ -69,18 +72,21 @@ struct UnlimitedSettings {
     init(authorName: String, language: String, genre: String, style: String,
          pageCount: Int, maxBooks: Int,
          parallelBooks: Int = 1, formats: [String],
-         imprint: String = "", authorBio: String = "") {
+         imprint: String = "", authorBio: String = "",
+         resumeInterruptedBooks: Bool = true) {
         self.init(authorName: authorName, language: language,
                   selectedGenres: genre == Self.randomToken ? [] : [genre],
                   style: style, pageCount: pageCount, maxBooks: maxBooks,
                   parallelBooks: parallelBooks, formats: formats,
-                  imprint: imprint, authorBio: authorBio)
+                  imprint: imprint, authorBio: authorBio,
+                  resumeInterruptedBooks: resumeInterruptedBooks)
     }
 
     init(authorName: String, language: String, selectedGenres: [String], style: String,
          pageCount: Int, maxBooks: Int,
          parallelBooks: Int = 1, formats: [String],
-         imprint: String, authorBio: String, ideaSeeds: [String] = []) {
+         imprint: String, authorBio: String, ideaSeeds: [String] = [],
+         resumeInterruptedBooks: Bool = true) {
         self.authorName = authorName
         self.language = language
         self.selectedGenres = selectedGenres
@@ -96,6 +102,7 @@ struct UnlimitedSettings {
         self.ideaSeeds = ideaSeeds
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+        self.resumeInterruptedBooks = resumeInterruptedBooks
     }
 
     /// Liefert die nächste Autoren-Idee (rotierend), die in dieses Buch einfließt –
@@ -124,6 +131,30 @@ struct UnlimitedSettings {
         guard maxBooks > 0 else { return availableWorkers }
         let remainingBooks = max(0, maxBooks - completedBooks - activeBooks)
         return min(availableWorkers, remainingBooks)
+    }
+}
+
+enum UnlimitedRecoveryPolicy {
+    static func shouldRecover(project: Project,
+                              settings: UnlimitedSettings,
+                              provider: AIProvider) -> Bool {
+        guard settings.resumeInterruptedBooks else { return false }
+        switch project.status {
+        case .created, .completed:
+            return false
+        default:
+            break
+        }
+
+        let projectAuthor = project.authorName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let selectedAuthor = settings.authorName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard projectAuthor.localizedCaseInsensitiveCompare(selectedAuthor) == .orderedSame else {
+            return false
+        }
+        guard project.language.localizedCaseInsensitiveCompare(settings.language) == .orderedSame else {
+            return false
+        }
+        return project.preferredProviderRaw == provider.rawValue
     }
 }
 
@@ -160,6 +191,17 @@ final class PipelineOrchestrator: ObservableObject {
     @Published var unlimitedBooksCompleted: Int = 0
     @Published var currentBookElapsed: String = ""
     @Published var currentBookEstimatedTotal: String = ""
+    /// Laufzeit der finalen Qualitätsreparatur/Selbstkorrektur (über alle
+    /// Runden hinweg). Leer, solange keine Reparatur läuft.
+    @Published var repairElapsed: String = ""
+    /// Fortschritt der Reparatur: wie viele Freigabe-Punkte anfänglich offen waren
+    /// (Basislinie) und wie viele davon noch offen sind. Erlaubt eine echte
+    /// „noch N Punkte / X % erledigt"-Anzeige statt nur einer laufenden Uhr.
+    @Published private(set) var repairIssuesTotal: Int = 0
+    @Published private(set) var repairIssuesRemaining: Int = 0
+    /// Geschätzte Restdauer der Reparatur (aus Fortschrittsrate). Leer, solange
+    /// noch keine belastbare Schätzung möglich ist.
+    @Published var repairEtaText: String = ""
     @Published var averageBookDuration: String = ""
     @Published var lastBookDuration: String = ""
     @Published var activeUnlimitedBooks: Int = 0
@@ -182,6 +224,15 @@ final class PipelineOrchestrator: ObservableObject {
     private var unlimitedRunID = ""
     private var completedBookDurations: [TimeInterval] = []
     private var currentBookStartedAt: Date?
+    /// Startzeitpunkt der finalen Reparaturphase. Bleibt über automatische
+    /// Selbstkorrektur-Runden hinweg gesetzt, damit die angezeigte Reparaturzeit
+    /// die gesamte Selbstheilung umfasst. `@Published`, damit die UI daraus einen
+    /// sekundengenau tickenden Timer rendern kann.
+    @Published private(set) var repairStartedAt: Date?
+    /// Das Ganz-Kapitel-Repair-Audit der Endabnahme läuft höchstens einmal pro
+    /// Produktionslauf (wird in finish() zurückgesetzt) – wiederholte Kapitel-
+    /// Neufassungen erzeugen sonst laufend neue Satzdoppler (Divergenz).
+    private var readinessRepairAuditDone = false
     private var unlimitedConsecutiveFailures = 0
     private let gateway = ProviderGateway.shared
     /// Bei parallelen Buch-Workern: der Haupt-Orchestrator (UI-Zustand, Titel-Register).
@@ -295,8 +346,13 @@ final class PipelineOrchestrator: ObservableObject {
                 let revised = AutonomousContentQuality.humanizeProse(
                     AutonomousContentQuality.strippingInlineFormatting(
                         AutonomousContentQuality.strippingPromptArtifacts(response.text)))
-                guard revised.wordCount >= max(50, current.wordCount / 3),
+                guard AutonomousContentQuality.isAcceptableRewrite(
+                          source: current,
+                          candidate: revised,
+                          minRatio: 0.33,
+                          finishReason: response.finishReason),
                       !AutonomousContentQuality.containsMetaRequest(revised),
+                      !PublicContentGuard.disclosureViolation(in: revised),
                       ContentSafetyFilter.isSafe(revised) else {
                     return "Die Überarbeitung kam unvollständig zurück. Formuliere den Wunsch gern konkreter oder versuch es noch einmal."
                 }
@@ -348,6 +404,7 @@ final class PipelineOrchestrator: ObservableObject {
         lastError = nil
         progress = max(project.status.progressFraction, PipelinePhase.manuscriptRevision.weight)
         markProjectActive(project)
+        ProductionSleepManager.shared.acquire(for: self)
         startHeartbeat()
 
         do {
@@ -368,7 +425,7 @@ final class PipelineOrchestrator: ObservableObject {
             project.status = previousStatus
             lastError = (error as? AIError)?.errorDescription ?? error.localizedDescription
             finish()
-            return "Fehler bei der KI-Nachbearbeitung: \(lastError ?? error.localizedDescription)"
+            return "Fehler bei der Nachbearbeitung: \(lastError ?? error.localizedDescription)"
         }
     }
 
@@ -475,7 +532,7 @@ final class PipelineOrchestrator: ObservableObject {
                 throw AIError.systemError("Leere Antwort vom Modell – Cover-Prompts nicht überschrieben.")
             }
             profile.coverPrompts = text
-            try? CoverDesignService.writePrompt(text, for: project)
+            _ = try? CoverDesignService.writePrompt(text, for: project)
             completeJob(job, result: text, tokens: response.tokensUsed ?? 0)
         } catch {
             if job.status == .running { failJob(job, error: error) }
@@ -806,6 +863,7 @@ final class PipelineOrchestrator: ObservableObject {
             project.preferredModel = model
         }
         markProjectActive(project)
+        ProductionSleepManager.shared.acquire(for: self)
         startHeartbeat()
         backgroundTask = Task { [weak self] in
             await self?.run(project: project, config: providerConfig)
@@ -856,6 +914,7 @@ final class PipelineOrchestrator: ObservableObject {
         activeUnlimitedBooks = 0
         parallelUnlimitedBooks = settings.parallelBooks
 
+        ProductionSleepManager.shared.acquire(for: self)
         startHeartbeat()
         backgroundTask = Task { [weak self] in
             await self?.runUnlimited(settings: settings, config: providerConfig)
@@ -874,33 +933,53 @@ final class PipelineOrchestrator: ObservableObject {
             return
         }
 
+        var recoveryQueue = recoverableUnlimitedProjects(settings: settings, config: config)
+        var interruptedProject: Project?
+        var isRetryingCurrentBook = false
+        var qualityRepairRounds = 0
         while !Task.isCancelled {
-            sceneTimes = []
-            totalTokensUsed = 0
-            estimatedCostUSD = 0
-            progress = 0
-            currentChapter = 0
-            currentScene = 0
-            totalScenes = 0
-            completedScenes = 0
-            estimatedTimeRemaining = ""
-            currentBookElapsed = ""
-            currentBookEstimatedTotal = ""
-            currentBookStartedAt = Date()
-            updateProductionTiming()
+            if !isRetryingCurrentBook {
+                sceneTimes = []
+                totalTokensUsed = 0
+                estimatedCostUSD = 0
+                progress = 0
+                currentChapter = 0
+                currentScene = 0
+                totalScenes = 0
+                completedScenes = 0
+                estimatedTimeRemaining = ""
+                currentBookElapsed = ""
+                currentBookEstimatedTotal = ""
+                currentBookStartedAt = Date()
+                currentProject = nil
+                interruptedProject = recoveryQueue.isEmpty ? nil : recoveryQueue.removeFirst()
+                updateProductionTiming()
+            }
             lastError = nil
 
             do {
-                let project = try await createUnlimitedProject(settings: settings, config: config)
+                let project: Project
+                if let interruptedProject {
+                    project = interruptedProject
+                    currentProject = project
+                    markProjectActive(project)
+                    currentAgent = "Unterbrochenes Buch wird an der letzten sicheren Stelle fortgesetzt …"
+                } else {
+                    project = try await createUnlimitedProject(settings: settings, config: config)
+                }
                 currentProject = project
 
                 try await executeAllPhases(project: project, config: config)
 
+                try PublicationReadiness.validateForCompletion(project: project)
                 project.status = .completed
                 progress = 1.0
                 recordCompletedBookDuration()
                 unlimitedBooksCompleted += 1
                 unlimitedConsecutiveFailures = 0
+                qualityRepairRounds = 0
+                interruptedProject = nil
+                isRetryingCurrentBook = false
                 markProjectInactive(project)
                 currentAgent = "Buch \(unlimitedBooksCompleted) abgeschlossen – nächstes Buch wird geplant …"
                 modelContext?.saveOrLog()
@@ -917,16 +996,75 @@ final class PipelineOrchestrator: ObservableObject {
                 isUnlimitedMode = false
                 return
             } catch {
-                // Buch fehlgeschlagen: protokollieren, Projekt bleibt fortsetzbar,
-                // Dauerproduktion macht mit dem nächsten Buch weiter.
                 if let job = currentJob, job.status == .running {
                     failJob(job, error: error)
                 }
-                currentProject?.status = .failed
-                markProjectInactive(currentProject)
                 let aiError = error as? AIError
                 lastError = aiError?.errorDescription ?? error.localizedDescription
+
+                if Self.isReadinessShortfall(error), let project = currentProject {
+                    qualityRepairRounds += 1
+                    readinessRepairAuditDone = false
+                    project.status = .export
+                    interruptedProject = project
+                    isRetryingCurrentBook = true
+                    lastError = "Qualitäts-Endabnahme noch offen. Die Reparatur läuft automatisch weiter."
+                    currentAgent = "Qualitätsreparatur Runde \(qualityRepairRounds) – dasselbe Buch bleibt aktiv"
+                    modelContext?.saveOrLog()
+                    do {
+                        try await Task.sleep(
+                            nanoseconds: UInt64(Self.readinessRetryDelaySeconds * 1_000_000_000)
+                        )
+                    } catch {
+                        handleStop(project: project)
+                        isUnlimitedMode = false
+                        return
+                    }
+                    continue
+                }
+
                 unlimitedConsecutiveFailures += 1
+
+                // HINWEIS: Es gibt bewusst KEINEN Sonder-Retry für Szenenqualitäts-
+                // Fehler mehr. Deterministische Content-Befunde werden im Schreib-Loop
+                // als Report gespeichert (nie geworfen); ein unbegrenzter Retry hier
+                // war die Ursache für nächtelange Endlos-Schleifen (143 Neustarts).
+
+                // Temporäre Providerfehler setzen dasselbe, bereits geschriebene
+                // Projekt fort. Dadurch bleiben 500-Seiten-Bücher nicht wegen
+                // eines kurzen Netzausfalls nach hunderten Seiten liegen.
+                if ProductionStabilityPolicy.shouldResumeInterruptedBook(after: error),
+                   let project = currentProject,
+                   project.status != .completed {
+                    project.status = .paused
+                    interruptedProject = project
+                    isRetryingCurrentBook = true
+                    let delay = ProductionStabilityPolicy.retryDelay(
+                        forConsecutiveFailures: unlimitedConsecutiveFailures
+                    )
+                    currentAgent = "Provider vorübergehend nicht erreichbar – dieses Buch wird in \(ProductionStabilityPolicy.formatRetryDelay(delay)) fortgesetzt"
+                    modelContext?.saveOrLog()
+                    do {
+                        try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    } catch is CancellationError {
+                        handleStop(project: project)
+                        isUnlimitedMode = false
+                        return
+                    } catch {
+                        handleStop(project: project)
+                        isUnlimitedMode = false
+                        return
+                    }
+                    continue
+                }
+
+                // Nicht automatisch behebbarer Buchfehler: Projekt bleibt zum
+                // manuellen Fortsetzen erhalten; die Dauerproduktion entscheidet
+                // anhand der Fehlerart, ob sie ein neues Buch starten darf.
+                interruptedProject = nil
+                isRetryingCurrentBook = false
+                currentProject?.status = .failed
+                markProjectInactive(currentProject)
                 modelContext?.saveOrLog()
 
                 // Dauerhaft unbehebbare Fehler beenden die Schleife,
@@ -968,6 +1106,7 @@ final class PipelineOrchestrator: ObservableObject {
         var launchedBooks = 0
         var activeBooks = 0
         var shouldStopLaunching = false
+        var recoveryQueue = recoverableUnlimitedProjects(settings: settings, config: config)
 
         await withTaskGroup(of: UnlimitedBookOutcome.self) { group in
             @MainActor
@@ -981,6 +1120,7 @@ final class PipelineOrchestrator: ObservableObject {
 
                 for _ in 0..<slots {
                     let bookIndex = launchedBooks
+                    let resumeProject = recoveryQueue.isEmpty ? nil : recoveryQueue.removeFirst()
                     launchedBooks += 1
                     activeBooks += 1
                     activeUnlimitedBooks = activeBooks
@@ -989,7 +1129,8 @@ final class PipelineOrchestrator: ObservableObject {
                         await worker.runUnlimitedWorkerBook(
                             settings: settings,
                             config: config,
-                            bookIndex: bookIndex
+                            bookIndex: bookIndex,
+                            resumeProject: resumeProject
                         )
                     }
                 }
@@ -1001,6 +1142,7 @@ final class PipelineOrchestrator: ObservableObject {
             while activeBooks > 0, let outcome = await group.next() {
                 activeBooks -= 1
                 activeUnlimitedBooks = activeBooks
+                var relaunchDelay: TimeInterval?
 
                 if outcome.cancelled || Task.isCancelled {
                     shouldStopLaunching = true
@@ -1031,8 +1173,21 @@ final class PipelineOrchestrator: ObservableObject {
                         currentAgent = "Dauerproduktion gestoppt – \(unlimitedConsecutiveFailures) Fehler in Folge"
                         break
                     }
+                    relaunchDelay = ProductionStabilityPolicy.retryDelay(
+                        forConsecutiveFailures: unlimitedConsecutiveFailures
+                    )
                 }
 
+                if let relaunchDelay, relaunchDelay > 0 {
+                    currentAgent = "Fehler abgefangen – neuer Worker in \(ProductionStabilityPolicy.formatRetryDelay(relaunchDelay))"
+                    try? await Task.sleep(nanoseconds: UInt64(relaunchDelay * 1_000_000_000))
+                    if Task.isCancelled {
+                        shouldStopLaunching = true
+                        group.cancelAll()
+                        currentAgent = "Dauerproduktion pausiert – aktive Bücher wurden gespeichert"
+                        break
+                    }
+                }
                 launchAvailableBooks()
             }
         }
@@ -1054,7 +1209,8 @@ final class PipelineOrchestrator: ObservableObject {
 
     private func runUnlimitedWorkerBook(settings: UnlimitedSettings,
                                         config: ProviderConfiguration,
-                                        bookIndex: Int) async -> UnlimitedBookOutcome {
+                                        bookIndex: Int,
+                                        resumeProject: Project? = nil) async -> UnlimitedBookOutcome {
         sceneTimes = []
         totalTokensUsed = 0
         estimatedCostUSD = 0
@@ -1067,64 +1223,131 @@ final class PipelineOrchestrator: ObservableObject {
         currentBookStartedAt = Date()
         lastError = nil
 
-        do {
-            let startedAt = Date()
-            let project = try await createUnlimitedProject(
-                settings: settings,
-                config: config,
-                bookIndex: bookIndex
-            )
+        let startedAt = Date()
+        var project = resumeProject
+        var transientFailures = 0
+        var qualityRepairRounds = 0
+
+        if let project {
             currentProject = project
-
-            try await executeAllPhases(project: project, config: config)
-
-            project.status = .completed
-            progress = 1.0
-            let duration = Date().timeIntervalSince(startedAt)
-            markProjectInactive(project)
-            modelContext?.saveOrLog()
-            retireWorkerStatus()
-            return UnlimitedBookOutcome(
-                completed: true,
-                cancelled: false,
-                title: project.title,
-                duration: duration,
-                error: nil,
-                message: ""
-            )
-        } catch is CancellationError {
-            if let project = currentProject {
-                stopMode = .pause
-                handleStop(project: project)
-            }
-            markProjectInactive(currentProject)
-            retireWorkerStatus()
-            return UnlimitedBookOutcome(
-                completed: false,
-                cancelled: true,
-                title: currentProject?.title ?? "",
-                duration: 0,
-                error: nil,
-                message: "Abgebrochen"
-            )
-        } catch {
-            if let job = currentJob, job.status == .running {
-                failJob(job, error: error)
-            }
-            currentProject?.status = .failed
-            markProjectInactive(currentProject)
-            let message = (error as? AIError)?.errorDescription ?? error.localizedDescription
-            modelContext?.saveOrLog()
-            retireWorkerStatus()
-            return UnlimitedBookOutcome(
-                completed: false,
-                cancelled: false,
-                title: currentProject?.title ?? "",
-                duration: 0,
-                error: error,
-                message: message
-            )
+            markProjectActive(project)
+            currentAgent = "Unfertiges Buch wird zuerst fortgesetzt …"
+            publishWorkerStatus()
         }
+
+        while !Task.isCancelled {
+            do {
+                if project == nil {
+                    project = try await createUnlimitedProject(
+                        settings: settings,
+                        config: config,
+                        bookIndex: bookIndex
+                    )
+                } else if let project {
+                    markProjectActive(project)
+                    currentAgent = "Unterbrochenes Buch wird fortgesetzt …"
+                    publishWorkerStatus()
+                }
+                guard let project else {
+                    throw AIError.systemError("Buchprojekt konnte nicht angelegt werden")
+                }
+                currentProject = project
+
+                try await executeAllPhases(project: project, config: config)
+
+                try PublicationReadiness.validateForCompletion(project: project)
+                project.status = .completed
+                progress = 1.0
+                let duration = Date().timeIntervalSince(startedAt)
+                markProjectInactive(project)
+                modelContext?.saveOrLog()
+                retireWorkerStatus()
+                return UnlimitedBookOutcome(
+                    completed: true,
+                    cancelled: false,
+                    title: project.title,
+                    duration: duration,
+                    error: nil,
+                    message: ""
+                )
+            } catch is CancellationError {
+                return cancelledUnlimitedBookOutcome()
+            } catch {
+                if let job = currentJob, job.status == .running {
+                    failJob(job, error: error)
+                }
+                let message = (error as? AIError)?.errorDescription ?? error.localizedDescription
+
+                if Self.isReadinessShortfall(error), let project {
+                    qualityRepairRounds += 1
+                    readinessRepairAuditDone = false
+                    project.status = .export
+                    lastError = "Qualitäts-Endabnahme noch offen. Die Reparatur läuft automatisch weiter."
+                    currentAgent = "Qualitätsreparatur Runde \(qualityRepairRounds) – dasselbe Buch bleibt aktiv"
+                    publishWorkerStatus()
+                    modelContext?.saveOrLog()
+                    do {
+                        try await Task.sleep(
+                            nanoseconds: UInt64(Self.readinessRetryDelaySeconds * 1_000_000_000)
+                        )
+                    } catch {
+                        return cancelledUnlimitedBookOutcome()
+                    }
+                    continue
+                }
+
+                if ProductionStabilityPolicy.shouldResumeInterruptedBook(after: error),
+                   let project {
+                    transientFailures += 1
+                    project.status = .paused
+                    lastError = message
+                    let delay = ProductionStabilityPolicy.retryDelay(
+                        forConsecutiveFailures: transientFailures
+                    )
+                    currentAgent = "Provider unterbrochen – dasselbe Buch läuft in \(ProductionStabilityPolicy.formatRetryDelay(delay)) weiter"
+                    publishWorkerStatus()
+                    modelContext?.saveOrLog()
+                    do {
+                        try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    } catch {
+                        return cancelledUnlimitedBookOutcome()
+                    }
+                    continue
+                }
+
+                project?.status = .failed
+                markProjectInactive(project)
+                modelContext?.saveOrLog()
+                retireWorkerStatus()
+                return UnlimitedBookOutcome(
+                    completed: false,
+                    cancelled: false,
+                    title: project?.title ?? "",
+                    duration: 0,
+                    error: error,
+                    message: message
+                )
+            }
+        }
+
+        return cancelledUnlimitedBookOutcome()
+    }
+
+    private func cancelledUnlimitedBookOutcome() -> UnlimitedBookOutcome {
+        if let project = currentProject {
+            stopMode = .pause
+            handleStop(project: project)
+        }
+        markProjectInactive(currentProject)
+        retireWorkerStatus()
+        return UnlimitedBookOutcome(
+            completed: false,
+            cancelled: true,
+            title: currentProject?.title ?? "",
+            duration: 0,
+            error: nil,
+            message: "Abgebrochen"
+        )
     }
 
     /// Erfindet eine Buchidee und legt daraus ein vollständiges Projekt an.
@@ -1315,11 +1538,25 @@ final class PipelineOrchestrator: ObservableObject {
         return (try? modelContext.fetch(FetchDescriptor<Project>())) ?? []
     }
 
+    private func recoverableUnlimitedProjects(settings: UnlimitedSettings,
+                                               config: ProviderConfiguration) -> [Project] {
+        existingProjects()
+            .filter { project in
+                !activeProjectIDs.contains(project.id)
+                    && UnlimitedRecoveryPolicy.shouldRecover(
+                        project: project,
+                        settings: settings,
+                        provider: config.provider
+                    )
+            }
+            .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
     // MARK: - Hauptablauf
 
     /// Führt alle Pipeline-Phasen für ein Projekt aus (wirft bei Fehler/Abbruch).
     private func executeAllPhases(project: Project, config: ProviderConfiguration) async throws {
-        for phase in PipelinePhase.executionOrder {
+        for phase in executionPhases(for: project) {
             try Task.checkCancellation()
             currentPhase = phase
             updateProgress(phase: phase, subProgress: 0)
@@ -1370,7 +1607,7 @@ final class PipelineOrchestrator: ObservableObject {
             case .kdpFormatting:
                 try await runKDPFormatting(project: project, config: config)
             case .export:
-                try runExport(project: project)
+                try await runExport(project: project, config: config)
             default:
                 break
             }
@@ -1380,44 +1617,131 @@ final class PipelineOrchestrator: ObservableObject {
         }
     }
 
-    private func run(project: Project, config: ProviderConfiguration) async {
-        do {
-            try await executeAllPhases(project: project, config: config)
+    /// Bestimmt den ersten tatsächlich noch nötigen Schritt aus den gespeicherten
+    /// Artefakten. Ein beim Export gestopptes Buch springt dadurch nicht erneut durch
+    /// Planung und Rohfassung; frühe, unvollständige Projekte bleiben unverändert.
+    private func executionPhases(for project: Project) -> [PipelinePhase] {
+        let chapters = sortedChapters(project)
+        guard !chapters.isEmpty else { return PipelinePhase.executionOrder }
 
-            project.status = .completed
-            progress = 1.0
-            currentAgent = "Abgeschlossen"
-            finish()
-
-        } catch is CancellationError {
-            handleStop(project: project)
-        } catch let error as AIError {
-            if stopMode != .none {
-                handleStop(project: project)
-                return
-            }
-            if let job = currentJob, job.status == .running {
-                failJob(job, error: error)
-            }
-            var message = error.errorDescription ?? "Unbekannter Fehler"
-            if let suggestion = error.recoverySuggestion {
-                message += " – \(suggestion)"
-            }
-            lastError = message
-            project.status = .failed
-            finish()
-        } catch {
-            if stopMode != .none {
-                handleStop(project: project)
-                return
-            }
-            if let job = currentJob, job.status == .running {
-                failJob(job, error: error)
-            }
-            lastError = error.localizedDescription
-            project.status = .failed
-            finish()
+        let hasUsableFinalManuscript = chapters.allSatisfy { chapter in
+            let text = (chapter.finalText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return !text.isEmpty
+                && AutonomousContentQuality.hasCompleteSentenceEnding(text)
+                && !AutonomousContentQuality.containsMetaRequest(text)
+                && !AutonomousContentQuality.containsPromptArtifacts(text)
+                && !PublicContentGuard.disclosureViolation(in: text)
         }
+        if hasUsableFinalManuscript {
+            for chapter in chapters { chapter.status = .finalized }
+            if let profile = project.bookProfile,
+               !needsKDPMetadata(project: project, profile: profile) {
+                return [.export]
+            }
+            return [.copyrightCheck, .kdpFormatting, .export]
+        }
+
+        let hasRevisedManuscript = chapters.allSatisfy {
+            !($0.revisedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        if hasRevisedManuscript {
+            return [.proofreading, .copyrightCheck, .kdpFormatting, .export]
+        }
+
+        let hasCompleteDraft = chapters.allSatisfy { chapter in
+            if !(chapter.draftText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return true
+            }
+            let scenes = sortedScenes(chapter)
+            return !scenes.isEmpty && scenes.allSatisfy { isSceneWritten($0) }
+        }
+        if hasCompleteDraft {
+            return [.chapterRevision, .manuscriptRevision, .proofreading,
+                    .copyrightCheck, .kdpFormatting, .export]
+        }
+
+        return PipelinePhase.executionOrder
+    }
+
+    private func run(project: Project, config: ProviderConfiguration) async {
+        var consecutiveTransientFailures = 0
+        var readinessRetries = 0
+        while !Task.isCancelled {
+            do {
+                try await executeAllPhases(project: project, config: config)
+                try PublicationReadiness.validateForCompletion(project: project)
+                project.status = .completed
+                progress = 1.0
+                currentAgent = "Abgeschlossen"
+                lastError = nil
+                ProductionIncidentStore.clear()
+                finish()
+                return
+            } catch is CancellationError {
+                handleStop(project: project)
+                return
+            } catch {
+                if stopMode != .none {
+                    handleStop(project: project)
+                    return
+                }
+                if let job = currentJob, job.status == .running { failJob(job, error: error) }
+
+                // Buch ist fertig geschrieben, erfüllt aber die Qualitäts-Endabnahme noch
+                // nicht: weiter reparieren, bis die Freigabe besteht oder der Benutzer stoppt.
+                if Self.isReadinessShortfall(error) {
+                    readinessRetries += 1
+                    let remaining = (error as? AIError)?.errorDescription ?? error.localizedDescription
+                    ProductionIncidentStore.record(remaining)
+                    // Pro Selbstkorrektur-Runde darf das Repair-Audit einmal neu ran.
+                    readinessRepairAuditDone = false
+                    project.status = .export
+                    lastError = "Qualität noch nicht freigegeben – automatische Korrektur läuft weiter (Runde \(readinessRetries))."
+                    currentAgent = "Selbstkorrektur Runde \(readinessRetries) läuft weiter …"
+                    modelContext?.saveOrLog()
+                    do {
+                        try await Task.sleep(
+                            nanoseconds: UInt64(Self.readinessRetryDelaySeconds * 1_000_000_000)
+                        )
+                    } catch {
+                        handleStop(project: project)
+                        return
+                    }
+                    continue
+                }
+
+
+                if ProductionStabilityPolicy.shouldResumeInterruptedBook(after: error) {
+                    consecutiveTransientFailures += 1
+                    project.status = .paused
+                    let delay = ProductionStabilityPolicy.retryDelay(
+                        forConsecutiveFailures: consecutiveTransientFailures
+                    )
+                    let reason = (error as? AIError)?.errorDescription ?? error.localizedDescription
+                    lastError = "Vorübergehende Unterbrechung: \(reason) Die Produktion setzt dieses Buch automatisch fort."
+                    ProductionIncidentStore.record(lastError ?? reason)
+                    currentAgent = "Verbindung unterbrochen – automatische Fortsetzung in \(ProductionStabilityPolicy.formatRetryDelay(delay))"
+                    modelContext?.saveOrLog()
+                    do {
+                        try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    } catch {
+                        handleStop(project: project)
+                        return
+                    }
+                    continue
+                }
+
+                let aiError = error as? AIError
+                var message = aiError?.errorDescription ?? error.localizedDescription
+                if let suggestion = aiError?.recoverySuggestion { message += " – \(suggestion)" }
+                lastError = message
+                ProductionIncidentStore.record(message)
+                project.status = .failed
+                finish()
+                return
+            }
+        }
+        handleStop(project: project)
     }
 
     private func handleStop(project: Project) {
@@ -1434,6 +1758,13 @@ final class PipelineOrchestrator: ObservableObject {
 
     private func finish() {
         isRunning = false
+        // Reparaturuhr beenden (Produktion terminal: fertig, pausiert oder gestoppt).
+        repairStartedAt = nil
+        repairElapsed = ""
+        repairEtaText = ""
+        repairIssuesTotal = 0
+        repairIssuesRemaining = 0
+        readinessRepairAuditDone = false
         heartbeatTask?.cancel()
         heartbeatTask = nil
         markProjectInactive(currentProject)
@@ -1441,6 +1772,7 @@ final class PipelineOrchestrator: ObservableObject {
             activeProjectIDs = []
             workerStatuses = []
         }
+        ProductionSleepManager.shared.release(for: self)
         modelContext?.saveOrLog()
     }
 
@@ -1483,10 +1815,24 @@ final class PipelineOrchestrator: ObservableObject {
     }
 
     private func failJob(_ job: PipelineJob, error: Error) {
+        if error is CancellationError {
+            job.status = .paused
+            job.endTime = Date()
+            job.result = "Produktion pausiert; gespeicherter Stand bleibt erhalten."
+            currentJob = nil
+            return
+        }
         job.status = .failed
         job.endTime = Date()
         job.errorCount += 1
         job.result = error.localizedDescription
+        let location = [
+            job.chapterNumber.map { "Kapitel \($0)" },
+            job.sceneNumber.map { "Szene \($0)" }
+        ].compactMap { $0 }.joined(separator: ", ")
+        ProductionIncidentStore.record(
+            "\(job.agentName)\(location.isEmpty ? "" : " (\(location))"): \(error.localizedDescription)"
+        )
         currentJob = nil
     }
 
@@ -1530,9 +1876,9 @@ final class PipelineOrchestrator: ObservableObject {
         guard config.provider == .ollamaCloud else { return fallback }
         let stored = UserDefaults.standard.string(forKey: OllamaCloudModelCatalog.writingModelDefaultsKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        // Leer oder "__standard__" ⇒ Standardmodell (kimi, wie bisher). Ein stärkeres
-        // Autoren-Modell wird NUR genutzt, wenn der Nutzer es in den Einstellungen bewusst wählt.
-        guard !stored.isEmpty, stored != "__standard__" else { return fallback }
+        // Leer = Qualitätsstandard. "__standard__" ist der bewusst gewählte Schnellmodus.
+        if stored.isEmpty { return OllamaCloudModelCatalog.recommendedWritingModel }
+        if stored == "__standard__" { return fallback }
         return OllamaCloudModelCatalog.isUsefulForLongFormCloudModel(stored) ? stored : fallback
     }
 
@@ -1632,10 +1978,44 @@ final class PipelineOrchestrator: ObservableObject {
         guard let profile = project.bookProfile else {
             throw AIError.systemError("Buchprofil fehlt")
         }
-        // Bereits erledigt? (Fortsetzen)
-        if let logline = profile.logline, !logline.isEmpty { return }
+        // Bereits erledigt? Sachbücher ohne neues Quellenmanifest müssen beim
+        // Fortsetzen trotzdem durch die nachgerüstete Recherchephase laufen.
+        let conceptAlreadyComplete = !(profile.logline ?? "").isEmpty
+        if conceptAlreadyComplete,
+           !project.isNonfiction || !profile.sourceManifest.isEmpty { return }
 
         project.status = .conceptDevelopment
+
+        if project.isNonfiction && profile.sourceManifest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let researchJob = beginJob(agent: AgentName.research, phase: .conceptDevelopment,
+                                       project: project)
+            currentAgent = "\(AgentName.research) – Quellen werden geprüft"
+            let topicWords = "\(project.title) \(profile.premise)"
+                .split(whereSeparator: \.isWhitespace).prefix(45).joined(separator: " ")
+            do {
+                let bundle = try await NonfictionResearchService.shared.research(
+                    query: topicWords, genre: project.genre, language: project.language
+                )
+                profile.researchQuery = bundle.query
+                profile.researchNotes = bundle.promptContext
+                profile.sourceManifest = try NonfictionResearchService.encodeManifest(bundle)
+                completeJob(researchJob, result: "\(bundle.sources.count) Quellen recherchiert")
+                addReport(project: project, area: "Quellenbasis", type: "Recherche",
+                          result: "\(bundle.sources.count) nachvollziehbare Quellen gespeichert",
+                          severity: .info,
+                          recommendation: bundle.hasScholarlySource
+                            ? "Quellen vor Veröffentlichung inhaltlich gegenlesen."
+                            : "Mindestens eine fachliche Primärquelle ergänzen.")
+            } catch {
+                failJob(researchJob, error: error)
+                addReport(project: project, area: "Quellenbasis", type: "Recherche",
+                          result: "Recherche fehlgeschlagen: \(error.localizedDescription)",
+                          severity: .error,
+                          recommendation: "Recherchephase erneut ausführen; Sachbuch wird ohne Quellen nicht freigegeben.")
+                throw error
+            }
+        }
+        if conceptAlreadyComplete { return }
         // Romance-Genres ohne gewählten Sinnlichkeitsgrad nicht „clean" erzeugen – sinnvollen
         // Standard setzen, damit Dark Romance/Liebesroman die Genre-Erwartung (Wärme) einlöst.
         if project.spiceLevel == 0 {
@@ -1656,17 +2036,26 @@ final class PipelineOrchestrator: ObservableObject {
                     prompt: PromptFactory.genreBrief(
                         title: project.title, genre: project.genre, subgenre: project.subgenre,
                         tropes: project.tropes, spiceLevel: project.spiceLevel, language: project.language),
-                    system: "Du bist ein Verlagslektor und Genre-Stratege. Du leitest aus Titel und Genre präzise, verbindliche Schreibvorgaben ab, damit ein Roman zweifelsfrei in seinem Genre landet. Antworte nur mit der Direktive.",
+                    system: project.isNonfiction
+                        ? "Du bist ein Sachbuchlektor. Du leitest Leserproblem, Nutzen, Lernweg und Faktenregeln präzise ab."
+                        : "Du bist ein Verlagslektor und Genre-Stratege. Du leitest aus Titel und Genre präzise, verbindliche Schreibvorgaben ab, damit ein Roman zweifelsfrei in seinem Genre landet. Antworte nur mit der Direktive.",
                     maxTokens: 900, temperature: 0.5, config: config, creative: false)
                 let brief = briefResponse.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if brief.wordCount >= 20, !AutonomousContentQuality.containsMetaRequest(brief) {
-                    profile.genreRules = brief
+                    profile.genreRules = project.isNonfiction
+                        ? "SACHBUCH\n\(brief)\n\(NonfictionSafety.directive(genre: project.genre, premise: profile.premise))"
+                        : brief
                 }
                 completeJob(briefJob, result: "Genre-Direktive aus Titel + Genre abgeleitet", tokens: briefResponse.tokensUsed ?? 0)
             } catch {
                 if briefJob.status == .running { failJob(briefJob, error: error) }
                 // Nicht produktionskritisch – ohne Direktive weiter mit den Standard-Genre-Regeln.
             }
+        }
+        if project.isNonfiction && profile.genreRules.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            profile.genreRules = "SACHBUCH\n" + NonfictionSafety.directive(
+                genre: project.genre, premise: profile.premise
+            )
         }
         let job = beginJob(agent: AgentName.concept, phase: .conceptDevelopment, project: project)
         do {
@@ -1682,7 +2071,8 @@ final class PipelineOrchestrator: ObservableObject {
                     pageCount: project.targetPageCount,
                     ideaSeed: profile.premise,
                     tropes: project.tropes, bookSignature: project.styleSignature,
-                    sequelContext: project.sequelContext, genreBrief: profile.genreRules
+                    sequelContext: project.sequelContext, genreBrief: profile.genreRules,
+                    researchContext: profile.researchNotes
                 ) + retryHint
                 let response = try await generate(
                     prompt: prompt,
@@ -1716,12 +2106,15 @@ final class PipelineOrchestrator: ObservableObject {
                 // ableiten, damit die Produktion weiterläuft. (Provider-Fehler hätten
                 // oben bereits geworfen und das Buch pausiert.)
                 let seed = profile.premise.trimmingCharacters(in: .whitespacesAndNewlines)
-                let base = seed.wordCount >= 8 ? seed
-                    : "Ein \(project.genre) um eine Hauptfigur, die ein dringendes Ziel gegen wachsenden Widerstand verfolgt und dabei an eine innere Grenze stößt."
+                let base = seed.wordCount >= 8 ? seed : (project.isNonfiction
+                    ? "Ein praxisnahes \(project.genre), das ein konkretes Leserproblem schrittweise erklärt und in einen realistischen, umsetzbaren Handlungsplan überführt."
+                    : "Ein \(project.genre) um eine Hauptfigur, die ein dringendes Ziel gegen wachsenden Widerstand verfolgt und dabei an eine innere Grenze stößt.")
                 if seed.wordCount < 8 { profile.premise = base }
                 if (profile.logline ?? "").isEmpty { profile.logline = String(base.prefix(180)) }
                 if (profile.synopsis ?? "").isEmpty {
-                    profile.synopsis = base + " Im Verlauf eskaliert der zentrale Konflikt über mehrere Wendepunkte, bis eine Entscheidung unter höchstem Druck zur emotional befriedigenden Auflösung führt."
+                    profile.synopsis = base + (project.isNonfiction
+                        ? " Die Inhalte bauen vom Verständnis über konkrete Anwendung bis zu einem nachhaltigen Umsetzungsplan auf."
+                        : " Im Verlauf eskaliert der zentrale Konflikt über mehrere Wendepunkte, bis eine Entscheidung unter höchstem Druck zur emotional befriedigenden Auflösung führt.")
                 }
                 addReport(project: project, area: "Konzept", type: "Konzeptentwicklung",
                           result: "Kein verwertbares Konzept vom Modell – aus dem Ideenkern abgeleitet",
@@ -1757,7 +2150,8 @@ final class PipelineOrchestrator: ObservableObject {
                 pageCount: project.targetPageCount,
                 chapterCount: estimatedChapterCount(for: project),
                 bookSignature: project.styleSignature,
-                sequelContext: project.sequelContext, genreBrief: profile.genreRules
+                sequelContext: project.sequelContext, genreBrief: profile.genreRules,
+                researchContext: profile.researchNotes
             )
             var plot = ""
             var tokens = 0
@@ -1767,7 +2161,9 @@ final class PipelineOrchestrator: ObservableObject {
                 do {
                     let response = try await generate(
                         prompt: prompt + hint,
-                        system: "Du bist ein Plot-Architekt für Romane. Du baust schlüssige, spannende Handlungsbögen.",
+                        system: project.isNonfiction
+                            ? "Du bist ein Sachbucharchitekt. Du baust einen schlüssigen, anwendbaren Lernweg ohne erfundene Belege."
+                            : "Du bist ein Plot-Architekt für Romane. Du baust schlüssige, spannende Handlungsbögen.",
                         maxTokens: 3500, temperature: 0.7, config: config, creative: true
                     )
                     tokens += response.tokensUsed ?? 0
@@ -1793,10 +2189,11 @@ final class PipelineOrchestrator: ObservableObject {
         }
 
         // Figuren
-        if (bible.characters ?? []).isEmpty {
+        if !project.isNonfiction, (bible.characters ?? []).isEmpty {
             let job = beginJob(agent: AgentName.character, phase: .structurePlanning, project: project)
             let prompt = PromptFactory.characters(
                 title: project.title, genre: project.genre, plot: bible.plotPoints,
+                concept: [profile.premise, profile.synopsis ?? ""].filter { !$0.isEmpty }.joined(separator: "\n"),
                 sequelContext: project.sequelContext
             )
             var parsed: [ParsedCharacter] = []
@@ -1827,6 +2224,8 @@ final class PipelineOrchestrator: ObservableObject {
                           severity: .info, recommendation: "Figuren in der Story Bible ausarbeiten.")
             }
             if bible.characters == nil { bible.characters = [] }
+            let primaryCanon = primaryStoryCanon(project: project)
+            let characterNames = parsed.map(\.name)
             for item in parsed {
                 let character = CharacterProfile(name: item.name, role: item.role)
                 character.age = item.age
@@ -1835,7 +2234,13 @@ final class PipelineOrchestrator: ObservableObject {
                 character.fear = item.fear
                 character.weakness = item.weakness
                 character.speechPattern = item.speech          // unverwechselbare Dialogstimme
-                character.importantFacts = item.appearance     // kanonische äußere Merkmale
+                character.relationships = AutonomousContentQuality.groundedRelationships(
+                    item.relationships, canon: primaryCanon, characterNames: characterNames,
+                    subject: item.name
+                )
+                // Handlungstatsachen werden ausschließlich aus Buchprofil und Plot abgeleitet.
+                // Freie Modellzusätze wie erfundene Fehlgeburten dürfen nicht zum Kanon werden.
+                character.importantFacts = item.appearance.isEmpty ? "" : "Äußeres: \(item.appearance)"
                 character.storyBible = bible
                 bible.characters?.append(character)
                 modelContext?.insert(character)
@@ -1857,22 +2262,25 @@ final class PipelineOrchestrator: ObservableObject {
             }
             resetChapterPlan(for: project)
         }
-        guard let bible = project.storyBible else {
-            throw AIError.systemError("Story Bible fehlt")
+        guard let bible = project.storyBible, let profile = project.bookProfile else {
+            throw AIError.systemError("Story Bible oder Buchprofil fehlt")
         }
 
         project.status = .chapterPlanning
-        let plan = LongFormProductionPlan(pageCount: project.targetPageCount)
+        let plan = productionPlan(for: project)
         let chapterCount = plan.chapterCount
         let wordsPerChapter = plan.targetWordsPerChapter
 
         let job = beginJob(agent: AgentName.chapterPlanner, phase: .chapterPlanning, project: project)
+        let primaryCanon = primaryStoryCanon(project: project)
+        let characterNames = (bible.characters ?? []).map(\.name)
         let prompt = PromptFactory.chapterPlan(
             title: project.title, genre: project.genre, plot: bible.plotPoints,
             chapterCount: chapterCount, wordsPerChapter: wordsPerChapter,
             scenesPerChapter: plan.scenesPerChapter,
             bookSignature: project.styleSignature,
-            genreBrief: project.bookProfile?.genreRules ?? ""
+            genreBrief: profile.genreRules,
+            canonicalStory: canonicalStoryContext(project: project)
         )
         var planned: [PlannedChapter] = []
         var tokens = 0
@@ -1882,36 +2290,60 @@ final class PipelineOrchestrator: ObservableObject {
             do {
                 let response = try await generate(
                     prompt: prompt + hint,
-                    system: "Du bist ein Strukturplaner für Romane. Du hältst dich exakt an das geforderte Ausgabeformat.",
-                    maxTokens: 3000, temperature: 0.6, config: config
+                    system: project.isNonfiction
+                        ? "Du bist ein Sachbuch-Strukturplaner. Du planst einen klaren Lernweg und hältst das Ausgabeformat exakt ein."
+                        : "Du bist ein Strukturplaner für Romane. Du hältst dich exakt an das geforderte Ausgabeformat.",
+                    maxTokens: min(8_000, max(4_000, chapterCount * 120)),
+                    temperature: 0.6, config: config
                 )
                 tokens += response.tokensUsed ?? 0
                 let candidate = StructureParser.parseChapters(response.text)
-                if candidate.count > planned.count { planned = candidate }
-                if AutonomousContentQuality.hasUsableChapterPlan(planned) { lastError = nil; break }
+                for item in candidate {
+                    let itemText = "\(item.title)\n\(item.goal)\n\(item.conflict)"
+                    let canonClaims = AutonomousContentQuality.unsupportedCanonClaims(
+                        in: itemText, canon: primaryCanon, characterNames: characterNames
+                    )
+                    let genreDrift = AutonomousContentQuality.hasScenePlanGenreDrift(
+                        itemText, genre: project.genre, canon: primaryCanon
+                    )
+                    guard canonClaims.isEmpty, !genreDrift else { continue }
+                    if let existing = planned.firstIndex(where: { $0.number == item.number }) {
+                        planned[existing] = item
+                    } else {
+                        planned.append(item)
+                    }
+                }
+                planned.sort { $0.number < $1.number }
+                if planned.count >= chapterCount,
+                   AutonomousContentQuality.hasUsableChapterPlan(planned) {
+                    lastError = nil
+                    break
+                }
             } catch {
                 lastError = error
                 if isFatalProductionError(error) { failJob(job, error: error); throw error }
             }
         }
         var usedFallback = false
-        if !AutonomousContentQuality.hasUsableChapterPlan(planned) {
+        if planned.count < chapterCount || !AutonomousContentQuality.hasUsableChapterPlan(planned) {
             // Provider lieferte nichts → pausieren (fortsetzbar).
             if planned.isEmpty, let error = lastError { failJob(job, error: error); throw error }
             // NICHT den ganzen Plan verwerfen (sonst gingen alle echten, kreativen
             // Kapiteltitel verloren und das Buch bekäme generische „Aufbruch N"-Titel).
             // Stattdessen nur die schwachen Einzelfelder reparieren.
             usedFallback = planned.count < max(3, chapterCount / 2)
-            planned = Self.repairedChapterPlan(planned, count: chapterCount)
+            planned = Self.repairedChapterPlan(planned, count: chapterCount,
+                                               isNonfiction: project.isNonfiction)
         }
 
         if project.chapters == nil { project.chapters = [] }
-        for item in planned {
+        let chapterTargets = targetWordsByChapter(project: project, count: planned.count)
+        for (index, item) in planned.enumerated() {
             let chapter = Chapter(
                 chapterNumber: item.number,
                 title: item.title,
                 goal: item.goal,
-                targetWordCount: max(1, project.targetWordCount / planned.count)
+                targetWordCount: chapterTargets[index]
             )
             chapter.conflict = item.conflict
             chapter.project = project
@@ -1933,7 +2365,7 @@ final class PipelineOrchestrator: ObservableObject {
             throw AIError.systemError("Story Bible oder Buchprofil fehlt")
         }
         project.status = .scenePlanning
-        let plan = LongFormProductionPlan(pageCount: project.targetPageCount)
+        let plan = productionPlan(for: project)
 
         let chapters = sortedChapters(project)
         for chapter in chapters where !hasUsableExistingScenePlan(chapter, expectedCount: plan.scenesPerChapter) {
@@ -1941,6 +2373,35 @@ final class PipelineOrchestrator: ObservableObject {
         }
         let pending = chapters.filter { ($0.scenes ?? []).isEmpty } // Fortsetzen: nur ungeplante
         guard !pending.isEmpty else { return }
+        let primaryCanon = primaryStoryCanon(project: project)
+        let characterNames = (bible.characters ?? []).map(\.name)
+
+        // Der Kapitelplan enthält bereits den vollständigen dramaturgischen Bogen. Für Romane
+        // zerlegen wir ihn lokal in kausale Beats. Separate Modellaufrufe pro Kapitel führten
+        // wiederholt zu vorgezogenen Enthüllungen, erfundenen Fundstücken und Genre-Abdrift.
+        if !project.isNonfiction {
+            for (index, chapter) in pending.enumerated() {
+                let job = beginJob(agent: AgentName.scenePlanner, phase: .scenePlanning,
+                                   project: project, chapter: chapter.chapterNumber)
+                persistScenePlanResult(
+                    .failure(AIError.systemError("Lokaler kanontreuer Szenenplan")),
+                    chapter: chapter,
+                    job: job,
+                    project: project,
+                    profile: profile,
+                    expectedCount: plan.scenesPerChapter,
+                    primaryCanon: primaryCanon,
+                    characterNames: characterNames
+                )
+                currentAgent = "\(AgentName.scenePlanner) – \(index + 1)/\(pending.count) Kapitel geplant"
+                updateProgress(phase: .scenePlanning,
+                               subProgress: Double(index + 1) / Double(pending.count))
+                modelContext?.saveOrLog()
+            }
+            aggregateLocations(into: bible, chapters: chapters)
+            modelContext?.saveOrLog()
+            return
+        }
 
         var jobs: [PipelineJob] = []
         var requests: [GenerationRequest] = []
@@ -1957,102 +2418,149 @@ final class PipelineOrchestrator: ObservableObject {
                     targetWords: chapter.targetWordCount,
                     scenesPerChapter: plan.scenesPerChapter,
                     // Schlusskapitel: Auszahlung statt erzwungenem Cliffhanger.
-                    isFinalChapter: chapter.chapterNumber == chapters.last?.chapterNumber
+                    isFinalChapter: chapter.chapterNumber == chapters.last?.chapterNumber,
+                    canonicalStory: canonicalStoryContext(project: project)
                 ),
-                system: "Du bist ein Szenenplaner für Romane. Du hältst dich exakt an das geforderte Ausgabeformat.",
+                system: project.isNonfiction
+                    ? "Du bist ein Sachbuchredakteur. Du planst nützliche Abschnitte und hältst das Ausgabeformat exakt ein."
+                    : "Du bist ein Szenenplaner für Romane. Du hältst dich exakt an das geforderte Ausgabeformat.",
                 maxTokens: 1200, temperature: 0.6, config: config
             ))
         }
         currentAgent = "\(AgentName.scenePlanner) – \(pending.count) Kapitel parallel"
 
         var answered = 0
-        let results = await runParallelGeneration(requests: requests, config: config) { _, _ in
+        _ = await runParallelGeneration(requests: requests, config: config) { index, result in
+            self.persistScenePlanResult(
+                result,
+                chapter: pending[index],
+                job: jobs[index],
+                project: project,
+                profile: profile,
+                expectedCount: plan.scenesPerChapter,
+                primaryCanon: primaryCanon,
+                characterNames: characterNames
+            )
             answered += 1
             self.currentAgent = "\(AgentName.scenePlanner) – \(answered)/\(pending.count) Kapitel beantwortet"
             self.updateProgress(phase: .scenePlanning, subProgress: Double(answered) / Double(pending.count))
-        }
-
-        var done = 0
-        for (index, chapter) in pending.enumerated() {
-            // Geplante Szenen aus der Modellantwort (leer, falls der Aufruf scheiterte).
-            var planned: [PlannedScene] = []
-            var tokens = 0
-            if case .success(let response)? = results[index] {
-                planned = StructureParser.parseScenes(response.text)
-                tokens = response.tokensUsed ?? 0
-            }
-
-            // Auf die Sollzahl mit kapitelspezifischen Szenen auffüllen …
-            if planned.count < plan.scenesPerChapter {
-                for n in (planned.count + 1)...plan.scenesPerChapter {
-                    planned.append(syntheticScene(number: n, chapter: chapter,
-                                                  perspective: profile.narrativePerspective))
-                }
-            }
-            // … und bei insgesamt unbrauchbarem Plan komplett ersetzen. So lässt ein
-            // einzelnes schwaches Kapitel (oder ein Provider-Aussetzer bei einem von
-            // vielen parallelen Aufrufen) NICHT mehr das ganze Buch scheitern.
-            if !AutonomousContentQuality.hasUsableScenePlan(planned, expectedCount: plan.scenesPerChapter) {
-                planned = (1...plan.scenesPerChapter).map {
-                    syntheticScene(number: $0, chapter: chapter, perspective: profile.narrativePerspective)
-                }
-                addReport(project: project, area: "Kapitel \(chapter.chapterNumber)", type: "Szenenplan",
-                          result: "Modell lieferte keinen verwertbaren Szenenplan – automatisch ergänzt",
-                          severity: .info,
-                          recommendation: "Szenen dieses Kapitels bei Bedarf im Manuskript verfeinern.")
-            }
-
-            if chapter.scenes == nil { chapter.scenes = [] }
-            for item in planned {
-                let scene = StoryScene(
-                    sceneNumber: item.number,
-                    perspective: item.perspective.isEmpty ? profile.narrativePerspective : item.perspective,
-                    location: item.location,
-                    goal: item.goal,
-                    targetWordCount: max(1, chapter.targetWordCount / planned.count)
-                )
-                scene.time = item.time
-                scene.obstacle = item.obstacle
-                scene.cliffhanger = item.turn
-                scene.chapter = chapter
-                chapter.scenes?.append(scene)
-                modelContext?.insert(scene)
-            }
-            chapter.status = .scenesPlanned
-            completeJob(jobs[index], result: "\(planned.count) Szenen geplant", tokens: tokens)
-            done += 1
-            updateProgress(phase: .scenePlanning, subProgress: Double(done) / Double(pending.count))
+            self.modelContext?.saveOrLog()
         }
         // Schauplätze aus den Szenenplänen in die Story Bible übernehmen.
-        aggregateLocations(into: bible, chapters: chapters)
+        if !project.isNonfiction {
+            aggregateLocations(into: bible, chapters: chapters)
+        }
         modelContext?.saveOrLog()
 
         try Task.checkCancellation()
     }
 
+    private func persistScenePlanResult(
+        _ result: Result<GenerationResponse, Error>,
+        chapter: Chapter,
+        job: PipelineJob,
+        project: Project,
+        profile: BookProfile,
+        expectedCount: Int,
+        primaryCanon: String,
+        characterNames: [String]
+    ) {
+        var planned: [PlannedScene] = []
+        var tokens = 0
+        if case .success(let response) = result {
+            let canonClaims = AutonomousContentQuality.unsupportedCanonClaims(
+                in: response.text, canon: primaryCanon, characterNames: characterNames
+            )
+            let genreDrift = AutonomousContentQuality.hasScenePlanGenreDrift(
+                response.text, genre: project.genre, canon: primaryCanon
+            )
+            if canonClaims.isEmpty, !genreDrift {
+                planned = StructureParser.parseScenes(response.text)
+            } else {
+                addReport(project: project, area: "Kapitel \(chapter.chapterNumber)",
+                          type: "Kanon-Kontinuität",
+                          result: genreDrift
+                            ? "Szenenplan wegen Genre-Abdrift verworfen."
+                            : "Szenenplan mit unbelegtem Kanon verworfen: "
+                                + canonClaims.prefix(2).joined(separator: " | "),
+                          severity: .warning,
+                          recommendation: "Szenen wurden kanontreu automatisch ersetzt.")
+            }
+            tokens = response.tokensUsed ?? 0
+        }
+
+        if planned.count < expectedCount {
+            for number in (planned.count + 1)...expectedCount {
+                planned.append(syntheticScene(
+                    number: number, chapter: chapter,
+                    perspective: profile.narrativePerspective,
+                    isNonfiction: project.isNonfiction
+                ))
+            }
+        }
+        if !AutonomousContentQuality.hasUsableScenePlan(planned, expectedCount: expectedCount) {
+            planned = (1...expectedCount).map {
+                syntheticScene(number: $0, chapter: chapter,
+                               perspective: profile.narrativePerspective,
+                               isNonfiction: project.isNonfiction)
+            }
+            addReport(project: project, area: "Kapitel \(chapter.chapterNumber)", type: "Szenenplan",
+                      result: "Modell lieferte keinen verwertbaren Szenenplan – automatisch ergänzt",
+                      severity: .info,
+                      recommendation: "Szenen dieses Kapitels bei Bedarf im Manuskript verfeinern.")
+        }
+
+        if chapter.scenes == nil { chapter.scenes = [] }
+        let sceneTargets = variedWordTargets(
+            total: chapter.targetWordCount,
+            count: planned.count,
+            seedKey: "\(project.id.uuidString)|chapter|\(chapter.chapterNumber)|sections",
+            spread: project.isNonfiction ? 0.12 : 0.20
+        )
+        for (index, item) in planned.enumerated() {
+            let scene = StoryScene(
+                sceneNumber: item.number,
+                perspective: item.perspective.isEmpty ? profile.narrativePerspective : item.perspective,
+                location: item.location,
+                goal: item.goal,
+                targetWordCount: sceneTargets[index]
+            )
+            scene.time = item.time
+            scene.obstacle = item.obstacle
+            scene.cliffhanger = item.turn
+            scene.chapter = chapter
+            chapter.scenes?.append(scene)
+            modelContext?.insert(scene)
+        }
+        chapter.status = .scenesPlanned
+        completeJob(job, result: "\(planned.count) Szenen geplant", tokens: tokens)
+    }
+
     /// Garantiert verwertbare, kapitelspezifische Ersatz-Szene (besteht die
     /// Qualitäts-Gates und gibt dem Draft Writer echte dramaturgische Richtung).
-    private func syntheticScene(number: Int, chapter: Chapter, perspective: String) -> PlannedScene {
+    private func syntheticScene(number: Int, chapter: Chapter, perspective: String,
+                                isNonfiction: Bool = false) -> PlannedScene {
         let title = chapter.title.isEmpty ? "diesem Kapitel" : chapter.title
-        let goalBase = chapter.goal.isEmpty ? "das Ziel der Figuren" : chapter.goal
-        let conflict = chapter.conflict.isEmpty ? "der ungelöste Konflikt der Figuren" : chapter.conflict
-        let functions = [
-            "bringt die Hauptfigur durch \(conflict) in akute Bedrängnis",
-            "erzwingt eine Entscheidung, die \(goalBase) ernsthaft gefährdet",
-            "enthüllt eine Information, die das Kräfteverhältnis spürbar kippt",
-            "lässt einen Rückschlag den Einsatz für alle Beteiligten erhöhen",
-            "treibt eine zentrale Beziehung in eine offene Krise",
-            "endet mit einer Drohung, die unmittelbar ins nächste Kapitel zieht"
-        ]
-        let fn = functions[(number - 1) % functions.count]
-        return PlannedScene(
+        if isNonfiction {
+            let goal = chapter.goal.isEmpty ? "ein konkretes Lernziel erreichen" : chapter.goal
+            let obstacle = chapter.conflict.isEmpty
+                ? "ein typisches Verständnis- oder Umsetzungshindernis"
+                : chapter.conflict
+            let functions = ["Grundlage verständlich erklären", "Methode an einem Beispiel zeigen",
+                             "Leser zur praktischen Anwendung führen", "Fehler mit einer Checkliste vermeiden"]
+            let function = functions[(number - 1) % functions.count]
+            return PlannedScene(number: number, perspective: "Leser", location: function,
+                                time: "Schritt \(number)",
+                                goal: "In \(title) \(goal), indem wir \(function.lowercased()).",
+                                obstacle: "\(obstacle) wird konkret und ohne Abkürzung bearbeitet.",
+                                turn: "Der Leser erhält eine konkrete Anwendung oder einen nächsten Schritt.")
+        }
+        return AutonomousContentQuality.safeFictionScene(
             number: number,
-            perspective: perspective,
-            location: "",
-            time: "",
-            goal: "In „\(title)“ \(fn).",
-            obstacle: "\(conflict) blockiert das unmittelbare Vorankommen der Szene.",
-            turn: "Eine neue Wendung verschiebt die Lage und wirft eine drängende offene Frage auf."
+            chapterTitle: title,
+            chapterGoal: chapter.goal,
+            chapterConflict: chapter.conflict,
+            perspective: perspective
         )
     }
 
@@ -2068,6 +2576,19 @@ final class PipelineOrchestrator: ObservableObject {
         default:
             return false
         }
+    }
+
+    /// Absolute Wachstums-Grenze für JEDE Kapitel-Neufassung (Revision, Proofreading,
+    /// Repair, Patch): Ein Kapitel, das bereits über der Freigabe-Grenze liegt
+    /// (targetWordCount × maximumChapterWordRatio), darf durch keinen Umschreibe-
+    /// Schritt weiter wachsen – nur gleich lang bleiben oder kürzer werden.
+    /// Relative Deckel (z.B. +15 % je Runde) komponieren sich sonst über die
+    /// Selbstkorrektur-Runden (beobachtet: 1,53× → 1,88× des Ziels).
+    private func withinGrowthCeiling(_ candidate: String, source: String, chapter: Chapter) -> Bool {
+        guard chapter.targetWordCount > 0 else { return true }
+        let ceiling = max(source.wordCount,
+                          Int(Double(chapter.targetWordCount) * PublicationReadiness.maximumChapterWordRatio))
+        return candidate.wordCount <= ceiling
     }
 
     /// Klar markierter Platzhaltertext, falls eine Szene trotz Wiederholungen nicht
@@ -2087,6 +2608,19 @@ final class PipelineOrchestrator: ObservableObject {
     private func fallbackPlot(project: Project, profile: BookProfile) -> String {
         let base = (profile.synopsis?.isEmpty == false ? profile.synopsis! : profile.premise)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        if project.isNonfiction {
+            let seed = base.isEmpty
+                ? "Das Buch löst ein konkretes Problem der Zielgruppe mit einem nachvollziehbaren Lernweg."
+                : base
+            return """
+            SACHBUCH-ARCHITEKTUR
+            AUSGANGSLAGE UND LESERPROBLEM: \(seed)
+            TEIL 1 – ORIENTIERUNG: Begriffe, Ausgangslage, Grenzen und realistisches Ziel klären.
+            TEIL 2 – METHODE: Grundlagen schrittweise erklären, an Beispielen demonstrieren und einüben.
+            TEIL 3 – ANWENDUNG: typische Hindernisse bearbeiten, Transfer sichern und einen konkreten Umsetzungsplan erstellen.
+            Jedes Kapitel liefert Lernziel, Beispiel, Anwendung und Zusammenfassung. Unbelegte aktuelle Behauptungen werden mit [QUELLE PRÜFEN] markiert.
+            """
+        }
         let seed = base.isEmpty ? "Die Hauptfigur verfolgt ein dringendes Ziel und stößt auf wachsenden Widerstand." : base
         return """
         AUSGANGSLAGE: \(seed)
@@ -2120,15 +2654,25 @@ final class PipelineOrchestrator: ObservableObject {
     /// verwerfen. Echte, kreative Kapiteltitel des Modells bleiben erhalten; nur
     /// generische Titel oder zu dünne Ziele/Konflikte werden ersetzt. So bekommen
     /// Bücher echte Kapiteltitel statt durchgehend „Aufbruch N".
-    nonisolated static func repairedChapterPlan(_ planned: [PlannedChapter], count: Int) -> [PlannedChapter] {
+    nonisolated static func repairedChapterPlan(_ planned: [PlannedChapter], count: Int,
+                                                isNonfiction: Bool = false) -> [PlannedChapter] {
         let n = max(3, count)
         return (1...n).map { i in
             let phase: String
-            switch Double(i) / Double(n) {
-            case ..<0.25: phase = "Aufbruch"
-            case ..<0.5: phase = "Eskalation"
-            case ..<0.75: phase = "Krise"
-            default: phase = "Auflösung"
+            if isNonfiction {
+                switch Double(i) / Double(n) {
+                case ..<0.25: phase = "Orientierung"
+                case ..<0.5: phase = "Grundlagen"
+                case ..<0.75: phase = "Anwendung"
+                default: phase = "Transfer"
+                }
+            } else {
+                switch Double(i) / Double(n) {
+                case ..<0.25: phase = "Aufbruch"
+                case ..<0.5: phase = "Eskalation"
+                case ..<0.75: phase = "Krise"
+                default: phase = "Auflösung"
+                }
             }
             let existing = planned.first { $0.number == i }
                 ?? (planned.indices.contains(i - 1) ? planned[i - 1] : nil)
@@ -2139,9 +2683,13 @@ final class PipelineOrchestrator: ObservableObject {
                 ? rawTitle : "\(phase) \(i)"
             let goal = (rawGoal.wordCount >= 5 && !AutonomousContentQuality.isGenericPlaceholder(rawGoal))
                 ? rawGoal
-                : "Treibe den Hauptkonflikt in der \(phase)-Phase durch eine eigenständige Eskalation spürbar voran."
+                : (isNonfiction
+                    ? "Vermittle in der Phase \(phase) ein konkretes Lernziel und führe es in eine praktische Anwendung."
+                    : "Treibe den Hauptkonflikt in der \(phase)-Phase durch eine eigenständige Eskalation spürbar voran.")
             let conflict = rawConflict.wordCount >= 3
-                ? rawConflict : "Ein konkretes Hindernis stellt sich dem Ziel dieses Kapitels entgegen."
+                ? rawConflict : (isNonfiction
+                    ? "Ein typisches Verständnis- oder Umsetzungshindernis des Lesers wird konkret gelöst."
+                    : "Ein konkretes Hindernis stellt sich dem Ziel dieses Kapitels entgegen.")
             return PlannedChapter(number: i, title: title, goal: goal, conflict: conflict)
         }
     }
@@ -2169,6 +2717,16 @@ final class PipelineOrchestrator: ObservableObject {
     /// damit die Dauerproduktion NIE abbricht. Variiert über den Index, um
     /// Wiederholungen zu vermeiden.
     private func fallbackIdea(genre: String, index: Int) -> ParsedIdea {
+        if BookContentType.infer(from: genre) == .nonfiction {
+            let topics = [
+                ("Kleine Schritte, die bleiben", "LESERPROBLEM: Gute Vorsätze scheitern an zu großen Veränderungen. NUTZENVERSPRECHEN: Der Leser entwickelt eine realistische Alltagsroutine. METHODE: kleine Auslöser, einfache Schritte und wöchentliche Reflexion."),
+                ("Klar entscheiden im Alltag", "LESERPROBLEM: Zu viele Optionen führen zu Aufschub und mentaler Last. NUTZENVERSPRECHEN: Der Leser trifft alltägliche Entscheidungen strukturierter. METHODE: Prioritäten, Entscheidungskriterien und praktische Checklisten."),
+                ("Weniger planen, mehr schaffen", "LESERPROBLEM: Komplizierte Planungssysteme werden selbst zur Belastung. NUTZENVERSPRECHEN: Der Leser baut ein schlankes Arbeitssystem auf. METHODE: Aufgaben begrenzen, Fokuszeiten und regelmäßiges Aussortieren."),
+                ("Gespräche, die weiterführen", "LESERPROBLEM: Schwierige Gespräche enden oft in Rechtfertigung oder Rückzug. NUTZENVERSPRECHEN: Der Leser bereitet klare und respektvolle Gespräche vor. METHODE: Beobachtung, Anliegen, Zuhören und konkrete Vereinbarung.")
+            ]
+            let item = topics[abs(index) % topics.count]
+            return ParsedIdea(title: item.0, genre: genre, premise: item.1)
+        }
         let titles = [
             "Honig auf der Klinge", "Drei Winter, die es nie gab", "Was du im Dunkeln versprochen hast",
             "Sie log beim Frühstück", "Das letzte Streichholz", "Ich habe dich erfunden",
@@ -2242,26 +2800,22 @@ final class PipelineOrchestrator: ObservableObject {
         totalScenes = allScenes.count
         completedScenes = allScenes.filter { isSceneWritten($0) }.count
 
-        // Kontinuität: vorhandene Zusammenfassungen und den letzten Szenentext
-        // einsammeln (wichtig beim Fortsetzen).
+        // Kontinuität wird beim Durchlaufen in Reihenfolge aufgebaut. Eine globale
+        // Vorbefüllung mit allen vorhandenen Zusammenfassungen würde beim Reparieren
+        // früher Szenen versehentlich Informationen aus späteren Kapiteln verraten.
         var storySoFar: [String] = []
         var previousSceneText: String?
         // Langstrecken-Gedächtnis: verdichtete Zusammenfassung jedes abgeschlossenen
         // Kapitels – verhindert Wiederholungen über hunderte Seiten.
         var chapterDigests: [String] = []
-        for chapter in chapters {
-            if let digest = chapter.summary, !digest.isEmpty {
-                chapterDigests.append("Kapitel \(chapter.chapterNumber) (\(chapter.title)): \(digest)")
-            }
-            for scene in sortedScenes(chapter) where isSceneWritten(scene) {
-                if let summary = scene.summary, !summary.isEmpty {
-                    storySoFar.append("Kap. \(chapter.chapterNumber), Szene \(scene.sceneNumber): \(summary)")
-                }
-                previousSceneText = scene.text
-            }
-        }
+        var priorProseTexts: [String] = []
 
         let charactersSummary = compactCharacterSummary(bible)
+        let primaryCanon = primaryStoryCanon(project: project)
+        let characterNames = (bible.characters ?? []).map(\.name)
+        let catalogAvoidance = StoryMemory.makeLanguageAvoidanceBrief(
+            projects: existingProjects(), excluding: project.id
+        )
 
         for (chapterIndex, chapter) in chapters.enumerated() {
             currentChapter = chapter.chapterNumber
@@ -2269,9 +2823,21 @@ final class PipelineOrchestrator: ObservableObject {
 
             for (sceneIndex, scene) in scenes.enumerated() {
                 try Task.checkCancellation()
-                if isSceneWritten(scene) {
-                    previousSceneText = scene.text
-                    continue
+                if isSceneWritten(scene), let existingText = scene.text {
+                    let collisions = AutonomousContentQuality.repeatedSentenceCollisions(
+                        candidate: existingText,
+                        priorTexts: priorProseTexts
+                    )
+                    if collisions.isEmpty {
+                        previousSceneText = existingText
+                        priorProseTexts.append(existingText)
+                        if let summary = scene.summary, !summary.isEmpty {
+                            storySoFar.append(
+                                "Kap. \(chapter.chapterNumber), Szene \(scene.sceneNumber): \(summary)"
+                            )
+                        }
+                        continue
+                    }
                 }
                 if (scene.text ?? "").isEmpty == false {
                     scene.text = nil
@@ -2297,6 +2863,23 @@ final class PipelineOrchestrator: ObservableObject {
                 // Amazon-Leseprobe = die ersten ~10% des Buches: Hier entscheidet sich der Kauf.
                 if percent <= 10 {
                     positionParts.append("LESEPROBE-BEREICH: Dieses Kapitel liegt in der Amazon-Leseprobe (Blick ins Buch) – maximaler Sog, keine Längen, keine Rückblenden, kein Welt-Erklären. Jede Seite muss zum Kauf führen.")
+                }
+                if isFirstScene {
+                    let planningText = "\(chapter.goal) \(chapter.conflict) \(scene.goal) \(scene.obstacle)"
+                        .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                        .lowercased()
+                    let allowedCharacters = (bible.characters ?? []).map(\.name).filter { name in
+                        let normalized = name.folding(
+                            options: [.caseInsensitive, .diacriticInsensitive], locale: .current
+                        ).lowercased()
+                        let firstName = normalized.split(separator: " ").first.map(String.init) ?? normalized
+                        return planningText.contains(normalized) || planningText.contains(firstName)
+                    }
+                    positionParts.append(
+                        "FIGURENEINSATZ DER ERSTEN SZENE: Auftreten dürfen ausschließlich: "
+                        + (allowedCharacters.isEmpty ? "die Perspektivfigur" : allowedCharacters.joined(separator: ", "))
+                        + ". Keine weitere benannte Figur zeigen, beobachten lassen, ankündigen oder als Silhouette einführen."
+                    )
                 }
                 // Romance-Kernversprechen: die Beziehung eskaliert MESSBAR über das Buch.
                 if AutonomousContentQuality.isRomanceGenre(project.genre) {
@@ -2331,6 +2914,19 @@ final class PipelineOrchestrator: ObservableObject {
                             + openThreads.suffix(10).map { "- \($0)" }.joined(separator: "\n"))
                     }
                 }
+                let sceneArea = "Kapitel \(chapter.chapterNumber), Szene \(scene.sceneNumber)"
+                let priorQualityFindings = (project.qualityReports ?? [])
+                    .filter { !$0.autoFixed && $0.checkedArea == sceneArea }
+                    .suffix(4)
+                if !priorQualityFindings.isEmpty {
+                    let retryGuidance = Array(Set(priorQualityFindings.map(\.recommendation)))
+                        .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                        .sorted()
+                    positionParts.append(
+                        "VERBINDLICHE KORREKTURREGELN AUS VORHERIGEN VERSUCHEN:\n"
+                        + retryGuidance.map { "- \($0)" }.joined(separator: "\n")
+                    )
+                }
                 let positionBlock = positionParts.joined(separator: "\n")
 
                 let job = beginJob(agent: AgentName.draftWriter, phase: .drafting, project: project,
@@ -2349,6 +2945,35 @@ final class PipelineOrchestrator: ObservableObject {
                         contextParts.append("LETZTE SZENEN IM DETAIL:\n" + recentScenes.joined(separator: "\n"))
                     }
                     let recentContext = contextParts.joined(separator: "\n\n")
+                    let allowedDraftContext = [
+                        chapter.goal, chapter.conflict, scene.goal, scene.obstacle,
+                        scene.cliffhanger, recentContext
+                    ].joined(separator: "\n")
+                    let normalizedAllowedContext = allowedDraftContext.folding(
+                        options: [.caseInsensitive, .diacriticInsensitive], locale: .current
+                    ).lowercased()
+                    let allowedSceneCharacters = (bible.characters ?? []).map(\.name).filter { name in
+                        let normalized = name.folding(
+                            options: [.caseInsensitive, .diacriticInsensitive], locale: .current
+                        ).lowercased()
+                        let firstName = normalized.split(separator: " ").first.map(String.init) ?? normalized
+                        return normalizedAllowedContext.contains(normalized)
+                            || normalizedAllowedContext.contains(firstName)
+                    }
+                    let sceneCharactersSummary = charactersSummary.components(separatedBy: .newlines)
+                        .filter { line in
+                            allowedSceneCharacters.contains { line.hasPrefix($0 + " ") }
+                        }
+                        .joined(separator: "\n")
+                    let sceneDraftCanon = draftStoryCanon(characterSummary: sceneCharactersSummary)
+                    let alreadyOverused = AutonomousContentQuality.repeatedSentences(
+                        inChapters: priorProseTexts,
+                        minimumOccurrences: 2,
+                        maxResults: 12
+                    )
+                    let manuscriptAvoidance = alreadyOverused
+                        .map { "- \($0)" }
+                        .joined(separator: "\n")
                     let basePrompt = PromptFactory.draftScene(
                         language: project.language, style: project.styleProfile,
                         tonality: profile.tonality, perspective: profile.narrativePerspective,
@@ -2358,7 +2983,7 @@ final class PipelineOrchestrator: ObservableObject {
                         sceneGoal: scene.goal, sceneLocation: scene.location,
                         sceneTime: scene.time, sceneObstacle: scene.obstacle,
                         sceneTurn: scene.cliffhanger, scenePerspective: scene.perspective,
-                        charactersSummary: charactersSummary,
+                        charactersSummary: sceneCharactersSummary,
                         styleRules: bible.styleRules,
                         storySoFar: recentContext,
                         previousSceneEnding: previousEnding,
@@ -2367,42 +2992,169 @@ final class PipelineOrchestrator: ObservableObject {
                         bookSignature: project.styleSignature,
                         spiceLevel: project.spiceLevel,
                         genreBrief: profile.genreRules,
-                        positionBlock: positionBlock
+                        positionBlock: positionBlock,
+                        catalogAvoidance: catalogAvoidance,
+                        manuscriptAvoidance: manuscriptAvoidance,
+                        researchContext: profile.researchNotes,
+                        canonicalStory: sceneDraftCanon
                     )
                     let maxTokens = LongFormProductionPlan.draftMaxTokens(forTargetWords: scene.targetWordCount)
                     let minWords = Int(Double(scene.targetWordCount) * 0.75)
 
                     var sceneText = ""
                     var sceneTokens = 0
+                    var sceneFinishReason: String?
                     var lastProviderError: Error?
-                    // Bis zu 2 Schreibversuche. Provider-FATAL-Fehler pausieren das Buch
+                    var lastSentenceCollisions: [String] = []
+                    var lastClarityPhrases: [String] = []
+                    var lastCanonClaims: [String] = []
+                    var lastGenreDrift = false
+                    var lastUnexpectedCharacters: [String] = []
+                    var lastUnexpectedArtifacts: [String] = []
+                    var lastStyleTics: [String] = []
+                    // Bis zu 3 Schreibversuche. Provider-FATAL-Fehler pausieren das Buch
                     // (fortsetzbar); reine Inhaltsschwäche lässt es NIE scheitern.
-                    for attempt in 1...2 {
-                        let hint = attempt == 1 ? "" : "\n\nDer vorige Versuch war zu kurz, unbrauchbar oder klang zu sehr nach KI. Schreibe jetzt die vollständige Szene als reinen Fließtext, mindestens \(minWords) Wörter, ohne Meta-Kommentare. Schreibe betont menschlich: variiere Satzlängen hart (auch sehr kurze Sätze und Fragmente), keine KI-Floskeln, kein deutender Zusammenfassungssatz am Absatzende."
+                    for attempt in 1...3 {
+                        currentAgent = "\(AgentName.draftWriter) – Kapitel \(chapter.chapterNumber), Szene \(scene.sceneNumber) · Entwurf \(attempt)/3"
+                        let collisionHint = lastSentenceCollisions.isEmpty ? "" : "\n\nWÖRTLICH KOLLIDIERENDE SÄTZE AUS DEM VERSUCH (keinen davon erneut verwenden):\n"
+                            + lastSentenceCollisions.map { "- \($0)" }.joined(separator: "\n")
+                        let clarityHint = lastClarityPhrases.isEmpty ? "" : "\n\nZU VAGE FORMULIERUNGEN AUS DEM VERSUCH (konkret benennen oder streichen):\n"
+                            + lastClarityPhrases.map { "- \($0)" }.joined(separator: "\n")
+                        let canonHint = lastCanonClaims.isEmpty ? "" : "\n\nNICHT DURCH DEN BUCHKANON BELEGTE VERWANDTSCHAFTEN (nicht erneut behaupten):\n"
+                            + lastCanonClaims.map { "- \($0)" }.joined(separator: "\n")
+                        let genreHint = lastGenreDrift
+                            ? "\n\nGENRE-ABDRIFT: Keine bedrohliche Silhouette, versteckte Beobachtung, Waffe, Einbrecher-, Geister- oder Horrorinszenierung. Schreibe die Begegnung offen, menschlich und passend zum Liebesroman."
+                            : ""
+                        let planHint = (lastUnexpectedCharacters + lastUnexpectedArtifacts).isEmpty
+                            ? ""
+                            : "\n\nPLANVERSTOSS: Der vorige Text enthielt eine ungeplante benannte Figur oder ein zusätzliches Fundstück. Verwende ausschließlich Figuren und Elemente aus Szenenziel, Hindernis, Wendung und bisheriger Handlung. Wiederhole keine Namen oder Gegenstände aus verworfenen Versuchen."
+                        let styleTicHint = lastStyleTics.isEmpty ? "" : "\n\nSTIL-TICKS AUS DEM VERSUCH (gehäufte Muster, an denen Leser KI-Prosa erkennen – reduziere sie):\n"
+                            + lastStyleTics.map { "- \($0)" }.joined(separator: "\n")
+                        let hint = attempt == 1 ? "" : (project.isNonfiction
+                            ? "\n\nDer vorige Versuch war zu kurz, unvollständig oder erfüllte die geplante Abschnittsfunktion nicht. Schreibe den vollständigen Abschnitt klar und anwendbar mit 85–115 % der Zielwortzahl. Wenn Abschnittstyp oder Take-away Beispiel, Übung, Aufgabe oder Checkliste verlangen, muss dieses Element sichtbar und vollständig enthalten sein. Erfinde keine Belege oder Statistiken."
+                            : "\n\nDer vorige Versuch war zu kurz, zu lang, unklar, unbrauchbar oder klang zu schematisch. Schreibe jetzt die vollständige Szene als reinen Fließtext mit 85–115 % der Zielwortzahl, ohne Meta-Kommentare. Jeder Absatz macht Handlung, Absicht oder Folge konkret. Keine Standardfloskeln und kein deutender Zusammenfassungssatz am Absatzende.") + collisionHint + clarityHint + canonHint + genreHint + planHint + styleTicHint
                         do {
                             let response = try await generate(
                                 prompt: basePrompt + hint,
-                                system: "Du bist ein professioneller Romanautor. Du schreibst lebendige, atmosphärische Prosa mit natürlichen Dialogen.",
+                                system: project.isNonfiction
+                                    ? "Du bist ein professioneller Sachbuchautor und Fachredakteur. Du schreibst klar, verantwortungsvoll und praktisch."
+                                    : "Du bist ein professioneller Romanautor. Du schreibst lebendige, atmosphärische Prosa mit natürlichen Dialogen.",
                                 maxTokens: maxTokens, temperature: 0.85, config: config, creative: true
                             )
                             sceneTokens += response.tokensUsed ?? 0
+                            let candidateCollisions = AutonomousContentQuality.repeatedSentenceCollisions(
+                                candidate: response.text,
+                                priorTexts: priorProseTexts
+                            )
+                            lastSentenceCollisions = candidateCollisions
+                            let candidateClarity = AutonomousContentQuality.clarityAssessment(response.text)
+                            lastClarityPhrases = candidateClarity.isAcceptable
+                                ? []
+                                : AutonomousContentQuality.clarityRepairPhrases(in: response.text)
+                            lastCanonClaims = AutonomousContentQuality.unsupportedCanonClaims(
+                                in: response.text, canon: primaryCanon,
+                                characterNames: characterNames
+                            )
+                            lastGenreDrift = AutonomousContentQuality.hasScenePlanGenreDrift(
+                                response.text, genre: project.genre, canon: primaryCanon
+                            )
+                            lastUnexpectedCharacters = AutonomousContentQuality.unexpectedCharacterNames(
+                                in: response.text, allowedContext: allowedDraftContext,
+                                characterNames: characterNames
+                            )
+                            lastUnexpectedArtifacts = AutonomousContentQuality.unexpectedStoryArtifacts(
+                                in: response.text, allowedContext: allowedDraftContext
+                            )
+                            lastStyleTics = project.isNonfiction
+                                ? []
+                                : AutonomousContentQuality.styleTicViolations(in: response.text)
                             // „Gut" = keine durchgesickerte Anweisung UND nicht maschinell klingend.
                             // Eine schwächere Fassung führt zu einem neuen Versuch (statt sie zu behalten).
                             let candidateGood = !AutonomousContentQuality.containsPromptArtifacts(response.text)
                                 && !AutonomousContentQuality.soundsLikeAI(response.text)
+                                && !AutonomousContentQuality.isLikelyTruncated(
+                                    response.text, finishReason: response.finishReason)
+                                && !PublicContentGuard.disclosureViolation(in: response.text)
                                 && ContentSafetyFilter.isSafe(response.text)
+                                && candidateCollisions.isEmpty
+                                && candidateClarity.isAcceptable
+                                && lastCanonClaims.isEmpty
+                                && !lastGenreDrift
+                                && lastUnexpectedCharacters.isEmpty
+                                && lastUnexpectedArtifacts.isEmpty
+                                && lastStyleTics.isEmpty
+                                && (!project.isNonfiction
+                                    || AutonomousContentQuality.satisfiesNonfictionSectionContract(
+                                        response.text,
+                                        sectionKind: scene.location,
+                                        takeaway: scene.cliffhanger
+                                    ))
                             let currentGood = !sceneText.isEmpty
                                 && !AutonomousContentQuality.containsPromptArtifacts(sceneText)
                                 && !AutonomousContentQuality.soundsLikeAI(sceneText)
+                                && !AutonomousContentQuality.isLikelyTruncated(
+                                    sceneText, finishReason: sceneFinishReason)
+                                && !PublicContentGuard.disclosureViolation(in: sceneText)
                                 && ContentSafetyFilter.isSafe(sceneText)
+                                && AutonomousContentQuality.clarityAssessment(sceneText).isAcceptable
+                                && AutonomousContentQuality.repeatedSentenceCollisions(
+                                    candidate: sceneText,
+                                    priorTexts: priorProseTexts
+                                ).isEmpty
+                                && AutonomousContentQuality.unsupportedCanonClaims(
+                                    in: sceneText, canon: primaryCanon,
+                                    characterNames: characterNames
+                                ).isEmpty
+                                && !AutonomousContentQuality.hasScenePlanGenreDrift(
+                                    sceneText, genre: project.genre, canon: primaryCanon
+                                )
+                                && AutonomousContentQuality.unexpectedCharacterNames(
+                                    in: sceneText, allowedContext: allowedDraftContext,
+                                    characterNames: characterNames
+                                ).isEmpty
+                                && AutonomousContentQuality.unexpectedStoryArtifacts(
+                                    in: sceneText, allowedContext: allowedDraftContext
+                                ).isEmpty
+                            let candidateDistance = abs(response.text.wordCount - scene.targetWordCount)
+                            let currentDistance = abs(sceneText.wordCount - scene.targetWordCount)
+                            let candidatePenalty = AutonomousContentQuality.draftQualityPenalty(response.text)
+                            let currentPenalty = AutonomousContentQuality.draftQualityPenalty(sceneText)
                             if sceneText.isEmpty
                                 || (candidateGood && !currentGood)
-                                || (candidateGood == currentGood && response.text.wordCount > sceneText.wordCount) {
+                                || (candidateGood == currentGood && candidatePenalty < currentPenalty)
+                                || (candidateGood == currentGood
+                                    && candidatePenalty == currentPenalty
+                                    && candidateDistance < currentDistance) {
                                 sceneText = response.text
+                                sceneFinishReason = response.finishReason
                             }
                             if AutonomousContentQuality.acceptsDraftScene(sceneText, targetWords: scene.targetWordCount),
                                !AutonomousContentQuality.containsPromptArtifacts(sceneText),
                                !AutonomousContentQuality.soundsLikeAI(sceneText),
+                               AutonomousContentQuality.clarityAssessment(sceneText).isAcceptable,
+                               AutonomousContentQuality.repeatedSentenceCollisions(
+                                   candidate: sceneText,
+                                   priorTexts: priorProseTexts
+                               ).isEmpty,
+                               AutonomousContentQuality.unsupportedCanonClaims(
+                                   in: sceneText, canon: primaryCanon,
+                                   characterNames: characterNames
+                               ).isEmpty,
+                               !AutonomousContentQuality.hasScenePlanGenreDrift(
+                                   sceneText, genre: project.genre, canon: primaryCanon
+                               ),
+                               AutonomousContentQuality.unexpectedCharacterNames(
+                                   in: sceneText, allowedContext: allowedDraftContext,
+                                   characterNames: characterNames
+                               ).isEmpty,
+                               AutonomousContentQuality.unexpectedStoryArtifacts(
+                                   in: sceneText, allowedContext: allowedDraftContext
+                               ).isEmpty,
+                               // Stilticks erlauben GENAU EINE gezielte Neufassung (Versuch 2
+                               // bekommt den Stiltick-Hinweis); ab Versuch 2 blockieren sie die
+                               // Annahme nicht mehr – Kostenkontrolle statt Endlos-Perfektion.
+                               (project.isNonfiction || attempt >= 2
+                                || AutonomousContentQuality.styleTicViolations(in: sceneText).isEmpty),
                                ContentSafetyFilter.isSafe(sceneText) {
                                 lastProviderError = nil
                                 break
@@ -2411,6 +3163,21 @@ final class PipelineOrchestrator: ObservableObject {
                             lastProviderError = error
                             if isFatalProductionError(error) { throw error }
                         }
+                    }
+
+                    if AutonomousContentQuality.isLikelyTruncated(
+                        sceneText, finishReason: sceneFinishReason
+                    ) {
+                        let completed = try await completeTruncatedProse(
+                            sceneText,
+                            project: project,
+                            chapter: chapter,
+                            scene: scene,
+                            config: config
+                        )
+                        sceneText = completed.text
+                        sceneTokens += completed.tokens
+                        sceneFinishReason = "stop"
                     }
 
                     // Deutlich zu kurze, aber vorhandene Szene einmalig vertiefen –
@@ -2423,7 +3190,7 @@ final class PipelineOrchestrator: ObservableObject {
                                 prompt: PromptFactory.expandScene(
                                     language: project.language, style: project.styleProfile,
                                     text: sceneText, targetWords: scene.targetWordCount,
-                                    charactersSummary: charactersSummary,
+                                    charactersSummary: sceneCharactersSummary,
                                     previousSceneEnding: previousEnding,
                                     genreBrief: profile.genreRules
                                 ),
@@ -2431,15 +3198,37 @@ final class PipelineOrchestrator: ObservableObject {
                                 maxTokens: maxTokens, temperature: 0.7, config: config, creative: true
                             )
                             if expanded.text.wordCount > sceneText.wordCount,
+                               !AutonomousContentQuality.isLikelyTruncated(
+                                   expanded.text, finishReason: expanded.finishReason),
                                !AutonomousContentQuality.containsPromptArtifacts(expanded.text),
+                               !PublicContentGuard.disclosureViolation(in: expanded.text),
                                !AutonomousContentQuality.soundsLikeAI(expanded.text),
+                               AutonomousContentQuality.clarityAssessment(expanded.text).isAcceptable,
+                               AutonomousContentQuality.repeatedSentenceCollisions(
+                                   candidate: expanded.text,
+                                   priorTexts: priorProseTexts
+                               ).isEmpty,
                                ContentSafetyFilter.isSafe(expanded.text) {
                                 sceneText = expanded.text
                                 sceneTokens += expanded.tokensUsed ?? 0
+                                sceneFinishReason = expanded.finishReason
                             }
                         } catch {
                             if isFatalProductionError(error) { throw error }
                         }
+                    }
+
+                    if sceneText.wordCount > Int(Double(scene.targetWordCount) * 1.25) {
+                        let fitted = try await fitSceneToTarget(
+                            sceneText,
+                            project: project,
+                            chapter: chapter,
+                            scene: scene,
+                            config: config
+                        )
+                        sceneText = fitted.text
+                        sceneTokens += fitted.tokens
+                        sceneFinishReason = "stop"
                     }
 
                     // Durchgesickerte Prompt-Anweisungen/Labels aus der Prosa entfernen
@@ -2448,6 +3237,142 @@ final class PipelineOrchestrator: ObservableObject {
                     sceneText = AutonomousContentQuality.strippingPromptArtifacts(sceneText)
                     sceneText = AutonomousContentQuality.strippingInlineFormatting(sceneText)
                     sceneText = AutonomousContentQuality.humanizeProse(sceneText)
+
+                    let cleanup = try await cleanDraftSentenceCollisions(
+                        sceneText,
+                        priorTexts: priorProseTexts,
+                        project: project,
+                        chapter: chapter,
+                        scene: scene,
+                        config: config
+                    )
+                    sceneText = cleanup.text
+                    sceneTokens += cleanup.tokens
+                    let styleCleanup = try await cleanDraftStyleArtifacts(
+                        sceneText,
+                        priorTexts: priorProseTexts,
+                        project: project,
+                        chapter: chapter,
+                        scene: scene,
+                        config: config
+                    )
+                    sceneText = styleCleanup.text
+                    sceneTokens += styleCleanup.tokens
+                    if styleCleanup.changed { sceneFinishReason = "stop" }
+                    if AutonomousContentQuality.soundsLikeAI(sceneText)
+                        || !AutonomousContentQuality.clarityAssessment(sceneText).isAcceptable
+                        || !AutonomousContentQuality.repeatedSentenceCollisions(
+                            candidate: sceneText, priorTexts: priorProseTexts
+                        ).isEmpty
+                        || !AutonomousContentQuality.unsupportedCanonClaims(
+                            in: sceneText, canon: primaryCanon,
+                            characterNames: characterNames
+                        ).isEmpty
+                        || AutonomousContentQuality.hasScenePlanGenreDrift(
+                            sceneText, genre: project.genre, canon: primaryCanon
+                        )
+                        || !AutonomousContentQuality.unexpectedCharacterNames(
+                            in: sceneText, allowedContext: allowedDraftContext,
+                            characterNames: characterNames
+                        ).isEmpty
+                        || !AutonomousContentQuality.unexpectedStoryArtifacts(
+                            in: sceneText, allowedContext: allowedDraftContext
+                        ).isEmpty {
+                        let enforced = try await enforceDraftQuality(
+                            sceneText,
+                            priorTexts: priorProseTexts,
+                            allowedContext: allowedDraftContext,
+                            draftCanon: sceneDraftCanon,
+                            project: project,
+                            chapter: chapter,
+                            scene: scene,
+                            config: config
+                        )
+                        sceneText = enforced.text
+                        sceneTokens += enforced.tokens
+                        if enforced.changed { sceneFinishReason = "stop" }
+                    }
+                    // Jede modellbasierte Spätkorrektur kann erneut eine Überschrift oder ein
+                    // Ausgabe-Label einführen. Deshalb direkt vor den harten Gates nochmals säubern.
+                    sceneText = AutonomousContentQuality.humanizeProse(
+                        AutonomousContentQuality.strippingInlineFormatting(
+                            AutonomousContentQuality.strippingPromptArtifacts(sceneText)
+                        )
+                    ).trimmingCharacters(in: .whitespacesAndNewlines)
+                    // WICHTIG (Livelock-Schutz): Diese Spät-Prüfungen sind SIGNALE, keine
+                    // Abbruchgründe. Ein `throw` hier führte in eine Endlos-Schleife:
+                    // die Szene wird nie gespeichert, der Auto-Resume startet die Pipeline
+                    // neu und trifft dieselbe Szene mit demselben deterministischen Befund
+                    // (143 Neustarts in einer Nacht). Grundregel des Systems: Inhalts-
+                    // schwäche beendet NIE das Buch – Befunde werden als Fehler-Report
+                    // vermerkt und von Kapitelrevision + finalem Repair-Audit behoben.
+                    if AutonomousContentQuality.containsPromptArtifacts(sceneText)
+                        || AutonomousContentQuality.containsMetaRequest(sceneText)
+                        || PublicContentGuard.disclosureViolation(in: sceneText) {
+                        addReport(project: project, area: sceneArea, type: "Szenen-Neufassung",
+                                  result: "Szene enthält nach der Spätkorrektur noch Meta- oder Prompttext – zur Reparatur vorgemerkt.",
+                                  severity: .warning,   // Heuristik-Hinweis: Revision/Repair polieren; darf die Freigabe nicht dauerhaft blockieren
+                                  recommendation: "Das finale Repair-Audit ersetzt die markierte Stelle durch reinen Buchtext.")
+                    }
+                    let finalClarity = AutonomousContentQuality.clarityAssessment(sceneText)
+                    if !finalClarity.isAcceptable || AutonomousContentQuality.soundsLikeAI(sceneText) {
+                        addReport(
+                            project: project,
+                            area: "Kapitel \(chapter.chapterNumber), Szene \(scene.sceneNumber)",
+                            type: "Stil-Nachbearbeitung",
+                            result: "Die Rohfassung enthält nach der Sofortkorrektur noch Stil- oder Klarheitsreste.",
+                            severity: .warning,
+                            recommendation: "Kapitelrevision und finales Repair-Audit überarbeiten diese Stelle erneut."
+                        )
+                    }
+                    if !AutonomousContentQuality.repeatedSentenceCollisions(
+                        candidate: sceneText, priorTexts: priorProseTexts
+                    ).isEmpty {
+                        addReport(project: project, area: sceneArea, type: "Szenen-Neufassung",
+                                  result: "Szene enthält noch wortgleiche Sätze – zur Schlusskorrektur vorgemerkt.",
+                                  severity: .warning,
+                                  recommendation: "Die Schlusskorrektur ersetzt die kollidierenden Sätze kontextbezogen.")
+                    }
+                    if !AutonomousContentQuality.unsupportedCanonClaims(
+                        in: sceneText, canon: primaryCanon,
+                        characterNames: characterNames
+                    ).isEmpty {
+                        addReport(project: project, area: sceneArea, type: "Szenen-Neufassung",
+                                  result: "Szene führt eine nicht belegte Verwandtschaft oder Statusangabe ein – zur Reparatur vorgemerkt.",
+                                  severity: .warning,   // Heuristik-Hinweis: Revision/Repair polieren; darf die Freigabe nicht dauerhaft blockieren
+                                  recommendation: "Repair-Audit: ausschließlich Prämisse, Exposé und Primärplot einhalten; unbekannte Details offenlassen.")
+                    }
+                    let finalGenreDrift = AutonomousContentQuality.scenePlanGenreDriftMarkers(
+                        sceneText, genre: project.genre, canon: primaryCanon
+                    )
+                    if !finalGenreDrift.isEmpty {
+                        addReport(project: project, area: sceneArea, type: "Szenen-Neufassung",
+                                  result: "Szene enthält genrefremde Motive: \(finalGenreDrift.joined(separator: ", ")) – zur Reparatur vorgemerkt.",
+                                  severity: .warning,   // Heuristik-Hinweis: Revision/Repair polieren; darf die Freigabe nicht dauerhaft blockieren
+                                  recommendation: "Repair-Audit: Begegnungen offen, menschlich und genretreu umschreiben.")
+                    }
+                    let unexpectedCharacters = AutonomousContentQuality.unexpectedCharacterNames(
+                        in: sceneText, allowedContext: allowedDraftContext,
+                        characterNames: characterNames
+                    )
+                    let unexpectedArtifacts = AutonomousContentQuality.unexpectedStoryArtifacts(
+                        in: sceneText, allowedContext: allowedDraftContext
+                    )
+                    if !unexpectedCharacters.isEmpty || !unexpectedArtifacts.isEmpty {
+                        let violations = unexpectedCharacters + unexpectedArtifacts
+                        addReport(project: project, area: sceneArea, type: "Szenen-Neufassung",
+                                  result: "Szene zieht ungeplante Figuren oder Elemente vor: \(violations.joined(separator: ", ")) – zur Reparatur vorgemerkt.",
+                                  severity: .warning,   // Heuristik-Hinweis: Revision/Repair polieren; darf die Freigabe nicht dauerhaft blockieren
+                                  recommendation: "Repair-Audit: nur Figuren und Elemente aus Szenenziel, Wendung und bisheriger Handlung verwenden.")
+                    }
+                    if AutonomousContentQuality.isLikelyTruncated(
+                        sceneText, finishReason: sceneFinishReason
+                    ) {
+                        addReport(project: project, area: sceneArea, type: "Szenen-Neufassung",
+                                  result: "Szene endet möglicherweise unvollständig – zur Reparatur vorgemerkt.",
+                                  severity: .warning,   // Heuristik-Hinweis: Revision/Repair polieren; darf die Freigabe nicht dauerhaft blockieren
+                                  recommendation: "Repair-Audit: Szenenschluss vervollständigen.")
+                    }
 
                     // HARTE SICHERHEITSSPERRE: sexuelle Inhalte mit Kindern/Minderjährigen
                     // werden NIE gespeichert – unabhängig von Genre oder Sinnlichkeitsgrad.
@@ -2475,19 +3400,37 @@ final class PipelineOrchestrator: ObservableObject {
                                   severity: .warning,
                                   recommendation: "Szene im Manuskript neu erzeugen.")
                     } else if !AutonomousContentQuality.acceptsDraftScene(sceneText, targetWords: scene.targetWordCount) {
+                        let direction = sceneText.wordCount < Int(Double(scene.targetWordCount) * 0.75)
+                            ? "unterhalb" : "oberhalb"
                         addReport(project: project,
                                   area: "Kapitel \(chapter.chapterNumber), Szene \(scene.sceneNumber)",
                                   type: "Umfang",
-                                  result: "Szene unter Zielumfang (\(sceneText.wordCount)/\(scene.targetWordCount) Wörter)",
+                                  result: "Szene \(direction) des Zielkorridors (\(sceneText.wordCount)/\(scene.targetWordCount) Wörter)",
                                   severity: .warning,
-                                  recommendation: "Szene im Manuskript vertiefen.")
+                                  recommendation: direction == "unterhalb"
+                                    ? "Szene im Manuskript vertiefen."
+                                    : "Redundanz in der Kapitelrevision verdichten.")
                     }
 
                     scene.text = sceneText
                     scene.status = .written
                     scene.updatedAt = Date()
                     previousSceneText = sceneText
+                    priorProseTexts.append(sceneText)
                     chapter.actualWordCount = sortedScenes(chapter).compactMap { $0.text?.wordCount }.reduce(0, +)
+                    if AutonomousContentQuality.acceptsDraftScene(
+                           sceneText, targetWords: scene.targetWordCount),
+                       AutonomousContentQuality.clarityAssessment(sceneText).isAcceptable,
+                       !AutonomousContentQuality.soundsLikeAI(sceneText),
+                       AutonomousContentQuality.repeatedSentenceCollisions(
+                           candidate: sceneText, priorTexts: Array(priorProseTexts.dropLast())
+                       ).isEmpty {
+                        resolveSceneReports(
+                            project: project,
+                            chapterNumber: chapter.chapterNumber,
+                            sceneNumber: scene.sceneNumber
+                        )
+                    }
                     completeJob(job, result: "\(sceneText.wordCount) Wörter", tokens: sceneTokens)
 
                     // Kontext-Zusammenfassung für die folgenden Szenen.
@@ -2510,7 +3453,13 @@ final class PipelineOrchestrator: ObservableObject {
                 }
             }
 
-            chapter.status = .draftComplete
+            if !(chapter.finalText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                chapter.status = .finalized
+            } else if !(chapter.revisedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                chapter.status = .revised
+            } else {
+                chapter.status = .draftComplete
+            }
 
             // Kapitel-Digest für das Langstrecken-Gedächtnis erzeugen (einmalig).
             if (chapter.summary ?? "").isEmpty {
@@ -2519,6 +3468,10 @@ final class PipelineOrchestrator: ObservableObject {
                     chapter.summary = digest
                     chapterDigests.append("Kapitel \(chapter.chapterNumber) (\(chapter.title)): \(digest)")
                 }
+            }
+            if let digest = chapter.summary, !digest.isEmpty,
+               !chapterDigests.contains(where: { $0.hasPrefix("Kapitel \(chapter.chapterNumber) ") }) {
+                chapterDigests.append("Kapitel \(chapter.chapterNumber) (\(chapter.title)): \(digest)")
             }
             // Echten, inhaltsbezogenen Kapiteltitel sicherstellen (verhindert „Aufbruch N").
             await ensureRealChapterTitle(chapter, project: project,
@@ -2600,16 +3553,498 @@ final class PipelineOrchestrator: ObservableObject {
                 system: "Du fasst Romanszenen präzise und knapp zusammen.",
                 maxTokens: 250, temperature: 0.3, config: config
             )
-            completeJob(job, result: response.text, tokens: response.tokensUsed ?? 0)
-            return response.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let summary = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let canon = primaryStoryCanon(project: project) + "\n\nAKZEPTIERTER SZENENTEXT:\n" + text
+            let names = (project.storyBible?.characters ?? []).map(\.name)
+            let unsupported = AutonomousContentQuality.unsupportedCanonClaims(
+                in: summary, canon: canon, characterNames: names
+            )
+            if unsupported.isEmpty,
+               !AutonomousContentQuality.summaryIntroducesUnsupportedSpecifics(
+                   summary, evidence: canon
+               ),
+               !AutonomousContentQuality.containsPromptArtifacts(summary) {
+                completeJob(job, result: summary, tokens: response.tokensUsed ?? 0)
+                return summary
+            }
+            let fallback = safeSceneSummary(text)
+            completeJob(job, result: "Zusammenfassung lokal aus Szenentext abgeleitet",
+                        tokens: response.tokensUsed ?? 0)
+            return fallback
         } catch {
             failJob(job, error: error)
-            let fallback = text.replacingOccurrences(of: "\n", with: " ")
-            return String(fallback.prefix(300))
+            return safeSceneSummary(text)
         }
     }
 
+    private func safeSceneSummary(_ text: String) -> String {
+        let compact = text.replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: " {2,}", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard compact.count > 420 else { return compact }
+        return String(compact.prefix(240)) + " … " + String(compact.suffix(160))
+    }
+
     // MARK: - Phase 7: Kapitelrevision
+
+    private func completeTruncatedProse(
+        _ text: String,
+        project: Project,
+        chapter: Chapter,
+        scene: StoryScene?,
+        config: ProviderConfiguration
+    ) async throws -> (text: String, tokens: Int) {
+        var working = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var tokens = 0
+        let targetWords = max(200, scene?.targetWordCount ?? chapter.targetWordCount)
+
+        for attempt in 1...3 {
+            try Task.checkCancellation()
+            let safePrefix = AutonomousContentQuality.safePrefixBeforeTruncation(working)
+            let missingWords = max(140, min(1_200, targetWords - safePrefix.wordCount + 120))
+            let contextTail = String(safePrefix.suffix(7_000))
+            let unit = scene.map { "Szene \($0.sceneNumber)" } ?? "Kapitel \(chapter.chapterNumber)"
+            let prompt = """
+            Technische Fortsetzung für ein abgebrochenes Manuskript.
+
+            Buch: \(project.title)
+            Genre: \(project.genre)
+            Kapitel \(chapter.chapterNumber): \(chapter.title)
+            Kapitelziel: \(chapter.goal)
+            Kapitelkonflikt: \(chapter.conflict)
+            Einheit: \(unit)
+            \(scene.map { "Szenenziel: \($0.goal)\nHindernis: \($0.obstacle)\nWendung: \($0.cliffhanger)" } ?? "Schließe das Kapitel vollständig und stimmig ab.")
+
+            Letzter sicherer Text:
+            \(contextTail)
+
+            Schreibe AUSSCHLIESSLICH die fehlende Fortsetzung ab dem nächsten Satz.
+            Wiederhole keinen vorhandenen Satz und beginne nicht von vorn.
+            Ziel: ungefähr \(missingWords) weitere Wörter, höchstens \(missingWords + 250).
+            Löse die geplante Wendung aus, halte Figuren, Perspektive und Zeitform stabil.
+            Beende mit einem vollständigen Satz. Keine Überschrift, Analyse oder Notiz.
+            Fortsetzungsversuch: \(attempt)/3.
+            """
+            let response = try await generate(
+                prompt: prompt,
+                system: "Du reparierst technisch abgebrochene Buchprosa. Du gibst nur die fehlende Fortsetzung zurück.",
+                maxTokens: min(6_000, max(1_000, missingWords * 4)),
+                temperature: 0.55,
+                config: config,
+                creative: true
+            )
+            tokens += response.tokensUsed ?? 0
+            var continuation = AutonomousContentQuality.strippingPromptArtifacts(response.text)
+            continuation = AutonomousContentQuality.strippingInlineFormatting(continuation)
+            continuation = AutonomousContentQuality.humanizeProse(continuation)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            guard !continuation.isEmpty,
+                  !AutonomousContentQuality.containsMetaRequest(continuation),
+                  !PublicContentGuard.disclosureViolation(in: continuation),
+                  ContentSafetyFilter.isSafe(continuation) else {
+                continue
+            }
+            if !safePrefix.isEmpty, continuation.wordCount > missingWords + 350 {
+                continue
+            }
+
+            working = AutonomousContentQuality.mergingContinuation(
+                base: safePrefix,
+                continuation: continuation
+            )
+            if !AutonomousContentQuality.isLikelyTruncated(
+                working, finishReason: response.finishReason
+            ) {
+                return (working, tokens)
+            }
+        }
+
+        throw AIError.systemError(
+            "Kapitel \(chapter.chapterNumber) konnte nach drei Versuchen nicht vollständig fortgesetzt werden."
+        )
+    }
+
+    private func cleanDraftSentenceCollisions(
+        _ source: String,
+        priorTexts: [String],
+        project: Project,
+        chapter: Chapter,
+        scene: StoryScene,
+        config: ProviderConfiguration
+    ) async throws -> (text: String, tokens: Int) {
+        var paragraphs = source.components(separatedBy: "\n\n")
+        var usedTokens = 0
+
+        for _ in 1...2 {
+            let currentText = paragraphs.joined(separator: "\n\n")
+            let collisions = AutonomousContentQuality.repeatedSentenceCollisions(
+                candidate: currentText, priorTexts: priorTexts
+            )
+            guard !collisions.isEmpty else { break }
+
+            for index in paragraphs.indices {
+                let paragraph = paragraphs[index]
+                let hits = collisions.filter {
+                    paragraph.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+                }
+                guard !hits.isEmpty, paragraph.wordCount >= 5 else { continue }
+                let comparisonTexts = priorTexts + paragraphs.enumerated().compactMap {
+                    $0.offset == index ? nil : $0.element
+                }
+                let collisionList = hits.map { "- \($0)" }.joined(separator: "\n")
+                var replacement: String?
+                for attempt in 1...2 where replacement == nil {
+                    let response = try await generate(
+                        prompt: """
+                        Formuliere in diesem Absatz ausschließlich die folgenden wortgleichen
+                        Sätze neu oder entferne sie, falls sie inhaltlich entbehrlich sind:
+                        \(collisionList)
+
+                        Bewahre Handlung, Fakten, Dialogbedeutung, Perspektive, Zeitform und
+                        ungefähre Länge. Die Ersatzformulierung muss konkret aus diesem Absatz
+                        entstehen und darf keine neue Standardfloskel sein. Gib nur den Absatz zurück.
+
+                        KAPITEL \(chapter.chapterNumber), SZENE \(scene.sceneNumber), VERSUCH \(attempt)/2
+                        ABSATZ:
+                        \(paragraph)
+                        """,
+                        system: project.isNonfiction
+                            ? "Du bist ein präziser Sachbuchlektor und variierst ohne Faktenverlust."
+                            : "Du bist ein präziser Romanlektor und variierst ohne Handlungsverlust.",
+                        maxTokens: min(3_000, max(500, paragraph.wordCount * 5)),
+                        temperature: 0.35,
+                        config: config,
+                        creative: true
+                    )
+                    usedTokens += response.tokensUsed ?? 0
+                    let candidate = AutonomousContentQuality.humanizeProse(
+                        AutonomousContentQuality.strippingInlineFormatting(
+                            AutonomousContentQuality.strippingPromptArtifacts(response.text)
+                        )
+                    ).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if AutonomousContentQuality.isAcceptableRewrite(
+                           source: paragraph, candidate: candidate,
+                           minRatio: 0.55, maxRatio: 1.40,
+                           finishReason: response.finishReason),
+                       !hits.contains(where: {
+                           candidate.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+                       }),
+                       !AutonomousContentQuality.containsMetaRequest(candidate),
+                       !PublicContentGuard.disclosureViolation(in: candidate),
+                       AutonomousContentQuality.repeatedSentenceCollisions(
+                           candidate: candidate, priorTexts: comparisonTexts
+                       ).isEmpty,
+                       ContentSafetyFilter.isSafe(candidate) {
+                        replacement = candidate
+                    }
+                }
+                if let replacement { paragraphs[index] = replacement }
+            }
+        }
+        return (paragraphs.joined(separator: "\n\n"), usedTokens)
+    }
+
+    private func cleanDraftStyleArtifacts(
+        _ source: String,
+        priorTexts: [String],
+        project: Project,
+        chapter: Chapter,
+        scene: StoryScene,
+        config: ProviderConfiguration
+    ) async throws -> (text: String, tokens: Int, changed: Bool) {
+        guard AutonomousContentQuality.soundsLikeAI(source)
+                || !AutonomousContentQuality.clarityAssessment(source).isAcceptable else {
+            return (source, 0, false)
+        }
+        var paragraphs = source.components(separatedBy: "\n\n")
+        var usedTokens = 0
+        var changed = false
+
+        for index in paragraphs.indices {
+            let paragraph = paragraphs[index]
+            let phrases = AutonomousContentQuality.aiTellMatches(in: paragraph)
+                + AutonomousContentQuality.circumlocutionMatches(in: paragraph)
+                + AutonomousContentQuality.clarityRepairPhrases(in: paragraph)
+            let hasVocabularyArtifact = AutonomousContentQuality.jargonTellCount(paragraph) > 0
+                || AutonomousContentQuality.archaicTellCount(paragraph) > 0
+            guard !phrases.isEmpty || hasVocabularyArtifact else { continue }
+            guard paragraph.wordCount >= 8 else { continue }
+
+            let phraseList = phrases.isEmpty
+                ? "- unnatürlich geschwollenes oder unnötig akademisches Vokabular"
+                : Array(Set(phrases)).sorted().map { "- \($0)" }.joined(separator: "\n")
+            let comparisonTexts = priorTexts + paragraphs.enumerated().compactMap {
+                $0.offset == index ? nil : $0.element
+            }
+            var replacement: String?
+            for attempt in 1...2 where replacement == nil {
+                let response = try await generate(
+                    prompt: """
+                    Überarbeite nur diesen Absatz aus Kapitel \(chapter.chapterNumber), Szene \(scene.sceneNumber).
+                    Ersetze die markierten formelhaften Wendungen durch konkrete, unauffällige Sprache,
+                    die nur aus Situation, Figur und Handlung dieses Absatzes entsteht. Bewahre Ereignisse,
+                    Fakten, Dialogbedeutung, Perspektive und Zeitform. Keine neue Metapher, Körperfloskel,
+                    Zusammenfassung oder Standardreaktion. Benenne klar, wer handelt, was geschieht und
+                    welche unmittelbare Folge es hat. Gib nur den vollständigen Absatz zurück.
+
+                    ZU ERSETZEN:
+                    \(phraseList)
+
+                    ABSATZ:
+                    \(paragraph)
+
+                    Qualitätsversuch \(attempt)/2.
+                    """,
+                    system: project.isNonfiction
+                        ? "Du bist ein präziser Sachbuchlektor und schreibst klar, konkret und ohne Motivationsfloskeln."
+                        : "Du bist ein präziser Romanlektor und ersetzt Klischees durch konkrete Handlung und individuelle Wahrnehmung.",
+                    maxTokens: min(3_000, max(500, paragraph.wordCount * 5)),
+                    temperature: 0.3,
+                    config: config,
+                    creative: true
+                )
+                usedTokens += response.tokensUsed ?? 0
+                let candidate = AutonomousContentQuality.humanizeProse(
+                    AutonomousContentQuality.strippingInlineFormatting(
+                        AutonomousContentQuality.strippingPromptArtifacts(response.text)
+                    )
+                ).trimmingCharacters(in: .whitespacesAndNewlines)
+                if AutonomousContentQuality.isAcceptableRewrite(
+                       source: paragraph,
+                       candidate: candidate,
+                       minRatio: 0.55,
+                       maxRatio: 1.40,
+                       finishReason: response.finishReason
+                   ),
+                   AutonomousContentQuality.aiTellMatches(in: candidate).isEmpty,
+                   AutonomousContentQuality.circumlocutionMatches(in: candidate).isEmpty,
+                   AutonomousContentQuality.clarityRepairPhrases(in: candidate).isEmpty,
+                   AutonomousContentQuality.jargonTellCount(candidate) == 0,
+                   AutonomousContentQuality.archaicTellCount(candidate) == 0,
+                   !AutonomousContentQuality.containsMetaRequest(candidate),
+                   !PublicContentGuard.disclosureViolation(in: candidate),
+                   AutonomousContentQuality.repeatedSentenceCollisions(
+                       candidate: candidate,
+                       priorTexts: comparisonTexts
+                   ).isEmpty,
+                   ContentSafetyFilter.isSafe(candidate) {
+                    replacement = candidate
+                }
+            }
+            if let replacement {
+                paragraphs[index] = replacement
+                changed = true
+            }
+        }
+        return (paragraphs.joined(separator: "\n\n"), usedTokens, changed)
+    }
+
+    private func enforceDraftQuality(
+        _ source: String,
+        priorTexts: [String],
+        allowedContext: String,
+        draftCanon: String,
+        project: Project,
+        chapter: Chapter,
+        scene: StoryScene,
+        config: ProviderConfiguration
+    ) async throws -> (text: String, tokens: Int, changed: Bool) {
+        var usedTokens = 0
+        let clarity = AutonomousContentQuality.clarityAssessment(source)
+        let phrases = Array(Set(
+            AutonomousContentQuality.aiTellMatches(in: source)
+                + AutonomousContentQuality.circumlocutionMatches(in: source)
+                + AutonomousContentQuality.clarityRepairPhrases(in: source)
+        )).sorted()
+        let collisions = AutonomousContentQuality.repeatedSentenceCollisions(
+            candidate: source, priorTexts: priorTexts
+        )
+        let primaryCanon = primaryStoryCanon(project: project)
+        let characterNames = (project.storyBible?.characters ?? []).map(\.name)
+        let canonClaims = AutonomousContentQuality.unsupportedCanonClaims(
+            in: source, canon: primaryCanon, characterNames: characterNames
+        )
+        let genreDrift = AutonomousContentQuality.hasScenePlanGenreDrift(
+            source, genre: project.genre, canon: primaryCanon
+        )
+        let unexpectedCharacters = AutonomousContentQuality.unexpectedCharacterNames(
+            in: source, allowedContext: allowedContext, characterNames: characterNames
+        )
+        let unexpectedArtifacts = AutonomousContentQuality.unexpectedStoryArtifacts(
+            in: source, allowedContext: allowedContext
+        )
+        let promptSource = AutonomousContentQuality.removingScenePlanViolations(
+            from: source,
+            characterNames: unexpectedCharacters,
+            artifactLabels: unexpectedArtifacts
+        )
+        var allFindings = phrases + collisions + canonClaims
+        if genreDrift {
+            allFindings.append("Genre-Abdrift: bedrohliche Horror-/Stalkerinszenierung entfernen")
+        }
+        if !unexpectedCharacters.isEmpty || !unexpectedArtifacts.isEmpty {
+            allFindings.append(
+                "Nicht geplante benannte Figuren und zusätzliche Fundstücke vollständig entfernen; "
+                + "keine Namen oder Gegenstände aus verworfenen Fassungen übernehmen"
+            )
+        }
+        let findings = allFindings.map { "- \($0)" }.joined(separator: "\n")
+
+        for attempt in 1...3 {
+            currentAgent = "\(AgentName.draftWriter) – Kapitel \(chapter.chapterNumber), Szene \(scene.sceneNumber) · Qualitätsfassung \(attempt)/3"
+            let response = try await generate(
+                prompt: """
+                Schreibe diese Szene als klare, vollständige Endfassung neu, ohne Handlung,
+                Reihenfolge, Fakten, Dialogbedeutung, Perspektive, Zeitform oder Wendung zu verändern.
+                Der Leser muss beim ersten Lesen verstehen, wer handelt, was geschieht, warum die
+                Figur es jetzt tut und welche unmittelbare Folge entsteht. Benenne Konkretes direkt.
+                Entferne Vergleichsketten, unbenannte „etwas“-Reaktionen, Filterverben,
+                Standardkörperreaktionen und wortgleiche Sätze. Zielumfang: \(scene.targetWordCount)
+                Wörter, zulässig 75–125 %. Gib nur die vollständige Szene zurück.
+
+                VERBINDLICHER BUCHKANON:
+                \(draftCanon.truncated(to: 6_000))
+                Verwandtschaft, Besitz, Todesfälle, Vorgeschichte, Namen und Rollen nicht verändern.
+                Bei Liebesromanen keine Silhouetten-, Waffen-, Einbrecher-, Geister- oder
+                Stalkerinszenierung. Begegnungen mit dem Love Interest offen und menschlich erzählen.
+
+                ZULÄSSIGER SZENENINHALT:
+                \(allowedContext.truncated(to: 6_000))
+                Keine weitere Figur und kein zusätzliches Fundstück einführen.
+
+                MESSWERTE DES AUSGANGSTEXTS:
+                Vage Referenzen: \(clarity.vagueReferences) (erlaubt \(clarity.vagueReferenceLimit))
+                Hypothetische Vergleiche: \(clarity.hypotheticalComparisons) (erlaubt \(clarity.hypotheticalComparisonLimit))
+                Filterreaktionen: \(clarity.filterReactions) (erlaubt \(clarity.filterReactionLimit))
+
+                ZU BESEITIGEN:
+                \(findings.isEmpty ? "- abstrakte oder unklare Formulierungsdichte" : findings)
+
+                KAPITEL \(chapter.chapterNumber), SZENE \(scene.sceneNumber), VERSUCH \(attempt)/3
+                TEXT:
+                \(promptSource)
+                """,
+                system: project.isNonfiction
+                    ? "Du bist ein strenger Sachbuch-Schlusslektor. Klarheit, Kausalität und Faktenintegrität sind zwingend."
+                    : "Du bist ein strenger Roman-Schlusslektor. Du schreibst konkret, kausal und natürlich, ohne die Geschichte zu verändern.",
+                maxTokens: min(8_000, max(2_000, scene.targetWordCount * 4)),
+                temperature: 0.25,
+                config: config,
+                creative: true
+            )
+            usedTokens += response.tokensUsed ?? 0
+            let candidate = AutonomousContentQuality.humanizeProse(
+                AutonomousContentQuality.strippingInlineFormatting(
+                    AutonomousContentQuality.strippingPromptArtifacts(response.text)
+                )
+            ).trimmingCharacters(in: .whitespacesAndNewlines)
+            if AutonomousContentQuality.acceptsDraftScene(
+                   candidate, targetWords: scene.targetWordCount),
+               AutonomousContentQuality.isAcceptableRewrite(
+                   source: source, candidate: candidate,
+                   minRatio: 0.65, maxRatio: 1.25,
+                   finishReason: response.finishReason),
+               AutonomousContentQuality.clarityAssessment(candidate).isAcceptable,
+               !AutonomousContentQuality.soundsLikeAI(candidate),
+               !AutonomousContentQuality.containsMetaRequest(candidate),
+               !PublicContentGuard.disclosureViolation(in: candidate),
+               AutonomousContentQuality.repeatedSentenceCollisions(
+                   candidate: candidate, priorTexts: priorTexts
+               ).isEmpty,
+               AutonomousContentQuality.unsupportedCanonClaims(
+                   in: candidate, canon: primaryCanon,
+                   characterNames: characterNames
+               ).isEmpty,
+               !AutonomousContentQuality.hasScenePlanGenreDrift(
+                   candidate, genre: project.genre, canon: primaryCanon
+               ),
+               AutonomousContentQuality.unexpectedCharacterNames(
+                   in: candidate, allowedContext: allowedContext,
+                   characterNames: characterNames
+               ).isEmpty,
+               AutonomousContentQuality.unexpectedStoryArtifacts(
+                   in: candidate, allowedContext: allowedContext
+               ).isEmpty,
+               ContentSafetyFilter.isSafe(candidate) {
+                return (candidate, usedTokens, candidate != source)
+            }
+        }
+        return (source, usedTokens, false)
+    }
+
+    private func fitSceneToTarget(
+        _ source: String,
+        project: Project,
+        chapter: Chapter,
+        scene: StoryScene,
+        config: ProviderConfiguration
+    ) async throws -> (text: String, tokens: Int) {
+        let minimumRatio = SceneFittingSizing.minimumSourceRatio(
+            sourceWords: source.wordCount,
+            targetWords: scene.targetWordCount
+        )
+        var usedTokens = 0
+
+        for attempt in 1...3 {
+            do {
+                let response = try await generate(
+                    prompt: """
+                    Verdichte den folgenden \(project.isNonfiction ? "Sachbuchabschnitt" : "Romanabschnitt")
+                    auf \(scene.targetWordCount) Wörter (zulässig: 75–125 %).
+                    Bewahre ALLE Handlungsereignisse, Hinweise, Dialogaussagen, Figurenentscheidungen,
+                    die Wendung und den Anschluss zur nächsten Szene. Entferne Wiederholungen,
+                    doppelte Bilder, vage Innenschau, Vergleichsketten und weitschweifige Beschreibung.
+                    Keine Zusammenfassung: Die kausale Handlung bleibt vollständig ausgespielt.
+                    Beende mit einem vollständigen Satz. Gib nur die fertige Szene zurück.
+
+                    Buch: \(project.title)
+                    Kapitel \(chapter.chapterNumber): \(chapter.title)
+                    Szenenziel: \(scene.goal)
+                    Wendung: \(scene.cliffhanger)
+                    Technischer Vollständigkeitsversuch \(attempt)/3.
+
+                    TEXT:
+                    \(source)
+                    """,
+                    system: project.isNonfiction
+                        ? "Du bist ein präziser Sachbuchlektor. Du verdichtest ohne Wissens-, Quellen- oder Anwendungverlust."
+                        : "Du bist ein präziser Romanlektor. Du verdichtest ohne Ereignis- oder Informationsverlust.",
+                    maxTokens: min(8_000, max(2_000, scene.targetWordCount * 4)),
+                    temperature: 0.25,
+                    config: config,
+                    creative: true
+                )
+                usedTokens += response.tokensUsed ?? 0
+                var fitted = AutonomousContentQuality.strippingPromptArtifacts(response.text)
+                fitted = AutonomousContentQuality.strippingInlineFormatting(fitted)
+                fitted = AutonomousContentQuality.humanizeProse(fitted)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if AutonomousContentQuality.isWithinWordTarget(
+                       fitted, targetWords: scene.targetWordCount,
+                       lowerRatio: 0.75, upperRatio: 1.25),
+                   AutonomousContentQuality.isAcceptableRewrite(
+                       source: source, candidate: fitted,
+                       minRatio: minimumRatio, maxRatio: 1.10,
+                       finishReason: response.finishReason),
+                   !AutonomousContentQuality.containsMetaRequest(fitted),
+                   !PublicContentGuard.disclosureViolation(in: fitted),
+                   ContentSafetyFilter.isSafe(fitted) {
+                    return (fitted, usedTokens)
+                }
+            } catch {
+                if isFatalProductionError(error) { throw error }
+            }
+        }
+
+        addReport(project: project,
+                  area: "Kapitel \(chapter.chapterNumber), Szene \(scene.sceneNumber)",
+                  type: "Umfang",
+                  result: "Automatische Verdichtung nach drei Versuchen verworfen – vollständige Ursprungsszene beibehalten",
+                  severity: .warning,
+                  recommendation: "Kapitelrevision verdichtet Redundanz im nächsten Schritt.")
+        return (source, usedTokens)
+    }
 
     private func runChapterRevision(project: Project, config: ProviderConfiguration) async throws {
         guard let profile = project.bookProfile else {
@@ -2624,10 +4059,20 @@ final class PipelineOrchestrator: ObservableObject {
             chapter.draftText = sortedScenes(chapter).compactMap { $0.text }.joined(separator: "\n\n***\n\n")
         }
 
-        // Fortsetzen: nur Kapitel ohne Revision, die Text haben.
+        // Fortsetzen: fehlende oder deutlich überlange Revisionen erneut bearbeiten.
         let pending = chapters.filter { chapter in
             guard let draft = chapter.draftText, !draft.isEmpty else { return false }
-            return (chapter.revisedText ?? "").isEmpty
+            let revised = chapter.revisedText ?? ""
+            return revised.isEmpty
+                || AutonomousContentQuality.containsMetaRequest(revised)
+                || AutonomousContentQuality.containsPromptArtifacts(revised)
+                || PublicContentGuard.disclosureViolation(in: revised)
+                || !AutonomousContentQuality.isWithinWordTarget(
+                    revised,
+                    targetWords: chapter.targetWordCount,
+                    lowerRatio: 0.55,
+                    upperRatio: PublicationReadiness.maximumChapterWordRatio
+                )
         }
         guard !pending.isEmpty else { return }
 
@@ -2636,11 +4081,18 @@ final class PipelineOrchestrator: ObservableObject {
         // der meistzitierte KI-Tell in Rezensionen.
         let allDrafts = chapters.map { $0.draftText ?? "" }
         let overused = AutonomousContentQuality.overusedPhrases(inChapters: allDrafts)
-        let overusedList = overused.prefix(10).map { "- \($0)" }.joined(separator: "\n")
-        if !overused.isEmpty {
+        let repeatedSentences = AutonomousContentQuality.repeatedSentences(
+            inChapters: allDrafts,
+            minimumOccurrences: 2,
+            maxResults: 100
+        )
+        let overusedList = (overused.prefix(12) + repeatedSentences.prefix(40))
+            .map { "- \($0)" }.joined(separator: "\n")
+        if !overused.isEmpty || !repeatedSentences.isEmpty {
             addReport(project: project, area: "Gesamtmanuskript", type: "Wiederholungen",
-                      result: "Buchweit überstrapazierte Formulierungen erkannt (\(overused.count)) – werden in der Revision ersetzt",
-                      severity: .info, recommendation: overused.prefix(6).joined(separator: " · "))
+                      result: "Buchweit überstrapazierte Formulierungen oder Satzduplikate erkannt (\(overused.count + repeatedSentences.count)) – werden in der Revision ersetzt",
+                      severity: .info,
+                      recommendation: (overused.prefix(4) + repeatedSentences.prefix(2)).joined(separator: " · "))
         }
         let charactersSummary = project.storyBible.map { compactCharacterSummary($0) } ?? ""
 
@@ -2649,7 +4101,8 @@ final class PipelineOrchestrator: ObservableObject {
         for chapter in pending {
             jobs.append(beginJob(agent: AgentName.reviser, phase: .chapterRevision,
                                  project: project, chapter: chapter.chapterNumber))
-            let draft = chapter.draftText ?? ""
+            let existingRevision = chapter.revisedText ?? ""
+            let draft = existingRevision.isEmpty ? (chapter.draftText ?? "") : existingRevision
             // Nachbar-Anschlüsse: Kapitelanfang/-ende dürfen beim Glätten nicht brechen.
             let chapterIdx = chapters.firstIndex(where: { $0.chapterNumber == chapter.chapterNumber })
             let prevEnding = chapterIdx.flatMap { $0 > 0 ? chapters[$0 - 1].draftText : nil }
@@ -2658,9 +4111,18 @@ final class PipelineOrchestrator: ObservableObject {
                 .map { String($0.prefix(300)) } ?? ""
             // Kapitelende ohne Sog? (Nur Nicht-Schlusskapitel – das Finale darf ruhig ausklingen.)
             let isFinal = chapter.chapterNumber == chapters.last?.chapterNumber
-            let endingNote = (!isFinal && AutonomousContentQuality.hasWeakChapterEnding(draft))
+            let endingNote = (!project.isNonfiction && !isFinal && AutonomousContentQuality.hasWeakChapterEnding(draft))
                 ? "KAPITELENDE SCHÄRFEN: Dieses Kapitel endet aktuell ohne Sog. Forme den letzten Beat zu einem echten Haken um (offene Frage, Drohung, Enthüllung oder eine Entscheidung ohne gezeigte Antwort) – der Leser darf hier nicht aufhören können. Handlung davor unverändert lassen."
                 : ""
+            // Kapitelweite Stiltick-Frequenzen (Verneinungs-Rhetorik, Körper-Beats,
+            // Adverb-Krücken) der Revision als konkrete Reduktionsaufträge mitgeben.
+            let ticNotes = project.isNonfiction
+                ? []
+                : AutonomousContentQuality.styleTicViolations(in: draft)
+            let chapterOverused = overusedList + (ticNotes.isEmpty ? ""
+                : (overusedList.isEmpty ? "" : "\n")
+                    + ticNotes.map { "- STIL-TICK (reduzieren, ohne Handlung zu ändern): \($0)" }
+                        .joined(separator: "\n"))
             requests.append(makeRequest(
                 prompt: PromptFactory.reviseChapter(
                     language: project.language, style: project.styleProfile,
@@ -2669,11 +4131,18 @@ final class PipelineOrchestrator: ObservableObject {
                     genreBrief: profile.genreRules,
                     charactersSummary: charactersSummary,
                     previousEnding: prevEnding, nextOpening: nextOpening,
-                    overusedPhrases: overusedList,
-                    endingNote: endingNote
+                    overusedPhrases: chapterOverused,
+                    endingNote: endingNote,
+                    targetWords: chapter.targetWordCount,
+                    researchContext: profile.researchNotes
                 ),
-                system: "Du bist ein erfahrener Lektor. Du verbesserst Prosa, ohne Handlung oder Stimme zu verändern.",
-                maxTokens: min(12000, max(3000, draft.wordCount * 3)),
+                system: project.isNonfiction
+                    ? "Du bist ein erfahrener Sachbuchlektor. Du verbesserst Klarheit, Nutzen und Faktenintegrität."
+                    : "Du bist ein erfahrener Lektor. Du verbesserst Prosa, ohne Handlung oder Stimme zu verändern.",
+                maxTokens: ChapterRevisionSizing.maxOutputTokens(
+                    sourceWords: draft.wordCount,
+                    targetWords: chapter.targetWordCount
+                ),
                 temperature: 0.4, config: config
             ))
         }
@@ -2687,16 +4156,51 @@ final class PipelineOrchestrator: ObservableObject {
         }
 
         var firstError: Error?
+        let pendingIDs = Set(pending.map(\.id))
+        var acceptedRevisionTexts = chapters.compactMap { chapter -> String? in
+            guard !pendingIDs.contains(chapter.id) else { return nil }
+            return chapter.bestText
+        }
         var done = 0
         for (index, chapter) in pending.enumerated() {
-            let draft = chapter.draftText ?? ""
+            let existingRevision = chapter.revisedText ?? ""
+            let draft = existingRevision.isEmpty ? (chapter.draftText ?? "") : existingRevision
             switch results[index] {
             case .success(let response)?:
                 // Schutz vor abgeschnittenen/leeren Antworten: nie Text verlieren.
                 // Strenge Abnahme (>=80% Umfang, Satzschluss am Ende, Szenentrenner erhalten) –
                 // vorher reichten 50%, wodurch bei maxTokens abgeschnittene Kapitel
                 // stillschweigend halbiert beim Leser landeten.
-                if AutonomousContentQuality.isAcceptableRewrite(source: draft, candidate: response.text),
+                let sourceIsOversized = ChapterRevisionSizing.isOversized(
+                    sourceWords: draft.wordCount,
+                    targetWords: chapter.targetWordCount
+                )
+                let allowedMinimumRatio = ChapterRevisionSizing.minimumSourceRatio(
+                    sourceWords: draft.wordCount,
+                    targetWords: chapter.targetWordCount
+                )
+                let candidateFitsTarget = !sourceIsOversized
+                    || AutonomousContentQuality.isWithinWordTarget(
+                        response.text,
+                        targetWords: chapter.targetWordCount,
+                        lowerRatio: ChapterRevisionSizing.minimumTargetRatio,
+                        upperRatio: 1.30
+                    )
+                if candidateFitsTarget,
+                   AutonomousContentQuality.isAcceptableRewrite(
+                       source: draft,
+                       candidate: response.text,
+                       minRatio: allowedMinimumRatio,
+                       maxRatio: 1.15,   // Revision poliert, bläht die Länge NICHT auf
+                       finishReason: response.finishReason),
+                   withinGrowthCeiling(response.text, source: draft, chapter: chapter),
+                   !AutonomousContentQuality.containsMetaRequest(response.text),
+                   !AutonomousContentQuality.containsPromptArtifacts(response.text),
+                   !PublicContentGuard.disclosureViolation(in: response.text),
+                   AutonomousContentQuality.repeatedSentenceCollisions(
+                       candidate: response.text,
+                       priorTexts: acceptedRevisionTexts
+                   ).isEmpty,
                    ContentSafetyFilter.isSafe(response.text) {
                     chapter.revisedText = response.text
                 } else {
@@ -2708,6 +4212,9 @@ final class PipelineOrchestrator: ObservableObject {
                 }
                 chapter.status = .revised
                 chapter.updatedAt = Date()
+                if let revised = chapter.revisedText, !revised.isEmpty {
+                    acceptedRevisionTexts.append(revised)
+                }
                 completeJob(jobs[index], result: "Kapitel \(chapter.chapterNumber) überarbeitet",
                             tokens: response.tokensUsed ?? 0)
                 done += 1
@@ -2755,9 +4262,12 @@ final class PipelineOrchestrator: ObservableObject {
             let response = try await generate(
                 prompt: PromptFactory.consistencyCheck(
                     bookTitle: project.title, summaries: summaries,
-                    characters: compactCharacterSummary(bible)
+                    characters: compactCharacterSummary(bible),
+                    isNonfiction: project.isNonfiction
                 ),
-                system: "Du bist ein Kontinuitätsprüfer für Romane. Du findest Widersprüche und Logikfehler.",
+                system: project.isNonfiction
+                    ? "Du bist ein Sachbuchprüfer. Du findest Widersprüche, Quellenrisiken und Lücken im Lernweg."
+                    : "Du bist ein Kontinuitätsprüfer für Romane. Du findest Widersprüche und Logikfehler.",
                 maxTokens: 2000, temperature: 0.2, config: config
             )
 
@@ -2786,11 +4296,39 @@ final class PipelineOrchestrator: ObservableObject {
         project.status = .proofreading
 
         let chapters = sortedChapters(project)
-        // Fortsetzen: nur Kapitel ohne finale Fassung, die Text haben.
-        let pending = chapters.filter { chapter in
-            guard (chapter.finalText ?? "").isEmpty else { return false }
-            let source = chapter.revisedText ?? chapter.draftText ?? ""
-            return !source.isEmpty
+        var pending: [Chapter] = []
+        var sourceByChapter: [UUID: String] = [:]
+        for chapter in chapters {
+            let final = (chapter.finalText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !final.isEmpty,
+               !AutonomousContentQuality.isLikelyTruncated(final),
+               !AutonomousContentQuality.containsMetaRequest(final),
+               !AutonomousContentQuality.containsPromptArtifacts(final),
+               !PublicContentGuard.disclosureViolation(in: final) {
+                continue
+            }
+            var source = final.isEmpty
+                ? (chapter.revisedText ?? chapter.draftText ?? "")
+                : final
+            source = source.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !source.isEmpty else { continue }
+            if AutonomousContentQuality.isLikelyTruncated(source) {
+                let completed = try await completeTruncatedProse(
+                    source,
+                    project: project,
+                    chapter: chapter,
+                    scene: nil,
+                    config: config
+                )
+                source = completed.text
+                chapter.revisedText = source
+                chapter.finalText = nil
+                chapter.status = .revised
+                chapter.actualWordCount = source.wordCount
+                chapter.updatedAt = Date()
+            }
+            pending.append(chapter)
+            sourceByChapter[chapter.id] = source
         }
         guard !pending.isEmpty else { return }
 
@@ -2799,7 +4337,7 @@ final class PipelineOrchestrator: ObservableObject {
         for chapter in pending {
             jobs.append(beginJob(agent: AgentName.proofreader, phase: .proofreading,
                                  project: project, chapter: chapter.chapterNumber))
-            let text = chapter.revisedText ?? chapter.draftText ?? ""
+            let text = sourceByChapter[chapter.id] ?? chapter.revisedText ?? chapter.draftText ?? ""
             requests.append(makeRequest(
                 prompt: PromptFactory.proofread(language: project.language, text: text),
                 system: "Du bist ein professioneller Korrektor. Du korrigierst nur Fehler, nie den Stil.",
@@ -2817,14 +4355,30 @@ final class PipelineOrchestrator: ObservableObject {
         }
 
         var firstError: Error?
+        let pendingIDs = Set(pending.map(\.id))
+        var acceptedFinalTexts = chapters.compactMap { chapter -> String? in
+            guard !pendingIDs.contains(chapter.id) else { return nil }
+            return chapter.finalText
+        }
         var done = 0
         for (index, chapter) in pending.enumerated() {
-            let source = chapter.revisedText ?? chapter.draftText ?? ""
+            let source = sourceByChapter[chapter.id] ?? chapter.revisedText ?? chapter.draftText ?? ""
             switch results[index] {
             case .success(let response)?:
                 // Korrektorat ändert nur Fehler → Umfang muss nahezu identisch bleiben (>=85%),
                 // sauber auf Satzschluss enden und alle Szenentrenner erhalten.
-                if AutonomousContentQuality.isAcceptableRewrite(source: source, candidate: response.text, minRatio: 0.85),
+                if AutonomousContentQuality.isAcceptableRewrite(source: source, candidate: response.text,
+                                                                 minRatio: 0.85,
+                                                                 maxRatio: 1.15,
+                                                                 finishReason: response.finishReason),
+                   withinGrowthCeiling(response.text, source: source, chapter: chapter),
+                   !AutonomousContentQuality.containsMetaRequest(response.text),
+                   !AutonomousContentQuality.containsPromptArtifacts(response.text),
+                   !PublicContentGuard.disclosureViolation(in: response.text),
+                   AutonomousContentQuality.repeatedSentenceCollisions(
+                       candidate: response.text,
+                       priorTexts: acceptedFinalTexts
+                   ).isEmpty,
                    ContentSafetyFilter.isSafe(response.text) {
                     chapter.finalText = response.text
                 } else {
@@ -2837,6 +4391,9 @@ final class PipelineOrchestrator: ObservableObject {
                 chapter.status = .finalized
                 chapter.actualWordCount = chapter.computedWordCount
                 chapter.updatedAt = Date()
+                if let final = chapter.finalText, !final.isEmpty {
+                    acceptedFinalTexts.append(final)
+                }
                 completeJob(jobs[index], result: "Kapitel \(chapter.chapterNumber) korrigiert",
                             tokens: response.tokensUsed ?? 0)
                 done += 1
@@ -2870,39 +4427,61 @@ final class PipelineOrchestrator: ObservableObject {
             return "Es gibt noch keinen prüfbaren Manuskripttext."
         }
 
-        // Alte Reparaturberichte ersetzen, damit ein erneuter Lauf nicht dieselben
-        // Befunde mehrfach in der Oberfläche stapelt.
-        if let stale = project.qualityReports?.filter({ $0.checkType == "KI-Nachbearbeitung" }) {
-            for report in stale { modelContext?.delete(report) }
-            project.qualityReports?.removeAll { $0.checkType == "KI-Nachbearbeitung" }
-        }
-
         let summaries = repairAuditSummaries(for: chapters)
-        let reportBrief = repairReportBrief(for: project)
+        let auditedReports = repairReportsForAudit(project)
+        let reportBrief = repairReportBrief(auditedReports)
         let characters = project.storyBible.map(compactCharacterSummary) ?? ""
 
         currentAgent = "\(AgentName.repairEditor) – Audit"
         let auditJob = beginJob(agent: AgentName.repairEditor, phase: .manuscriptRevision, project: project)
-        let auditResponse = try await generate(
-            prompt: PromptFactory.repairAudit(
-                bookTitle: project.title,
-                summaries: summaries,
-                characters: characters,
-                qualityReports: reportBrief,
-                tropes: project.tropes
-            ),
-            system: "Du bist ein präziser Schlusslektor. Du findest nur echte Inkonsistenzen und formulierst konkrete Reparaturaufträge.",
-            maxTokens: 3000,
-            temperature: 0.15,
-            config: config
+        let auditResponse: GenerationResponse
+        do {
+            auditResponse = try await generate(
+                prompt: PromptFactory.repairAudit(
+                    bookTitle: project.title,
+                    summaries: summaries,
+                    characters: characters,
+                    qualityReports: reportBrief,
+                    tropes: project.tropes,
+                    isNonfiction: project.isNonfiction
+                ),
+                system: project.isNonfiction
+                    ? "Du bist ein präziser Sachbuch-Schlusslektor. Du findest echte Sach-, Quellen- und Verständlichkeitsprobleme."
+                    : "Du bist ein präziser Schlusslektor. Du findest nur echte Inkonsistenzen und formulierst konkrete Reparaturaufträge.",
+                maxTokens: 3000,
+                temperature: 0.15,
+                config: config
+            )
+        } catch {
+            failJob(auditJob, error: error)
+            throw error
+        }
+        let issues = RepairIssueParser.expandingGlobalChapterReferences(
+            RepairIssueParser.parse(auditResponse.text)
         )
-        let issues = RepairIssueParser.parse(auditResponse.text)
+        guard RepairIssueParser.isConclusiveAuditResponse(auditResponse.text) else {
+            let error = AIError.systemError(
+                "Schlussaudit war unvollständig; vorhandene Qualitätsbefunde bleiben offen."
+            )
+            failJob(auditJob, error: error)
+            throw error
+        }
+
+        // Erst ein vollständig lesbares neues Audit darf ältere Befunde ablösen.
+        let staleRepairReports = (project.qualityReports ?? []).filter {
+            $0.checkType == "KI-Nachbearbeitung" || $0.checkType == "Nachbearbeitung"
+        }
+        for report in staleRepairReports { modelContext?.delete(report) }
+        project.qualityReports?.removeAll {
+            $0.checkType == "KI-Nachbearbeitung" || $0.checkType == "Nachbearbeitung"
+        }
+        for report in auditedReports { report.autoFixed = true }
         completeJob(auditJob, result: "\(issues.count) Reparaturbefunde", tokens: auditResponse.tokensUsed ?? 0)
 
         guard !issues.isEmpty else {
             addReport(project: project,
                       area: "Gesamtmanuskript",
-                      type: "KI-Nachbearbeitung",
+                      type: "Nachbearbeitung",
                       result: "Keine reparaturpflichtigen Inkonsistenzen gefunden.",
                       severity: .info,
                       recommendation: "")
@@ -2921,7 +4500,7 @@ final class PipelineOrchestrator: ObservableObject {
             let area = issue.area.isEmpty ? baseArea : "\(baseArea) · \(issue.area)"
             let report = addReport(project: project,
                                    area: area,
-                                   type: "KI-Nachbearbeitung",
+                                   type: "Nachbearbeitung",
                                    result: issue.problem,
                                    severity: issue.severity,
                                    recommendation: issue.instruction)
@@ -2945,29 +4524,67 @@ final class PipelineOrchestrator: ObservableObject {
                                      project: project,
                                      chapter: chapterNumber)
             do {
-                let response = try await generate(
-                    prompt: PromptFactory.repairChapter(
-                        language: project.language,
-                        bookTitle: project.title,
-                        chapterNumber: chapter.chapterNumber,
-                        chapterTitle: chapter.title,
-                        issue: issue,
-                        chapterText: currentText.truncated(to: 36_000)
-                    ),
-                    system: "Du bist ein chirurgisch arbeitender Romanlektor. Du reparierst exakt den Befund und gibst nur den vollständigen Kapiteltext zurück.",
-                    maxTokens: min(12000, max(4000, currentText.wordCount * 3)),
-                    temperature: 0.25,
-                    config: config, creative: true
-                )
-                let repaired = AutonomousContentQuality.humanizeProse(
-                    AutonomousContentQuality.strippingInlineFormatting(
-                        AutonomousContentQuality.strippingPromptArtifacts(response.text)))
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-
                 let minimumWords = max(100, Int(Double(currentText.wordCount) * 0.65))
-                if repaired.wordCount >= minimumWords,
-                   !AutonomousContentQuality.containsMetaRequest(repaired),
-                   ContentSafetyFilter.isSafe(repaired) {
+                var acceptedRepair: String?
+                var repairTokens = 0
+                if let targeted = try await targetedRepairPatch(
+                    source: currentText,
+                    project: project,
+                    chapter: chapter,
+                    issue: issue,
+                    config: config
+                ) {
+                    acceptedRepair = targeted.text
+                    repairTokens += targeted.tokens
+                }
+                for attempt in 1...2 where acceptedRepair == nil {
+                    let response = try await generate(
+                        prompt: PromptFactory.repairChapter(
+                            language: project.language,
+                            bookTitle: project.title,
+                            chapterNumber: chapter.chapterNumber,
+                            chapterTitle: chapter.title,
+                            issue: issue,
+                            chapterText: currentText.truncated(to: 36_000),
+                            isNonfiction: project.isNonfiction
+                        ) + "\n\nTechnischer Vollständigkeitsversuch \(attempt)/2: Der letzte Satz muss vollständig sein.",
+                        system: project.isNonfiction
+                            ? "Du bist ein chirurgisch arbeitender Sachbuchlektor. Du reparierst exakt den Befund, ohne Belege zu erfinden."
+                            : "Du bist ein chirurgisch arbeitender Romanlektor. Du reparierst exakt den Befund und gibst nur den vollständigen Kapiteltext zurück.",
+                        maxTokens: min(12_000, max(4_000, currentText.wordCount * 4)),
+                        temperature: 0.25,
+                        config: config, creative: true
+                    )
+                    repairTokens += response.tokensUsed ?? 0
+                    let candidate = AutonomousContentQuality.humanizeProse(
+                        AutonomousContentQuality.strippingInlineFormatting(
+                            AutonomousContentQuality.strippingPromptArtifacts(response.text)))
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    // Ziel-Deckel gegen KUMULATIVES Aufblähen: +15% pro Runde klingt harmlos,
+                    // aber über mehrere Reparatur-Runden wuchs ein Kapitel so von 1,53× auf
+                    // 1,88× des Ziels (Ping-Pong gegen die Verdichtung, Buch wird nie fertig).
+                    // Liegt das Kapitel bereits über der Freigabe-Grenze, darf eine Reparatur
+                    // es NIE weiter verlängern – nur gleich lang lassen oder kürzen.
+                    let targetCeiling = chapter.targetWordCount > 0
+                        ? Int(Double(chapter.targetWordCount) * PublicationReadiness.maximumChapterWordRatio)
+                        : Int.max
+                    let growthCeiling = max(currentText.wordCount, targetCeiling)
+                    if AutonomousContentQuality.isAcceptableRewrite(
+                           source: currentText,
+                           candidate: candidate,
+                           minRatio: 0.65,
+                           maxRatio: 1.15,   // Reparatur darf das Kapitel NICHT verlängern
+                           finishReason: response.finishReason),
+                       candidate.wordCount <= growthCeiling,
+                       candidate.wordCount >= minimumWords,
+                       !AutonomousContentQuality.containsMetaRequest(candidate),
+                       !PublicContentGuard.disclosureViolation(in: candidate),
+                       ContentSafetyFilter.isSafe(candidate) {
+                        acceptedRepair = candidate
+                    }
+                }
+
+                if let repaired = acceptedRepair {
                     chapter.finalText = repaired
                     chapter.actualWordCount = repaired.wordCount
                     chapter.status = .finalized
@@ -2977,17 +4594,17 @@ final class PipelineOrchestrator: ObservableObject {
                     repairedCount += 1
                     completeJob(repairJob,
                                 result: "Kapitel \(chapterNumber) repariert",
-                                tokens: response.tokensUsed ?? 0)
+                                tokens: repairTokens)
                 } else {
                     addReport(project: project,
                               area: "Kapitel \(chapterNumber)",
-                              type: "KI-Nachbearbeitung",
+                              type: "Nachbearbeitung",
                               result: "Reparaturantwort war unvollständig; Originalfassung blieb erhalten.",
                               severity: .warning,
                               recommendation: "Kapitel im Lektor-Chat manuell prüfen.")
                     completeJob(repairJob,
                                 result: "Reparaturantwort unvollständig",
-                                tokens: response.tokensUsed ?? 0)
+                                tokens: repairTokens)
                 }
             } catch {
                 failJob(repairJob, error: error)
@@ -3004,6 +4621,99 @@ final class PipelineOrchestrator: ObservableObject {
             message += " \(max(skippedCount, issues.count - processedCount)) Befund(e) bleiben als Report zur manuellen Prüfung."
         }
         return message
+    }
+
+    private func targetedRepairPatch(
+        source: String,
+        project: Project,
+        chapter: Chapter,
+        issue: RepairIssue,
+        config: ProviderConfiguration
+    ) async throws -> (text: String, tokens: Int)? {
+        var usedTokens = 0
+        for attempt in 1...2 {
+            let response = try await generate(
+                prompt: """
+                Repariere ausschließlich die konkrete Fehlerstelle in Kapitel
+                \(chapter.chapterNumber) „\(chapter.title)“ aus „\(project.title)“.
+
+                Problem: \(issue.problem)
+                Auftrag: \(issue.instruction)
+
+                Wähle einen zusammenhängenden Ausschnitt von 1 bis höchstens 8 Sätzen,
+                der im KAPITELTEXT EXAKT und wörtlich vorkommt. SEARCH muss unverändert
+                kopiert werden. REPLACE enthält nur die korrigierte Passage und muss
+                nahtlos an den Text davor und danach anschließen. Keine Analyse, kein
+                Markdown und keine Änderung außerhalb dieser Passage.
+
+                Antworte exakt so:
+                <<<SEARCH>>>
+                [wörtlicher Originalausschnitt]
+                <<<REPLACE>>>
+                [korrigierter Ersatz]
+                <<<END>>>
+
+                Technischer Patch-Versuch \(attempt)/2.
+
+                KAPITELTEXT:
+                \(source.truncated(to: 36_000))
+                """,
+                system: project.isNonfiction
+                    ? "Du bist ein präziser Sachbuchlektor und lieferst einen exakt anwendbaren Textpatch ohne erfundene Belege."
+                    : "Du bist ein präziser Romanlektor und lieferst einen exakt anwendbaren Textpatch für den benannten Kontinuitätsfehler.",
+                maxTokens: 2_500,
+                temperature: 0.15,
+                config: config,
+                creative: true
+            )
+            usedTokens += response.tokensUsed ?? 0
+            guard let patch = parseTargetedRepairPatch(response.text),
+                  patch.search.count >= 20,
+                  patch.search.count <= 8_000,
+                  patch.replacement.count <= 10_000,
+                  let range = source.range(of: patch.search) else {
+                continue
+            }
+
+            var candidate = source
+            candidate.replaceSubrange(range, with: patch.replacement)
+            candidate = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            if AutonomousContentQuality.isAcceptableRewrite(
+                   source: source,
+                   candidate: candidate,
+                   minRatio: 0.80,
+                   maxRatio: 1.15,
+                   finishReason: response.finishReason),
+               withinGrowthCeiling(candidate, source: source, chapter: chapter),
+               !AutonomousContentQuality.containsMetaRequest(candidate),
+               !PublicContentGuard.disclosureViolation(in: candidate),
+               ContentSafetyFilter.isSafe(candidate) {
+                return (candidate, usedTokens)
+            }
+        }
+        return nil
+    }
+
+    private func parseTargetedRepairPatch(_ text: String) -> (search: String, replacement: String)? {
+        let searchMarker = "<<<SEARCH>>>"
+        let replacementMarker = "<<<REPLACE>>>"
+        let endMarker = "<<<END>>>"
+        guard let searchStart = text.range(of: searchMarker),
+              let replacementStart = text.range(
+                  of: replacementMarker,
+                  range: searchStart.upperBound..<text.endIndex
+              ),
+              let end = text.range(
+                  of: endMarker,
+                  range: replacementStart.upperBound..<text.endIndex
+              ) else { return nil }
+
+        let search = String(text[searchStart.upperBound..<replacementStart.lowerBound])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let replacement = String(text[replacementStart.upperBound..<end.lowerBound])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !search.isEmpty, !replacement.isEmpty else { return nil }
+        return (search, replacement)
     }
 
     // MARK: - Phase 10: Copyright-Prüfung (lokal)
@@ -3033,7 +4743,7 @@ final class PipelineOrchestrator: ObservableObject {
         if findings.isEmpty {
             addReport(project: project, area: "Copyright", type: "Originalitäts-Check",
                       result: "Originalitäts-Check bestanden – keine geschützten Werke, Figuren, Welten oder Songtexte in Titel, Text oder Verkaufstexten erkannt.", severity: .info,
-                      recommendation: "Interne Prüfung, keine juristische Garantie. KI-Unterstützung beim Upload bei Amazon offenlegen.")
+                      recommendation: "Interne Prüfung, keine juristische Garantie.")
         } else {
             for finding in findings {
                 addReport(project: project, area: "Copyright", type: "Risikoanalyse",
@@ -3049,8 +4759,10 @@ final class PipelineOrchestrator: ObservableObject {
     private func runKDPFormatting(project: Project, config: ProviderConfiguration) async throws {
         project.status = .kdpFormatting
 
-        // KDP-Metadaten (Verkaufstext, Keywords, Kategorien) generieren – einmalig.
-        if let profile = project.bookProfile, profile.kdpDescription.isEmpty {
+        // KDP-Metadaten (Verkaufstext, Keywords, Kategorien) generieren. Bei einem
+        // früheren Teilergebnis wird die Phase erneut ausgeführt, statt ein Buch ohne
+        // vollständige Verkaufsseite als fertig zu markieren.
+        if let profile = project.bookProfile, needsKDPMetadata(project: project, profile: profile) {
             let metaJob = beginJob(agent: AgentName.kdpFormatter, phase: .kdpFormatting, project: project)
             do {
                 let response = try await generate(
@@ -3066,10 +4778,16 @@ final class PipelineOrchestrator: ObservableObject {
                     maxTokens: 1200, temperature: 0.7, config: config
                 )
                 let parsed = KDPMetadataParser.parse(response.text)
-                profile.kdpDescription = parsed.salesDescription.isEmpty ? response.text : parsed.salesDescription
+                let description = parsed.salesDescription.isEmpty ? response.text : parsed.salesDescription
+                let publicFields = [description, parsed.keywords, parsed.categories,
+                                    parsed.salesTitle, parsed.subtitle]
+                guard !publicFields.contains(where: PublicContentGuard.disclosureViolation) else {
+                    throw AIError.systemError("KDP-Metadaten enthalten einen Produktionshinweis.")
+                }
+                profile.kdpDescription = description
                 profile.kdpKeywords = parsed.keywords
                 profile.kdpCategories = parsed.categories
-                profile.kdpTitle = parsed.salesTitle
+                profile.kdpTitle = parsed.salesTitle.isEmpty ? project.title : parsed.salesTitle
                 profile.kdpSubtitle = parsed.subtitle
                 // VIRALER VERKAUFSTITEL: 10 Kandidaten (grounded in der Story) generieren und den
                 // mit dem stärksten Kauf-Sog wählen – klare, neugierig machende Titel statt schwacher.
@@ -3088,7 +4806,8 @@ final class PipelineOrchestrator: ObservableObject {
                     }
                 }
                 // Falls noch ein Platzhalter steht, den Verkaufstitel übernehmen.
-                if AutonomousContentQuality.isGenericPlaceholder(project.title), !profile.kdpTitle.isEmpty {
+                if AutonomousContentQuality.isWeakTitle(project.title, genre: project.genre),
+                   !AutonomousContentQuality.isWeakTitle(profile.kdpTitle, genre: project.genre) {
                     project.title = profile.kdpTitle
                 }
                 completeJob(metaJob, result: response.text, tokens: response.tokensUsed ?? 0)
@@ -3117,7 +4836,7 @@ final class PipelineOrchestrator: ObservableObject {
         let scores = QualityScores.compute(for: project)
         let entries: [(String, Double)] = [
             ("Struktur", scores.structure),
-            ("Figuren", scores.characters),
+            (project.isNonfiction ? "Lesernutzen" : "Figuren", scores.characters),
             ("Stil", scores.style),
             ("Konsistenz", scores.consistency),
             ("KDP-Format", scores.kdp)
@@ -3134,37 +4853,539 @@ final class PipelineOrchestrator: ObservableObject {
 
     // MARK: - Phase 12: Export
 
-    private func runExport(project: Project) throws {
+    private func runExport(project: Project, config: ProviderConfiguration) async throws {
+        // Bereits die Endabnahme ist aktive Exportarbeit. Der vorherige Status kann
+        // `paused` sein; ihn erst nach allen Reparaturen zu ändern ließ Dashboard und
+        // Projektseite während eines laufenden Jobs fälschlich „Pausiert" anzeigen.
         project.status = .export
+        project.updatedAt = Date()
+        modelContext?.saveOrLog()
+        try await runFinalReadinessRepairs(project: project, config: config)
+        try PublicationReadiness.validateForCompletion(project: project)
         let job = beginJob(agent: AgentName.exporter, phase: .export, project: project)
 
         do {
             var exported: [String] = []
             let formats = Set(project.outputFormats)
-            if formats.contains("EPUB") {
-                exported.append(try ExportEngine.exportToEPUB(project: project).path)
+            let snapshot: BookExportSnapshot? = formats.isDisjoint(with: ["EPUB", "PDF", "DOCX"])
+                ? nil
+                : try ExportEngine.prepareSnapshot(for: project)
+            if formats.contains("EPUB"), let snapshot {
+                exported.append((try await ExportEngine.exportPreparedToEPUBInBackground(snapshot)).path)
             }
-            if formats.contains("PDF") {
-                exported.append(try ExportEngine.exportToPDF(project: project).path)
+            if formats.contains("PDF"), let snapshot {
+                exported.append((try await ExportEngine.exportPreparedToPDFInBackground(snapshot)).path)
             }
-            if formats.contains("DOCX") {
-                exported.append(try ExportEngine.exportToDOCX(project: project).path)
+            if formats.contains("DOCX"), let snapshot {
+                exported.append((try await ExportEngine.exportPreparedToDOCXInBackground(snapshot)).path)
             }
             completeJob(job, result: exported.isEmpty ? "Keine Formate ausgewählt" : exported.joined(separator: "\n"))
+        } catch is CancellationError {
+            // Stop/Pause unverändert bis zum zentralen Handler weiterreichen. So
+            // wird das laufende Projekt nicht fälschlich als Exportfehler markiert.
+            throw CancellationError()
         } catch {
             failJob(job, error: error)
             throw AIError.systemError("Export fehlgeschlagen: \(error.localizedDescription)")
         }
     }
 
+    /// Die Freigabe ist kein Endpunkt, der ein fast fertiges Buch einfach verwirft.
+    /// Bis zu drei gezielte Runden beheben die tatsächlich gemeldeten Blocker und
+    /// prüfen anschließend das vollständige Manuskript erneut.
+    /// Bis zu so viele Reparaturdurchläufe pro Produktionslauf. Bewusst hoch: Die
+    /// Produktion soll sich selbst so lange korrigieren, bis das Buch die Abnahme
+    /// besteht – nicht nach wenigen Versuchen aufgeben. Die Modell-Reparaturen sind
+    /// stochastisch, ein zunächst gescheiterter Versuch gelingt oft im nächsten Anlauf.
+    private static let maxReadinessPasses = 10
+
+    private func runFinalReadinessRepairs(project: Project,
+                                          config: ProviderConfiguration) async throws {
+        // Nichts zu reparieren → keine Reparaturzeit anzeigen.
+        let startingIssues = PublicationReadiness.completionBlockingIssues(project: project)
+        if startingIssues.isEmpty { return }
+        // Reparaturzeit ab jetzt sichtbar mitzählen – über automatische
+        // Selbstkorrektur-Runden hinweg (nur beim ersten Eintritt starten).
+        if repairStartedAt == nil {
+            repairStartedAt = Date()
+            repairIssuesTotal = startingIssues.count
+        }
+        // Basislinie ggf. anheben (falls beim Fortsetzen mehr Punkte offen sind),
+        // damit der Fortschritt nie über 100 % springt.
+        repairIssuesTotal = max(repairIssuesTotal, startingIssues.count)
+        repairIssuesRemaining = startingIssues.count
+        updateProductionTiming()
+
+        var bestCount = Int.max
+        var stalledPasses = 0
+
+        for pass in 1...Self.maxReadinessPasses {
+            try Task.checkCancellation()
+            let issues = PublicationReadiness.completionBlockingIssues(project: project)
+            if issues.isEmpty { repairIssuesRemaining = 0; repairStartedAt = nil; updateProductionTiming(); return }
+
+            currentAgent = "Finale Qualitätsreparatur \(pass) – \(issues.count) offene Punkte"
+            // Das Ganz-Kapitel-Repair-Audit läuft pro Produktionslauf GENAU EINMAL.
+            // Wiederholte Kapitel-Neufassungen erzeugten in jeder Runde NEUE
+            // Satzdoppler gegen andere Kapitel und ließen Kapitel wieder wachsen –
+            // ein divergierendes Feedback (beobachtet: Doppler 2→8, K55 1,53→1,88×).
+            // Spätere Runden arbeiten nur noch chirurgisch (Verdichtung, Satzdoppler).
+            if !readinessRepairAuditDone,
+               issues.contains(where: { $0.contains("Offene Qualitätsbefunde") }) {
+                readinessRepairAuditDone = true
+                _ = try await runRepairWorkflow(project: project, config: config)
+            }
+            if issues.contains(where: { $0.contains("über Zielumfang") }) {
+                try await runFinalSizingCleanup(project: project, config: config)
+            }
+            if issues.contains(where: { $0.contains("wiederholte ganze Sätze") }) {
+                try await runRepeatedSentenceCleanup(project: project, config: config)
+            }
+
+            project.updatedAt = Date()
+            modelContext?.saveOrLog()
+
+            let refreshed = PublicationReadiness.completionBlockingIssues(project: project)
+            // Fortschritt aktualisieren (offene Punkte + Restzeit-Schätzung).
+            repairIssuesTotal = max(repairIssuesTotal, refreshed.count)
+            repairIssuesRemaining = refreshed.count
+            updateProductionTiming()   // Reparaturzeit + Restschätzung nach jedem Durchlauf
+            if refreshed.isEmpty { repairIssuesRemaining = 0; repairStartedAt = nil; updateProductionTiming(); return }
+
+            if refreshed.count < bestCount {
+                bestCount = refreshed.count
+                stalledPasses = 0
+            } else {
+                stalledPasses += 1
+            }
+
+            // Bleiben ausschließlich Punkte übrig, die diese Reparaturen NICHT beheben
+            // können (z.B. fehlende Metadaten/Impressum), bringt Weiterlaufen nichts.
+            let hasRepairableIssue = refreshed.contains {
+                $0.contains("Offene Qualitätsbefunde")
+                    || $0.contains("über Zielumfang")
+                    || $0.contains("wiederholte ganze Sätze")
+            }
+            if !hasRepairableIssue { break }
+            // Kein Fortschritt über mehrere Durchläufe → dieser Lauf ist ausgereizt;
+            // der übergeordnete Loop setzt (begrenzt) automatisch fort statt zu verwerfen.
+            if stalledPasses >= 3 { break }
+        }
+
+        let remaining = PublicationReadiness.completionBlockingIssues(project: project)
+        guard !remaining.isEmpty else { repairIssuesRemaining = 0; repairStartedAt = nil; updateProductionTiming(); return }
+        repairIssuesRemaining = remaining.count
+        // Nicht bestanden: Reparaturuhr WEITERLAUFEN lassen – die Selbstkorrektur
+        // setzt automatisch fort, die angezeigte Reparaturzeit umfasst alle Runden.
+        throw AIError.systemError(
+            "\(Self.readinessShortfallMarker): \(remaining.joined(separator: " "))"
+        )
+    }
+
+    /// Erkennungsmarke für „Buch fertig geschrieben, aber Qualitäts-Endabnahme noch
+    /// nicht bestanden". Solche Fälle werden NICHT als endgültiger Fehlschlag behandelt
+    /// (Buch verwerfen), sondern führen zu begrenzter automatischer Weiterarbeit.
+    static let readinessShortfallMarker = "Finale Qualitätsreparatur noch nicht abgeschlossen"
+
+    /// Kurze Pause zwischen zwei automatischen Reparaturläufen (schont den Provider,
+    /// hält die Selbstkorrektur aber zügig).
+    static let readinessRetryDelaySeconds: Double = 15
+
+    /// Ist der Fehler „Buch fertig, aber Qualitäts-Endabnahme noch offen"? Nur dann
+    /// wird selbstkorrigierend weitergearbeitet statt zu verwerfen.
+    static func isReadinessShortfall(_ error: Error) -> Bool {
+        guard let aiError = error as? AIError else { return false }
+        let text = aiError.errorDescription ?? "\(aiError)"
+        return text.contains(Self.readinessShortfallMarker)
+    }
+
+    private func runFinalSizingCleanup(project: Project,
+                                       config: ProviderConfiguration) async throws {
+        for chapter in sortedChapters(project) {
+            try Task.checkCancellation()
+            guard let source = chapter.bestText,
+                  chapter.targetWordCount > 0,
+                  Double(source.wordCount) > Double(chapter.targetWordCount)
+                    * PublicationReadiness.maximumChapterWordRatio else { continue }
+
+            let job = beginJob(agent: AgentName.reviser, phase: .chapterRevision,
+                               project: project, chapter: chapter.chapterNumber)
+            var accepted: String?
+            var tokens = 0
+            do {
+                for attempt in 1...3 where accepted == nil {
+                    let response = try await generate(
+                        prompt: """
+                        Verdichte Kapitel \(chapter.chapterNumber) „\(chapter.title)“ aus „\(project.title)“
+                        auf \(chapter.targetWordCount) Wörter, Toleranz -20% bis +25%.
+                        Bewahre alle Ereignisse, Enthüllungen, Entscheidungen, Figureninformationen,
+                        Szenentrenner und den Anschluss an das nächste Kapitel. Entferne ausschließlich
+                        Redundanz, doppelte Bilder und Wiederholungen. Keine Zusammenfassung, keine
+                        Kommentare. Gib nur das vollständige Kapitel mit vollständigem Satzende zurück.
+                        Technischer Versuch \(attempt)/2.
+
+                        KAPITELTEXT:
+                        \(source)
+                        """,
+                        system: project.isNonfiction
+                            ? "Du bist ein präziser Sachbuchlektor und verdichtest ohne Wissensverlust."
+                            : "Du bist ein präziser Romanlektor und verdichtest ohne Handlungsverlust.",
+                        maxTokens: min(12_000, max(4_000, chapter.targetWordCount * 4)),
+                        temperature: 0.25,
+                        config: config,
+                        creative: true
+                    )
+                    tokens += response.tokensUsed ?? 0
+                    let candidate = AutonomousContentQuality.humanizeProse(
+                        AutonomousContentQuality.strippingInlineFormatting(
+                            AutonomousContentQuality.strippingPromptArtifacts(response.text)))
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    // FORTSCHRITTS-RATSCHE: Ideal ist eine Fassung im Zielband (0,65–1,30×).
+                    // Verfehlt das Modell das Band, wird trotzdem jede Fassung übernommen,
+                    // die das Kapitel um >=12 % verkürzt (und nicht unter das Band fällt).
+                    // So schrumpft ein stark übergroßes Kapitel über die Runden monoton
+                    // auf das Ziel, statt an der Alles-oder-nichts-Abnahme zu scheitern.
+                    let withinBand = AutonomousContentQuality.isWithinWordTarget(
+                        candidate, targetWords: chapter.targetWordCount,
+                        lowerRatio: 0.65, upperRatio: 1.30)
+                    let meaningfulShrink = candidate.wordCount <= Int(Double(source.wordCount) * 0.88)
+                        && Double(candidate.wordCount) >= Double(chapter.targetWordCount) * 0.65
+                    if withinBand || meaningfulShrink,
+                       AutonomousContentQuality.isAcceptableRewrite(
+                           source: source, candidate: candidate,
+                           minRatio: 0.62, finishReason: response.finishReason),
+                       !PublicContentGuard.disclosureViolation(in: candidate),
+                       ContentSafetyFilter.isSafe(candidate) {
+                        accepted = candidate
+                    }
+                }
+            } catch {
+                failJob(job, error: error)
+                throw error
+            }
+
+            // SZENENWEISE VERDICHTUNG (Fallback): Die Ganz-Kapitel-Verdichtung scheitert
+            // regelmäßig daran, dass das Modell Szenentrenner (***) verliert oder das
+            // Zielband knapp verfehlt – dann wurde ALLES verworfen und das Kapitel blieb
+            // dauerhaft zu lang. Szenenweise bleiben die Trenner per Konstruktion
+            // erhalten, jedes Teilstück ist klein genug, und JEDER gelungene Abschnitt
+            // zählt (Fortschritts-Ratsche statt Alles-oder-nichts).
+            if accepted == nil {
+                let segments = source.components(separatedBy: "***")
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                if segments.count > 1, chapter.targetWordCount > 0 {
+                    let shrinkFactor = max(0.6, Double(chapter.targetWordCount) / Double(max(1, source.wordCount)))
+                    var rebuilt: [String] = []
+                    var shrunkAny = false
+                    for segment in segments {
+                        let segTarget = max(120, Int(Double(segment.wordCount) * shrinkFactor))
+                        // Abschnitte, die ihr anteiliges Ziel schon (fast) halten, unangetastet lassen.
+                        guard segment.wordCount > Int(Double(segTarget) * 1.15) else {
+                            rebuilt.append(segment); continue
+                        }
+                        do {
+                            let response = try await generate(
+                                prompt: """
+                                Verdichte diesen Szenenabschnitt aus Kapitel \(chapter.chapterNumber) „\(chapter.title)“
+                                auf etwa \(segTarget) Wörter. Bewahre alle Ereignisse, Enthüllungen,
+                                Entscheidungen, Figureninformationen und den Anschluss an Anfang und Ende.
+                                Entferne ausschließlich Redundanz, doppelte Bilder und Wiederholungen.
+                                Gib nur den verdichteten Abschnitt als reinen Fließtext zurück.
+
+                                ABSCHNITT:
+                                \(segment)
+                                """,
+                                system: project.isNonfiction
+                                    ? "Du bist ein präziser Sachbuchlektor und verdichtest ohne Wissensverlust."
+                                    : "Du bist ein präziser Romanlektor und verdichtest ohne Handlungsverlust.",
+                                maxTokens: min(6_000, max(1_200, segTarget * 4)),
+                                temperature: 0.25,
+                                config: config,
+                                creative: true
+                            )
+                            tokens += response.tokensUsed ?? 0
+                            let cand = AutonomousContentQuality.humanizeProse(
+                                AutonomousContentQuality.strippingInlineFormatting(
+                                    AutonomousContentQuality.strippingPromptArtifacts(response.text)))
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                            // Ratsche: übernehmen, sobald der Abschnitt spürbar kürzer ist
+                            // (>=8 %) und nicht abgeschnitten/unsicher.
+                            if !cand.isEmpty,
+                               cand.wordCount <= Int(Double(segment.wordCount) * 0.92),
+                               cand.wordCount >= Int(Double(segTarget) * 0.55),
+                               !AutonomousContentQuality.isLikelyTruncated(cand, finishReason: response.finishReason),
+                               !AutonomousContentQuality.containsMetaRequest(cand),
+                               !PublicContentGuard.disclosureViolation(in: cand),
+                               ContentSafetyFilter.isSafe(cand) {
+                                rebuilt.append(cand)
+                                shrunkAny = true
+                            } else {
+                                rebuilt.append(segment)
+                            }
+                        } catch {
+                            if isFatalProductionError(error) { failJob(job, error: error); throw error }
+                            rebuilt.append(segment)
+                        }
+                    }
+                    if shrunkAny {
+                        accepted = rebuilt.joined(separator: "\n\n***\n\n")
+                    }
+                }
+            }
+
+            if let accepted {
+                chapter.finalText = accepted
+                chapter.actualWordCount = accepted.wordCount
+                chapter.status = .finalized
+                chapter.updatedAt = Date()
+                completeJob(job, result: "Kapitel auf Zielumfang verdichtet", tokens: tokens)
+            } else {
+                completeJob(job, result: "Verdichtung verworfen – vollständiger Text behalten",
+                            tokens: tokens)
+            }
+        }
+    }
+
+    private func runRepeatedSentenceCleanup(project: Project,
+                                            config: ProviderConfiguration) async throws {
+        let chapters = sortedChapters(project)
+        // Nur freigabe-blockierende Wiederholungen gezielt entfernen. Kurze natürliche
+        // Dialogbeats bleiben erlaubt; längere wortgleiche Sätze werden absatzweise ersetzt.
+        let repeats = AutonomousContentQuality.blockingRepeatedSentences(
+            inChapters: chapters.map { $0.bestText ?? "" }
+        )
+        guard !repeats.isEmpty else { return }
+
+        for chapter in chapters {
+            try Task.checkCancellation()
+            guard let source = chapter.bestText, !source.isEmpty else { continue }
+            let localRepeats = repeats.filter {
+                source.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+            }
+            guard !localRepeats.isEmpty else { continue }
+
+            let job = beginJob(agent: AgentName.repairEditor,
+                               phase: .manuscriptRevision,
+                               project: project,
+                               chapter: chapter.chapterNumber)
+            // CHIRURGISCH: Nur die Absätze anfassen, die ein Duplikat enthalten. Der
+            // frühere Ansatz ließ das GANZE Kapitel neu schreiben – bei längeren
+            // Kapiteln wurde die Antwort abgeschnitten/zu kurz, das Gate verwarf sie,
+            // und das Original MIT den Wiederholungen blieb stehen. Absatzweise ist der
+            // Input klein (keine Abschneidung), ein Fehlschlag betrifft nur EINEN Absatz,
+            // und der Rest des Kapitels bleibt unverändert erhalten.
+            var paragraphs = source.components(separatedBy: "\n\n")
+            var tokens = 0
+            var fixedCount = 0
+            var failedCount = 0
+            do {
+                for (index, paragraph) in paragraphs.enumerated() {
+                    try Task.checkCancellation()
+                    let hits = localRepeats.filter {
+                        paragraph.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+                    }
+                    guard !hits.isEmpty else { continue }
+                    // Szenentrenner/Kurzzeilen (z.B. „***") nicht anfassen.
+                    guard paragraph.trimmingCharacters(in: .whitespacesAndNewlines).count >= 20 else { continue }
+
+                    let duplicateList = hits.map { "- \($0)" }.joined(separator: "\n")
+                    let comparisonTexts = chapters.compactMap { other -> String? in
+                        guard other.id != chapter.id else { return nil }
+                        return other.bestText
+                    } + paragraphs.enumerated().compactMap { paragraphIndex, text in
+                        paragraphIndex == index ? nil : text
+                    }
+                    // Kollisionen, die der Absatz SCHON HAT (unveränderte Nachbarsätze),
+                    // dürfen die Annahme nicht verhindern – sonst ist jeder Kandidat
+                    // chancenlos, weil er die instruierten unveränderten Sätze behält.
+                    // Verboten sind nur NEU EINGEFÜHRTE Kollisionen.
+                    let preexistingCollisions = Set(AutonomousContentQuality.repeatedSentenceCollisions(
+                        candidate: paragraph, priorTexts: comparisonTexts))
+                    var replaced: String?
+                    for attempt in 1...2 where replaced == nil {
+                        let response = try await generate(
+                            prompt: """
+                            Formuliere in diesem Absatz NUR die folgenden wörtlich mehrfach im Buch \
+                            vorkommenden Sätze neu, jeweils passend aus dem unmittelbaren Kontext:
+                            \(duplicateList)
+
+                            Lass alles andere unverändert. Bewahre Handlung, Fakten, Dialogbedeutung, \
+                            Perspektive, Stimme, Zeitform und die ungefähre Länge. Erzeuge keine neue \
+                            Standardformulierung, die an mehreren Stellen identisch wäre. Gib nur den \
+                            überarbeiteten Absatz als reinen Fließtext zurück.
+                            Technischer Versuch \(attempt)/2.
+
+                            ABSATZ:
+                            \(paragraph)
+                            """,
+                            system: "Du bist ein chirurgisch arbeitender Schlusslektor für abwechslungsreiche, natürliche Buchprosa.",
+                            maxTokens: min(4_000, max(600, paragraph.wordCount * 4)),
+                            temperature: 0.4,
+                            config: config,
+                            creative: true
+                        )
+                        tokens += response.tokensUsed ?? 0
+                        let candidate = AutonomousContentQuality.humanizeProse(
+                            AutonomousContentQuality.strippingInlineFormatting(
+                                AutonomousContentQuality.strippingPromptArtifacts(response.text)))
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        // Erfolg nur, wenn das Duplikat wirklich verschwunden ist und der
+                        // Absatz sonst intakt/plausibel bleibt.
+                        let stillDuplicated = hits.contains {
+                            candidate.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+                        }
+                        if !candidate.isEmpty,
+                           !stillDuplicated,
+                           AutonomousContentQuality.isAcceptableRewrite(
+                               source: paragraph, candidate: candidate,
+                               minRatio: 0.6,
+                               maxRatio: 1.25,   // Absatz-Neufassung darf nicht aufpolstern
+                               finishReason: response.finishReason),
+                           !AutonomousContentQuality.containsMetaRequest(candidate),
+                           !PublicContentGuard.disclosureViolation(in: candidate),
+                           AutonomousContentQuality.repeatedSentenceCollisions(
+                               candidate: candidate,
+                               priorTexts: comparisonTexts
+                           ).allSatisfy({ preexistingCollisions.contains($0) }),
+                           ContentSafetyFilter.isSafe(candidate) {
+                            replaced = candidate
+                        }
+                    }
+                    // SATZ-CHIRURGIE (letzter Schritt): Absatz-Neufassungen scheitern an
+                    // vielen Nebenbedingungen. Minimalinvasiv und hochzuverlässig ist es,
+                    // NUR die doppelte Formulierung selbst neu zu formulieren und im
+                    // Absatz per Textersatz auszutauschen.
+                    if replaced == nil {
+                        var working = paragraph
+                        var surgeryWorked = false
+                        for hit in hits {
+                            guard let range = working.range(
+                                of: hit, options: [.caseInsensitive, .diacriticInsensitive]
+                            ) else { continue }
+                            do {
+                                let response = try await generate(
+                                    prompt: """
+                                    Formuliere diese Formulierung neu: gleicher Sinn, gleiche Zeitform und \
+                                    Perspektive, aber völlig andere Wortwahl (keine Teilphrase übernehmen). \
+                                    Gib NUR die neue Formulierung ohne Anführungszeichen zurück.
+
+                                    KONTEXT (Absatz): \(paragraph)
+
+                                    FORMULIERUNG: \(hit)
+                                    """,
+                                    system: "Du bist ein präziser Lektor. Du lieferst exakt eine Ersatzformulierung.",
+                                    maxTokens: 220, temperature: 0.7, config: config, creative: true
+                                )
+                                tokens += response.tokensUsed ?? 0
+                                let replacement = response.text
+                                    .trimmingCharacters(in: CharacterSet(charactersIn: " \n\t\"„“”»«'"))
+                                let sane = !replacement.isEmpty
+                                    && replacement.wordCount <= hit.wordCount * 2 + 4
+                                    && replacement.wordCount >= max(3, hit.wordCount / 2)
+                                    && replacement.range(of: hit, options: [.caseInsensitive, .diacriticInsensitive]) == nil
+                                    && !replacement.contains("\n")
+                                    && !AutonomousContentQuality.containsMetaRequest(replacement)
+                                    && ContentSafetyFilter.isSafe(replacement)
+                                if sane {
+                                    working.replaceSubrange(range, with: replacement)
+                                    surgeryWorked = true
+                                }
+                            } catch {
+                                if isFatalProductionError(error) { throw error }
+                            }
+                        }
+                        if surgeryWorked { replaced = working }
+                    }
+                    if let replaced {
+                        paragraphs[index] = replaced
+                        fixedCount += 1
+                    } else {
+                        failedCount += 1
+                    }
+                }
+            } catch {
+                failJob(job, error: error)
+                throw error
+            }
+
+            if fixedCount > 0 {
+                let rebuilt = paragraphs.joined(separator: "\n\n")
+                chapter.finalText = rebuilt
+                chapter.actualWordCount = rebuilt.wordCount
+                chapter.status = .finalized
+                chapter.updatedAt = Date()
+            }
+            let resultNote: String
+            if fixedCount > 0 && failedCount == 0 {
+                resultNote = "Satzduplikate chirurgisch bereinigt (\(fixedCount) Absätze)"
+            } else if fixedCount > 0 {
+                resultNote = "Satzduplikate teilweise bereinigt (\(fixedCount) ok, \(failedCount) offen)"
+            } else {
+                resultNote = "Duplikat-Bereinigung unvollständig – Original behalten"
+            }
+            completeJob(job, result: resultNote, tokens: tokens)
+        }
+    }
+
     // MARK: - Hilfsfunktionen
 
     private func estimatedChapterCount(for project: Project) -> Int {
-        LongFormProductionPlan(pageCount: project.targetPageCount).chapterCount
+        productionPlan(for: project).chapterCount
+    }
+
+    private func productionPlan(for project: Project) -> LongFormProductionPlan {
+        let seed = NarrativeSignature.stableSeed(
+            "\(project.id.uuidString)|\(project.title)|\(project.genre)|chapter-rhythm"
+        )
+        let variation = Int(seed % 7) - 3
+        let wordsGoal: Int
+        if project.isNonfiction {
+            wordsGoal = 3_200 + Int((seed >> 8) % 901)
+        } else {
+            wordsGoal = 2_250 + Int((seed >> 8) % 751)
+        }
+        return LongFormProductionPlan(pageCount: project.targetPageCount,
+                                      wordsPerChapterGoal: wordsGoal,
+                                      chapterVariation: variation)
+    }
+
+    private func targetWordsByChapter(project: Project, count: Int) -> [Int] {
+        variedWordTargets(total: project.targetWordCount, count: count,
+                          seedKey: "\(project.id.uuidString)|chapters",
+                          spread: project.isNonfiction ? 0.14 : 0.24)
+    }
+
+    private func variedWordTargets(total: Int, count: Int, seedKey: String,
+                                   spread: Double) -> [Int] {
+        guard count > 0 else { return [] }
+        let weights: [Double] = (0..<count).map { index in
+            let seed = NarrativeSignature.stableSeed("\(seedKey)|\(index + 1)")
+            let unit = Double(seed % 10_001) / 10_000.0
+            return 1.0 - spread + unit * spread * 2.0
+        }
+        let totalWeight = weights.reduce(0, +)
+        var targets = weights.map {
+            max(1, Int((Double(total) * $0 / totalWeight).rounded()))
+        }
+        let difference = total - targets.reduce(0, +)
+        targets[targets.count - 1] = max(1, targets[targets.count - 1] + difference)
+        return targets
     }
 
     private func sortedChapters(_ project: Project) -> [Chapter] {
         (project.chapters ?? []).sorted { $0.chapterNumber < $1.chapterNumber }
+    }
+
+    private func needsKDPMetadata(project: Project, profile: BookProfile) -> Bool {
+        let required = [profile.kdpTitle, profile.kdpDescription,
+                        profile.kdpKeywords, profile.kdpCategories]
+        if required.contains(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+            return true
+        }
+        return [profile.kdpTitle, profile.kdpSubtitle, profile.kdpDescription,
+                profile.kdpKeywords, profile.kdpCategories, project.authorBio]
+            .contains(where: PublicContentGuard.disclosureViolation)
     }
 
     private func sortedScenes(_ chapter: Chapter) -> [StoryScene] {
@@ -3173,10 +5394,33 @@ final class PipelineOrchestrator: ObservableObject {
 
     private func isSceneWritten(_ scene: StoryScene) -> Bool {
         guard let text = scene.text, !text.isEmpty else { return false }
-        guard AutonomousContentQuality.acceptsDraftScene(text, targetWords: scene.targetWordCount) else {
+        guard AutonomousContentQuality.isWithinWordTarget(
+            text, targetWords: scene.targetWordCount,
+            lowerRatio: 0.55, upperRatio: 1.35
+        ), AutonomousContentQuality.hasCompleteSentenceEnding(text),
+           !AutonomousContentQuality.containsMetaRequest(text) else {
+            return false
+        }
+        guard AutonomousContentQuality.clarityAssessment(text).isAcceptable,
+              !AutonomousContentQuality.soundsLikeAI(text),
+              !AutonomousContentQuality.containsPromptArtifacts(text),
+              !AutonomousContentQuality.containsMetaRequest(text),
+              !PublicContentGuard.disclosureViolation(in: text),
+              ContentSafetyFilter.isSafe(text) else {
             return false
         }
         return scene.status == .written || scene.status == .finalized || scene.status == .checking
+    }
+
+    private func resolveSceneReports(project: Project, chapterNumber: Int, sceneNumber: Int) {
+        let area = "Kapitel \(chapterNumber), Szene \(sceneNumber)"
+        let resolvedTypes = Set([
+            "Stil", "Klarheit", "Wiederholung", "Umfang", "Rohfassung", "Szenen-Neufassung"
+        ])
+        for report in project.qualityReports ?? []
+        where report.checkedArea == area && resolvedTypes.contains(report.checkType) {
+            report.autoFixed = true
+        }
     }
 
     private func hasUsableExistingChapterPlan(_ chapters: [Chapter]) -> Bool {
@@ -3262,13 +5506,27 @@ final class PipelineOrchestrator: ObservableObject {
         }.joined(separator: "\n\n")
     }
 
-    private func repairReportBrief(for project: Project) -> String {
-        let reports = (project.qualityReports ?? [])
-            .filter { $0.checkType != "Score" && $0.checkType != "KI-Nachbearbeitung" }
+    private func repairReportsForAudit(_ project: Project) -> [QualityReport] {
+        let candidates = (project.qualityReports ?? [])
+            .filter {
+                $0.checkType != "Score"
+                    && $0.checkType != "KI-Nachbearbeitung"
+                    && $0.checkType != "Nachbearbeitung"
+            }
             .sorted { $0.createdAt < $1.createdAt }
-            .suffix(24)
+        let blockers = candidates.filter {
+            !$0.autoFixed && ($0.severity == .critical || $0.severity == .error)
+        }
+        let recentContext = candidates.suffix(24)
+        var seen = Set<UUID>()
+        return (blockers + recentContext).filter { seen.insert($0.id).inserted }
+    }
+
+    private func repairReportBrief(_ reports: [QualityReport]) -> String {
         return reports.map { report in
-            "\(report.severity.rawValue) | \(report.checkedArea) | \(report.checkType): \(report.result) \(report.recommendation)"
+            "\(report.severity.rawValue) | \(report.checkedArea.truncated(to: 120)) | "
+                + "\(report.checkType): \(report.result.truncated(to: 360)) "
+                + report.recommendation.truncated(to: 260)
         }.joined(separator: "\n")
     }
 
@@ -3284,9 +5542,38 @@ final class PipelineOrchestrator: ObservableObject {
             if !character.fear.isEmpty { line += ", Angst: \(character.fear)" }
             if !character.weakness.isEmpty { line += ", Schwäche: \(character.weakness)" }
             if !character.speechPattern.isEmpty { line += ", Sprechweise: \(character.speechPattern)" }
+            if !character.relationships.isEmpty { line += ", Beziehungen: \(character.relationships)" }
             if !character.importantFacts.isEmpty { line += ", Merkmale: \(character.importantFacts)" }
             return line
         }.joined(separator: "\n")
+    }
+
+    private func canonicalStoryContext(project: Project) -> String {
+        guard let bible = project.storyBible else { return "" }
+        return [
+            primaryStoryCanon(project: project),
+            "ERGÄNZENDE FIGURENPROFILE (dürfen dem Primärkanon nie widersprechen):\n\(compactCharacterSummary(bible))"
+        ].filter { !$0.hasSuffix(": ") && !$0.hasSuffix(":\n") }
+            .joined(separator: "\n\n")
+    }
+
+    private func primaryStoryCanon(project: Project) -> String {
+        guard let profile = project.bookProfile, let bible = project.storyBible else { return "" }
+        return [
+            "PRIMÄRKANON – ausschließlich diese Quellen definieren Vorgeschichte und Beziehungen:",
+            "PRÄMISSE: \(profile.premise)",
+            "EXPOSÉ: \(profile.synopsis ?? "")",
+            "PLOT: \(bible.plotPoints.truncated(to: 10_000))"
+        ].joined(separator: "\n\n")
+    }
+
+    private func draftStoryCanon(characterSummary: String) -> String {
+        return [
+            characterSummary.isEmpty ? "" : "ZULÄSSIGE FIGURENPROFILE:\n\(characterSummary)",
+            "Dies ist eine absichtlich szenenbegrenzte Positivliste. Prämisse, Exposé, spätere Figuren, "
+                + "Plotpunkte und Enthüllungen sind nicht Teil des Schreibkontexts. Verwende ausschließlich "
+                + "den aktuellen Szenenplan, die bisherige Handlung und die oben aufgeführten Figuren."
+        ].filter { !$0.isEmpty }.joined(separator: "\n\n")
     }
 
     @discardableResult
@@ -3342,6 +5629,23 @@ final class PipelineOrchestrator: ObservableObject {
         }
         if !timing.remainingText.isEmpty {
             estimatedTimeRemaining = timing.remainingText
+        }
+        if let repairStart = repairStartedAt {
+            let elapsed = Date().timeIntervalSince(repairStart)
+            repairElapsed = ProductionTiming.formatHumanDuration(elapsed)
+            // Restzeit-Schätzung aus der bisherigen Fortschrittsrate: erledigte Punkte
+            // pro verstrichener Zeit → hochgerechnet auf die noch offenen Punkte.
+            let done = max(0, repairIssuesTotal - repairIssuesRemaining)
+            if repairIssuesRemaining > 0, done > 0, elapsed > 5 {
+                let secondsPerIssue = elapsed / Double(done)
+                repairEtaText = ProductionTiming.formatHumanDuration(
+                    secondsPerIssue * Double(repairIssuesRemaining))
+            } else {
+                repairEtaText = ""   // noch keine belastbare Schätzung
+            }
+        } else {
+            repairElapsed = ""
+            repairEtaText = ""
         }
         publishWorkerStatus()
     }

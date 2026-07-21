@@ -41,12 +41,7 @@ struct NovelForgeApp: App {
     }
 
     private var preferredScheme: ColorScheme? {
-        switch colorSchemeSetting {
-        case "system": return nil
-        case "light": return .light
-        case "dark": return .dark
-        default: return .dark
-        }
+        .dark
     }
 
     private var accentColor: Color {
@@ -54,6 +49,7 @@ struct NovelForgeApp: App {
         case "purple": return .purple
         case "indigo": return .indigo
         case "teal": return .teal
+        case "coral": return Color(red: 0.91, green: 0.49, blue: 0.53)
         default: return .blue
         }
     }

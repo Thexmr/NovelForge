@@ -9,6 +9,7 @@ struct NewBookWizardView: View {
 
     @Environment(\.dismiss) var dismiss
     @Environment(\.modelContext) var modelContext
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Wird nach erfolgreichem Produktionsstart aufgerufen (z.B. um zur Produktionsansicht zu wechseln).
     var onStarted: (() -> Void)? = nil
@@ -25,11 +26,15 @@ struct NewBookWizardView: View {
     @State private var title = ""
     @State private var authorName = ""
     @State private var language = "Deutsch"
+    @State private var contentType = BookContentType.fiction
     @State private var genre = ""
     @State private var customGenre = ""
     @State private var subgenre = ""
     @State private var imprint = ""
     @State private var authorBio = ""
+    @State private var authorBioSuggestions: [String] = []
+    @State private var isGeneratingAuthorBio = false
+    @State private var authorBioError: String?
 
     // Schritt 2: Stil
     @State private var styleProfile = ""
@@ -77,7 +82,9 @@ struct NewBookWizardView: View {
     @State private var seriesNumber = 1
 
     let languages = ["Deutsch", "Englisch", "Französisch", "Spanisch"]
-    let genres = Self.availableGenres
+    private var genres: [String] {
+        Self.availableGenres.filter { BookContentType.infer(from: $0) == contentType }
+    }
     let styles = ["düster", "literarisch", "dialogstark", "humorvoll", "episch",
                   "emotional", "schnell erzählt", "minimalistisch", "atmosphärisch",
                   "actionreich", "psychologisch"]
@@ -86,75 +93,110 @@ struct NewBookWizardView: View {
     let tenses = ["Präteritum", "Präsens"]
 
     private let stepTitles = ["Basis", "Stil", "Umfang", "KI-Provider", "Prüfen"]
+    private let stepIcons = ["book.closed", "text.quote", "doc.text", "cloud", "checkmark.seal"]
 
     /// Das tatsächlich zu verwendende Genre: bei „Andere…" der frei eingegebene Text,
     /// sonst die Picker-Auswahl.
     private var effectiveGenre: String {
         if genre == Self.customGenreTag {
-            return customGenre.trimmingCharacters(in: .whitespacesAndNewlines)
+            let custom = customGenre.trimmingCharacters(in: .whitespacesAndNewlines)
+            return contentType == .nonfiction && !custom.isEmpty ? "Sachbuch: \(custom)" : custom
         }
         return genre
     }
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                stepIndicator
-                    .padding(.horizontal)
-                    .padding(.top, 12)
+            ZStack {
+                StudioBackground()
 
-                Form {
-                    switch currentStep {
-                    case 0: basicDataSection
-                    case 1: styleSection
-                    case 2: formatSection
-                    case 3: providerSection
-                    case 4: reviewSection
-                    default: EmptyView()
+                VStack(spacing: 0) {
+                    wizardHeader
+
+                    Form {
+                        Group {
+                            switch currentStep {
+                            case 0: basicDataSection
+                            case 1: styleSection
+                            case 2: formatSection
+                            case 3: providerSection
+                            case 4: reviewSection
+                            default: EmptyView()
+                            }
+                        }
+                        .id(currentStep)
+                        .transition(reduceMotion
+                                    ? .opacity
+                                    : .opacity.combined(with: .move(edge: .trailing)))
                     }
-                }
-                .formStyle(.grouped)
+                    .formStyle(.grouped)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.clear)
+                    .animation(reduceMotion ? nil : Motion.standard, value: currentStep)
 
-                if let message = validationMessage {
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                        Text(message)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    if let message = validationMessage {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(StudioTheme.amber)
+                            Text(message)
+                                .font(.caption)
+                                .foregroundStyle(StudioTheme.textMuted)
+                            Spacer()
+                        }
+                        .padding(10)
+                        .studioGlassTile(cornerRadius: 7, accent: StudioTheme.amber, opacity: 0.9)
+                        .padding(.horizontal, 16)
+                    }
+
+                    HStack(spacing: 12) {
+                        if currentStep > 0 {
+                            Button {
+                                validationMessage = nil
+                                withAnimation(reduceMotion ? nil : Motion.standard) {
+                                    currentStep -= 1
+                                }
+                            } label: {
+                                Label("Zurück", systemImage: "chevron.left")
+                            }
+                            .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.violet))
+                        }
+
+                        if !isCurrentStepValid, let requirement = currentStepRequirement {
+                            Text(requirement)
+                                .font(.caption)
+                                .foregroundStyle(StudioTheme.textMuted)
+                                .lineLimit(2)
+                        }
+
                         Spacer()
+
+                        if currentStep < 4 {
+                            Button {
+                                validationMessage = nil
+                                withAnimation(reduceMotion ? nil : Motion.standard) {
+                                    currentStep += 1
+                                }
+                            } label: {
+                                Label("Weiter", systemImage: "chevron.right")
+                                    .labelStyle(.titleAndIcon)
+                            }
+                            .buttonStyle(StudioPrimaryButtonStyle())
+                            .frame(width: 150)
+                            .disabled(!isCurrentStepValid)
+                        } else {
+                            Button {
+                                createProjectAndStart()
+                            } label: {
+                                Label("Produktion starten", systemImage: "play.fill")
+                            }
+                            .buttonStyle(StudioPrimaryButtonStyle())
+                            .frame(width: 210)
+                        }
                     }
-                    .padding(.horizontal)
+                    .padding(16)
+                    .background(.ultraThinMaterial)
+                    .overlay(alignment: .top) { StudioTheme.hairline.frame(height: 1) }
                 }
-
-                HStack {
-                    if currentStep > 0 {
-                        Button("Zurück") {
-                            validationMessage = nil
-                            currentStep -= 1
-                        }
-                    }
-
-                    Spacer()
-
-                    if currentStep < 4 {
-                        Button("Weiter") {
-                            validationMessage = nil
-                            currentStep += 1
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(!isCurrentStepValid)
-                    } else {
-                        Button {
-                            createProjectAndStart()
-                        } label: {
-                            Label("Produktion starten", systemImage: "play.fill")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                    }
-                }
-                .padding()
             }
             .navigationTitle("Neues Buch")
             .toolbar {
@@ -164,6 +206,7 @@ struct NewBookWizardView: View {
             }
             .onAppear {
                 language = defaultLanguage
+                contentType = BookContentType.infer(from: defaultGenre)
                 if genre.isEmpty && genres.contains(defaultGenre) { genre = defaultGenre }
                 if defaultAuthor.isEmpty { defaultAuthor = DefaultBookSettings.authorName }
                 if authorName.isEmpty { authorName = defaultAuthor }
@@ -171,25 +214,63 @@ struct NewBookWizardView: View {
                 if authorBio.isEmpty { authorBio = defaultAuthorBio }
             }
         }
-        .frame(minWidth: 640, minHeight: 560)
+        .frame(minWidth: 720, minHeight: 640)
     }
 
     // MARK: - Schritt-Indikator
 
-    private var stepIndicator: some View {
-        HStack(spacing: 6) {
-            ForEach(0..<5) { step in
-                VStack(spacing: 4) {
-                    Rectangle()
-                        .fill(step <= currentStep ? Color.accentColor : Color.gray.opacity(0.25))
-                        .frame(height: 4)
-                        .clipShape(Capsule())
-                    Text(stepTitles[step])
-                        .font(.caption2)
-                        .foregroundStyle(step <= currentStep ? .primary : .tertiary)
+    private var wizardHeader: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Buch einrichten")
+                        .font(.title2.weight(.bold))
+                    Text("Schritt \(currentStep + 1) von \(stepTitles.count) · \(stepTitles[currentStep])")
+                        .font(.caption)
+                        .foregroundStyle(StudioTheme.textMuted)
+                }
+                Spacer()
+                Text("\(Int(Double(currentStep + 1) / Double(stepTitles.count) * 100)) %")
+                    .font(.caption.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(StudioTheme.cyan)
+            }
+
+            HStack(spacing: 6) {
+                ForEach(stepTitles.indices, id: \.self) { step in
+                    Button {
+                        guard step <= currentStep else { return }
+                        validationMessage = nil
+                        withAnimation(reduceMotion ? nil : Motion.standard) {
+                            currentStep = step
+                        }
+                    } label: {
+                        VStack(spacing: 6) {
+                            HStack(spacing: 5) {
+                                Image(systemName: step < currentStep ? "checkmark" : stepIcons[step])
+                                    .font(.caption2.weight(.bold))
+                                Text(stepTitles[step])
+                                    .font(.caption.weight(step == currentStep ? .semibold : .regular))
+                                    .lineLimit(1)
+                            }
+                            Rectangle()
+                                .fill(step <= currentStep ? StudioTheme.accentGradient(StudioTheme.cyan) : StudioTheme.quietGradient)
+                                .frame(height: 3)
+                                .clipShape(Capsule())
+                        }
+                        .foregroundStyle(step <= currentStep ? Color.primary : StudioTheme.textFaint)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(step > currentStep)
+                    .accessibilityLabel("Schritt \(step + 1): \(stepTitles[step])")
                 }
             }
         }
+        .padding(.horizontal, 18)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .bottom) { StudioTheme.hairline.frame(height: 1) }
     }
 
     // MARK: - Schritte
@@ -244,6 +325,45 @@ struct NewBookWizardView: View {
                                 .allowsHitTesting(false)
                         }
                     }
+                HStack {
+                    Button {
+                        generateAuthorBioSuggestions()
+                    } label: {
+                        if isGeneratingAuthorBio {
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.small)
+                                Text("Autorprofil …")
+                            }
+                        } else {
+                            Label("KI-Vorschläge", systemImage: "wand.and.stars")
+                        }
+                    }
+                    .disabled(isGeneratingAuthorBio || authorName.trimmingCharacters(in: .whitespaces).isEmpty)
+                    if let authorBioError {
+                        Text(authorBioError).font(.caption).foregroundStyle(.red)
+                    }
+                }
+                if !authorBioSuggestions.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(Array(authorBioSuggestions.enumerated()), id: \.offset) { index, suggestion in
+                            Button {
+                                authorBio = suggestion
+                            } label: {
+                                HStack(alignment: .top, spacing: 8) {
+                                    Image(systemName: authorBio == suggestion
+                                          ? "checkmark.circle.fill" : "text.badge.plus")
+                                        .foregroundStyle(authorBio == suggestion ? .green : .secondary)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Variante \(index + 1)").font(.caption.weight(.semibold))
+                                        Text(suggestion).font(.caption).foregroundStyle(.primary)
+                                    }
+                                    Spacer()
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
 
                 Text("Impressum / Copyright (für KDP)")
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
@@ -263,7 +383,24 @@ struct NewBookWizardView: View {
                     ForEach(languages, id: \.self) { Text($0).tag($0) }
                 }
 
-                Picker("Genre", selection: $genre) {
+                Picker("Buchtyp", selection: $contentType) {
+                    ForEach(BookContentType.allCases) { type in
+                        Text(type.rawValue).tag(type)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: contentType) { _, _ in
+                    if genre != Self.customGenreTag,
+                       !genre.isEmpty,
+                       BookContentType.infer(from: genre) != contentType {
+                        genre = ""
+                        subgenre = ""
+                        tropes = ""
+                        spiceLevel = 0
+                    }
+                }
+
+                Picker(contentType == .nonfiction ? "Kategorie" : "Genre", selection: $genre) {
                     Text("Bitte wählen").tag("")
                     ForEach(genres, id: \.self) { Text($0).tag($0) }
                     Divider()
@@ -274,50 +411,53 @@ struct NewBookWizardView: View {
                     TextField("Eigenes Genre", text: $customGenre)
                 }
 
-                TextField("Subgenre (optional)", text: $subgenre)
+                TextField(contentType == .nonfiction ? "Themenschwerpunkt (optional)" : "Subgenre (optional)",
+                          text: $subgenre)
 
-                TextField("Tropes (kommagetrennt – z.B. Enemies to Lovers, Slow Burn)", text: $tropes)
-                HStack {
-                    Button {
-                        generateTropes()
-                    } label: {
-                        if isGeneratingTropes {
-                            HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Tropes …") }
-                        } else {
-                            Label("Tropes vorschlagen", systemImage: "tag")
-                        }
-                    }
-                    .disabled(isGeneratingTropes)
-                    if let tropeError {
-                        Text(tropeError).font(.caption).foregroundStyle(.red)
-                    }
-                }
-                if !tropeSuggestions.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(tropeSuggestions, id: \.self) { t in
-                            Button { addTrope(t) } label: {
-                                HStack(spacing: 8) {
-                                    Image(systemName: tropeIsSelected(t) ? "checkmark.circle.fill" : "plus.circle")
-                                        .font(.caption)
-                                        .foregroundStyle(tropeIsSelected(t) ? .green : .secondary)
-                                    Text(t).foregroundStyle(.primary)
-                                    Spacer()
-                                }
+                if contentType == .fiction {
+                    TextField("Tropes (kommagetrennt – z.B. Enemies to Lovers, Slow Burn)", text: $tropes)
+                    HStack {
+                        Button {
+                            generateTropes()
+                        } label: {
+                            if isGeneratingTropes {
+                                HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Tropes …") }
+                            } else {
+                                Label("Tropes vorschlagen", systemImage: "tag")
                             }
-                            .buttonStyle(.plain)
+                        }
+                        .disabled(isGeneratingTropes)
+                        if let tropeError {
+                            Text(tropeError).font(.caption).foregroundStyle(.red)
                         }
                     }
-                }
-
-                Picker("Sinnlichkeitsgrad", selection: $spiceLevel) {
-                    Text("Nicht angegeben").tag(0)
-                    ForEach(SpiceLevel.range, id: \.self) { lvl in
-                        Text(SpiceLevel.pickerLabel(lvl)).tag(lvl)
+                    if !tropeSuggestions.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(tropeSuggestions, id: \.self) { t in
+                                Button { addTrope(t) } label: {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: tropeIsSelected(t) ? "checkmark.circle.fill" : "plus.circle")
+                                            .font(.caption)
+                                            .foregroundStyle(tropeIsSelected(t) ? .green : .secondary)
+                                        Text(t).foregroundStyle(.primary)
+                                        Spacer()
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
                     }
+
+                    Picker("Sinnlichkeitsgrad", selection: $spiceLevel) {
+                        Text("Nicht angegeben").tag(0)
+                        ForEach(SpiceLevel.range, id: \.self) { lvl in
+                            Text(SpiceLevel.pickerLabel(lvl)).tag(lvl)
+                        }
+                    }
+                    Text("Branchenübliche Einstufung der erotischen Intensität (1–5). Steuert die Ausführlichkeit intimer Szenen und die passende Einordnung in Verkaufstext, Keywords und Kategorien.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                Text("Branchenübliche Einstufung der erotischen Intensität (1–5). Steuert die Ausführlichkeit intimer Szenen und die passende Einordnung in Verkaufstext, Keywords und Kategorien.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
 
                 Text("Serie / Reihe (optional – für Read-Through)")
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
@@ -426,6 +566,65 @@ struct NewBookWizardView: View {
     }
 
     @MainActor
+    private func generateAuthorBioSuggestions() {
+        guard let config = usableIdeaConfig() else {
+            authorBioError = "Kein KI-Provider konfiguriert."
+            return
+        }
+        let name = authorName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            authorBioError = "Zuerst Autorname oder Pseudonym eintragen."
+            return
+        }
+        isGeneratingAuthorBio = true
+        authorBioError = nil
+        let model = config.provider == .ollamaCloud
+            ? OllamaCloudModelCatalog.recommendedWritingModel
+            : (config.defaultModel ?? config.provider.suggestedModels.first ?? "")
+        let request = GenerationRequest(
+            prompt: PromptFactory.authorBioSuggestions(
+                authorName: name, facts: authorBio, genre: effectiveGenre, language: language
+            ),
+            systemPrompt: "Du bist ein sorgfältiger Verlagsredakteur. Du formulierst nur belegte Angaben und erfindest keine biografischen Fakten.",
+            model: model, provider: config.provider, maxTokens: 900, temperature: 0.55
+        )
+        Task { @MainActor in
+            defer { isGeneratingAuthorBio = false }
+            do {
+                var suggestions: [String] = []
+                for attempt in 1...2 {
+                    let activeRequest: GenerationRequest
+                    if attempt == 1 {
+                        activeRequest = request
+                    } else {
+                        activeRequest = GenerationRequest(
+                            prompt: request.prompt + "\n\nDer vorige Versuch verletzte Format oder Faktenbindung. Gib jetzt EXAKT drei einzelne BIO|-Zeilen mit je 45–90 Wörtern aus, ohne Nummern, Markdown, Einleitung oder erfundene Angaben.",
+                            systemPrompt: request.systemPrompt,
+                            model: request.model, provider: request.provider,
+                            maxTokens: request.maxTokens, temperature: 0.35
+                        )
+                    }
+                    let response = try await ProviderGateway.shared.generateText(
+                        request: activeRequest, configuration: config
+                    )
+                    suggestions = AuthorBioParser.parse(response.text).filter {
+                        AuthorBioQuality.isGrounded($0, facts: authorBio)
+                    }
+                    if suggestions.count >= 2 { break }
+                }
+                authorBioSuggestions = suggestions
+                if authorBioSuggestions.isEmpty {
+                    authorBioError = "Vorschläge enthielten unbelegte Angaben oder ein ungültiges Format. Bitte mehr echte Stichpunkte eintragen und erneut versuchen."
+                }
+            } catch let error as AIError {
+                authorBioError = error.errorDescription
+            } catch {
+                authorBioError = error.localizedDescription
+            }
+        }
+    }
+
+    @MainActor
     private func generateViralTitles() {
         guard let config = usableIdeaConfig() else {
             titleError = "Kein KI-Provider konfiguriert – bitte im Schritt KI-Provider einrichten."
@@ -506,6 +705,7 @@ struct NewBookWizardView: View {
     @MainActor
     private func applyIdea(_ idea: ParsedIdea) {
         title = idea.title
+        contentType = BookContentType.infer(from: idea.genre)
         if genres.contains(idea.genre) {
             genre = idea.genre
         } else if !idea.genre.isEmpty {
@@ -577,7 +777,8 @@ struct NewBookWizardView: View {
                 DynamicModelPicker(provider: selectedProvider,
                                    selectedModel: $selectedModel,
                                    customModel: $customModel,
-                                   pendingAPIKey: apiKey)
+                                   pendingAPIKey: apiKey,
+                                   includeCustomField: selectedProvider != .ollamaCloud)
 
                 if selectedProvider.needsBaseURLInput {
                     TextField("Basis-URL (OpenAI-kompatibler Endpunkt)", text: $baseURL)
@@ -588,12 +789,12 @@ struct NewBookWizardView: View {
                 Section("Zugang") {
                     SecureField("API-Key", text: $apiKey)
                     if hasStoredKey {
-                        Label("Für diesen Provider ist bereits ein API-Key in der Keychain hinterlegt. Feld leer lassen, um ihn zu verwenden.",
+                        Label("Für diesen Provider ist bereits ein API-Key lokal hinterlegt. Feld leer lassen, um ihn zu verwenden.",
                               systemImage: "key.fill")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
-                        Text("Der API-Key wird sicher in der macOS Keychain gespeichert – niemals im Klartext.")
+                        Text("Der API-Key wird lokal für NovelForge gespeichert und zusätzlich in der macOS Keychain gesichert.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -622,7 +823,7 @@ struct NewBookWizardView: View {
                 if !imprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     ReviewRow(label: "Impressum", value: imprint.truncated(to: 120))
                 }
-                ReviewRow(label: "Genre", value: subgenre.isEmpty ? genre : "\(genre) / \(subgenre)")
+                ReviewRow(label: "Genre", value: subgenre.isEmpty ? effectiveGenre : "\(effectiveGenre) / \(subgenre)")
                 if SpiceLevel.isValid(spiceLevel) {
                     ReviewRow(label: "Sinnlichkeit", value: SpiceLevel.pickerLabel(spiceLevel))
                 }
@@ -636,7 +837,10 @@ struct NewBookWizardView: View {
                 ReviewRow(label: "Modell", value: effectiveModel)
             }
             Section("Hinweise") {
-                Label("Die Produktion läuft vollautomatisch: Konzept → Plot → Figuren → Kapitel → Szenen → Rohfassung → Revision → Korrektorat → Export.", systemImage: "wand.and.stars")
+                Label(contentType == .nonfiction
+                      ? "Die Produktion läuft vollautomatisch: Leserproblem → Lernarchitektur → Kapitel → Abschnitte → Sachlektorat → Quellenfreigabe → Export."
+                      : "Die Produktion läuft vollautomatisch: Konzept → Plot → Figuren → Kapitel → Szenen → Rohfassung → Revision → Korrektorat → Export.",
+                      systemImage: "wand.and.stars")
                 Label("Sie können jederzeit pausieren und später fortsetzen – ohne doppelte Kosten.", systemImage: "pause.circle")
                 Label("Die finale Veröffentlichung (z.B. bei Amazon KDP) bleibt bei Ihnen.", systemImage: "person.crop.circle.badge.checkmark")
             }
@@ -663,6 +867,19 @@ struct NewBookWizardView: View {
         ProviderSettingsStore.shared.hasAPIKey(for: selectedProvider)
     }
 
+    private var providerStepValid: Bool {
+        guard !effectiveModel.isEmpty else { return false }
+        if selectedProvider == .custom && baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return false
+        }
+        if selectedProvider.requiresAPIKey
+            && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !hasStoredKey {
+            return false
+        }
+        return true
+    }
+
     private var estimatedCostText: String? {
         let rate = ModelPricing.ratePer1K(model: effectiveModel)
         guard rate > 0 else {
@@ -684,21 +901,63 @@ struct NewBookWizardView: View {
         case 2:
             return !selectedFormats.isEmpty
         case 3:
-            if effectiveModel.isEmpty { return false }
-            if selectedProvider == .custom && baseURL.trimmingCharacters(in: .whitespaces).isEmpty { return false }
-            return true
+            return providerStepValid
         default:
             return true
         }
+    }
+
+    private var currentStepRequirement: String? {
+        switch currentStep {
+        case 0:
+            if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Titel eintragen" }
+            if authorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Autor eintragen" }
+            if effectiveGenre.isEmpty { return "Genre wählen" }
+        case 1:
+            if styleProfile.isEmpty { return "Stilprofil wählen" }
+        case 2:
+            if selectedFormats.isEmpty { return "Mindestens ein Exportformat wählen" }
+        case 3:
+            if effectiveModel.isEmpty { return "Modell wählen" }
+            if selectedProvider == .custom && baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return "Basis-URL eintragen"
+            }
+            if selectedProvider.requiresAPIKey
+                && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !hasStoredKey {
+                return "API-Key eintragen"
+            }
+        default:
+            break
+        }
+        return nil
     }
 
     @MainActor
     private func createProjectAndStart() {
         validationMessage = nil
 
+        guard providerStepValid else {
+            currentStep = 3
+            validationMessage = currentStepRequirement ?? "Provider-Einstellungen vervollständigen."
+            return
+        }
+
+        let publicInputs = [title, authorBio, imprint, tropes, seedPremise]
+        guard !publicInputs.contains(where: PublicContentGuard.disclosureViolation) else {
+            currentStep = 0
+            validationMessage = "Bitte Produktionshinweise aus den öffentlich sichtbaren Buchdaten entfernen."
+            return
+        }
+
         let copyrightCheck = CopyrightChecker.checkInput(title: title, style: styleProfile)
         guard copyrightCheck.isValid else {
             validationMessage = copyrightCheck.warnings.joined(separator: " · ")
+            return
+        }
+        guard !AutonomousContentQuality.isWeakTitle(title, genre: effectiveGenre) else {
+            currentStep = 0
+            validationMessage = "Bitte einen konkreten, eigenständigen Buchtitel statt Platzhalter, Genrebezeichnung oder Berufsklischee verwenden."
             return
         }
 
@@ -754,7 +1013,7 @@ struct NewBookWizardView: View {
         modelContext.insert(storyBible)
         modelContext.saveOrLog()
 
-        // API-Key in der Keychain hinterlegen und Provider-Konfiguration aktualisieren.
+        // API-Key im lokalen Schlüsselspeicher hinterlegen und Konfiguration aktualisieren.
         if !apiKey.isEmpty {
             ProviderSettingsStore.shared.setAPIKey(apiKey, for: selectedProvider)
         }
