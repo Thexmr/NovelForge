@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 
+@MainActor
 struct SettingsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedSection = SettingsSection.general
@@ -74,6 +75,7 @@ struct SettingsView: View {
 
 // MARK: - Allgemein
 
+@MainActor
 struct GeneralSettingsView: View {
     @AppStorage("defaultLanguage") private var defaultLanguage = "Deutsch"
     @AppStorage("defaultGenre") private var defaultGenre = "Roman"
@@ -162,6 +164,7 @@ struct GeneralSettingsView: View {
 
 // MARK: - Erscheinungsbild
 
+@MainActor
 struct AppearanceSettingsView: View {
     @AppStorage("colorScheme") private var colorScheme = "dark"
     @AppStorage("accentColor") private var accentColor = "teal"
@@ -195,6 +198,7 @@ struct AppearanceSettingsView: View {
 
 // MARK: - KI-Provider
 
+@MainActor
 struct ProviderSettingsView: View {
     @ObservedObject private var store = ProviderSettingsStore.shared
     @State private var showingAddProvider = false
@@ -257,6 +261,7 @@ struct ProviderSettingsView: View {
     }
 }
 
+@MainActor
 struct ProviderRow: View {
     @Binding var configuration: ProviderConfiguration
     var onDelete: () -> Void = {}
@@ -474,6 +479,7 @@ struct AddProviderView: View {
 
 // MARK: - Cover-KI
 
+@MainActor
 struct CoverImageSettingsView: View {
     @ObservedObject private var store = CoverImageSettingsStore.shared
     @State private var newAPIKey = ""
@@ -595,6 +601,7 @@ struct CoverImageSettingsView: View {
 
 // MARK: - Datenschutz
 
+@MainActor
 struct PrivacySettingsView: View {
     @Environment(\.modelContext) private var modelContext
     private var _projects = Query<Project, [Project]>()

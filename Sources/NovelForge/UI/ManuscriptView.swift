@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 
+@MainActor
 struct ManuscriptView: View {
     private var _projects = Query<Project, [Project]>(sort: \Project.updatedAt, order: .reverse)
     var projects: [Project] { _projects.wrappedValue }
@@ -161,6 +162,7 @@ struct ManuscriptView: View {
 
 /// Liest große Bücher kapitelweise, damit 500-Seiten-Manuskripte nicht komplett
 /// auf einmal gelayoutet werden.
+@MainActor
 struct BookReaderView: View {
     let project: Project
     @State private var selectedIndex = 0
@@ -242,6 +244,7 @@ struct BookReaderView: View {
     }
 }
 
+@MainActor
 struct ChapterReaderSection: View {
     let chapter: Chapter
 
@@ -282,6 +285,7 @@ struct ChapterReaderSection: View {
     }
 }
 
+@MainActor
 struct ChapterDetailView: View {
     let chapter: Chapter
     @Binding var viewMode: ManuscriptView.ViewMode
@@ -451,6 +455,7 @@ struct ChapterDetailView: View {
 }
 
 /// Karte mit allen Planungsdaten einer Szene (Ziel, Hindernis, Wendung, Status, Umfang).
+@MainActor
 struct SceneCard: View {
     let scene: StoryScene
 
@@ -525,6 +530,7 @@ struct SceneCard: View {
 
 // MARK: - Story Bible
 
+@MainActor
 struct StoryBibleView: View {
     private var _projects = Query<Project, [Project]>(sort: \Project.updatedAt, order: .reverse)
     var projects: [Project] { _projects.wrappedValue }
@@ -607,6 +613,7 @@ struct StoryBibleView: View {
     }
 }
 
+@MainActor
 struct CharactersTabView: View {
     let bible: StoryBible
 
@@ -631,6 +638,7 @@ struct CharactersTabView: View {
     }
 }
 
+@MainActor
 struct CharacterCard: View {
     let character: CharacterProfile
 
@@ -678,6 +686,7 @@ struct CharacterCard: View {
     }
 }
 
+@MainActor
 struct LocationsTabView: View {
     let bible: StoryBible
 

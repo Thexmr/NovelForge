@@ -3,6 +3,7 @@ import SwiftData
 import Foundation
 
 @main
+@MainActor
 struct NovelForgeApp: App {
     @AppStorage("colorScheme") private var colorSchemeSetting = "dark"
     @AppStorage("accentColor") private var accentSetting = "teal"

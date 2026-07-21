@@ -60,6 +60,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
+@MainActor
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -139,6 +140,7 @@ struct ContentView: View {
     }
 }
 
+@MainActor
 struct StudioSidebar: View {
     @ObservedObject private var appState = AppState.shared
     @ObservedObject private var orchestrator = PipelineOrchestrator.shared
@@ -269,6 +271,7 @@ struct StudioSidebar: View {
     }
 }
 
+@MainActor
 struct SidebarButton: View {
     let item: SidebarItem
     let isSelected: Bool
@@ -331,6 +334,7 @@ struct SidebarButton: View {
 
 // MARK: - Produktion (laufende Pipeline + Warteschlange)
 
+@MainActor
 struct ProductionView: View {
     private var _allProjects = Query<Project, [Project]>(
         sort: \Project.updatedAt,
@@ -924,6 +928,7 @@ struct UnlimitedProductionSheet: View {
     }
 }
 
+@MainActor
 struct ResumableProjectRow: View {
     let project: Project
     let disabled: Bool
@@ -954,6 +959,7 @@ struct ResumableProjectRow: View {
 }
 
 /// Kompakte Live-Kachel eines parallelen Buch-Workers (Titel, Phase, Fortschritt).
+@MainActor
 struct WorkerStatusChip: View {
     let worker: PipelineOrchestrator.UnlimitedWorkerStatus
 
@@ -987,6 +993,7 @@ struct WorkerStatusChip: View {
 
 // MARK: - Live-Fortschritt
 
+@MainActor
 struct PipelineProgressView: View {
     @ObservedObject private var orchestrator = PipelineOrchestrator.shared
     @State private var confirmCancel = false

@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct DynamicModelPicker: View {
     let provider: AIProvider
     @Binding var selectedModel: String

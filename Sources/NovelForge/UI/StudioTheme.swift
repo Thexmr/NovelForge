@@ -57,6 +57,7 @@ enum StudioTheme {
     }
 }
 
+@MainActor
 struct StudioBackground: View {
     var body: some View {
         ZStack {
@@ -69,6 +70,7 @@ struct StudioBackground: View {
     }
 }
 
+@MainActor
 private struct StudioGrid: View {
     var body: some View {
         Canvas { context, size in
@@ -264,6 +266,7 @@ struct StudioSecondaryButtonStyle: ButtonStyle {
     }
 }
 
+@MainActor
 struct StudioProgressBar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var value: Double
@@ -289,6 +292,7 @@ struct StudioProgressBar: View {
     }
 }
 
+@MainActor
 struct StudioStatNumber: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let value: String
@@ -306,6 +310,7 @@ struct StudioStatNumber: View {
     }
 }
 
+@MainActor
 struct StudioSegmentedPills: View {
     let options: [String]
     @Binding var selection: String
@@ -340,6 +345,7 @@ struct StudioSegmentedPills: View {
     }
 }
 
+@MainActor
 struct StudioStatusPill: View {
     let text: String
     var systemImage: String? = nil
@@ -363,6 +369,7 @@ struct StudioStatusPill: View {
     }
 }
 
+@MainActor
 struct StudioLiveIndicator: View {
     var color: Color = StudioTheme.lime
     var isActive = true
@@ -418,6 +425,7 @@ extension View {
     }
 }
 
+@MainActor
 struct StudioSectionLabel: View {
     let text: String
 
@@ -428,6 +436,7 @@ struct StudioSectionLabel: View {
     }
 }
 
+@MainActor
 struct NovelForgeLogo: View {
     var size: CGFloat = 44
 

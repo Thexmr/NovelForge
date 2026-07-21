@@ -3,6 +3,7 @@ import SwiftData
 
 /// Überwachungs- und Steuerzentrale der autonomen KDP-Buchfabrik:
 /// Ein/Aus, Drossel-Slots, KDP-Login, Warteschlange mit Live-Status.
+@MainActor
 struct FactoryView: View {
     @ObservedObject private var factory = KDPFactory.shared
     @Environment(\.modelContext) private var modelContext

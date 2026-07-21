@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 
+@MainActor
 struct AgentMonitorView: View {
     private static let queriedJobLimit = 1_000
     private static let visibleJobLimit = 250
@@ -223,6 +224,7 @@ struct AgentMonitorView: View {
     }
 }
 
+@MainActor
 struct AgentJobRow: View {
     let job: PipelineJob
 
@@ -321,6 +323,7 @@ struct AgentJobRow: View {
 
 // MARK: - Export
 
+@MainActor
 struct ExportView: View {
     private var _projects = Query<Project, [Project]>(sort: \Project.updatedAt, order: .reverse)
     var projects: [Project] { _projects.wrappedValue }
@@ -371,6 +374,7 @@ struct ExportView: View {
     }
 }
 
+@MainActor
 struct ExportDetailView: View {
     let project: Project
 
@@ -573,6 +577,7 @@ struct ExportDetailView: View {
     }
 }
 
+@MainActor
 struct CoverStudioPanel: View {
     let project: Project
 
@@ -969,6 +974,7 @@ struct ExportFormatRow: View {
     }
 }
 
+@MainActor
 struct QualityMetricRow: View {
     let label: String
     let score: Double

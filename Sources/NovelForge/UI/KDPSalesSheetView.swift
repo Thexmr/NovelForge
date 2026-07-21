@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 import AppKit
 
+@MainActor
 struct KDPSalesSheetView: View {
     let project: Project
 
@@ -210,6 +211,7 @@ struct KDPSalesSheetView: View {
 /// Eigenständiger Sidebar-Bereich „KDP-Verkauf": Buch wählen und die Amazon-KDP-
 /// Verkaufstexte (viraler Titel, Untertitel, Verkaufstext, Keywords, Kategorien)
 /// ansehen, kopieren oder neu generieren.
+@MainActor
 struct KDPMarketingView: View {
     private var _projects = Query<Project, [Project]>(sort: \Project.updatedAt, order: .reverse)
     private var projects: [Project] { _projects.wrappedValue }
@@ -258,6 +260,7 @@ struct KDPMarketingView: View {
 /// Veröffentlichungs-Studio für ein fertiges Buch: komplettes Paket per Pipeline
 /// (Nachbearbeitung + KDP-Verkaufstexte + Cover-Prompts) oder einzeln, alles
 /// passgenau auf dieses Buch.
+@MainActor
 struct PublishingDetailView: View {
     let project: Project
 
@@ -540,6 +543,7 @@ struct PublishingDetailView: View {
 }
 
 /// Eigenes Feld mit fertigen, kopierbaren Cover-Bild-Prompts (für ChatGPT/DALL·E).
+@MainActor
 struct CoverPromptsView: View {
     let project: Project
 
@@ -734,6 +738,7 @@ struct CoverPromptsView: View {
 
 /// Cover-Erzeugung fürs eBook: nutzt die generierten Cover-Prompts + OpenAI-Bild-API,
 /// zeigt Vorschau und Regenerieren an. Ohne OpenAI-Key erscheint ein Hinweis.
+@MainActor
 struct CoverSection: View {
     let project: Project
     @State private var isGenerating = false

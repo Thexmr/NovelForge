@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 
+@MainActor
 struct DashboardView: View {
     private var _projects = Query<Project, [Project]>(sort: \Project.updatedAt, order: .reverse)
     var projects: [Project] { _projects.wrappedValue }
@@ -383,6 +384,7 @@ struct DashboardView: View {
     }
 }
 
+@MainActor
 struct StatCard: View {
     let title: String
     let value: String
@@ -418,6 +420,7 @@ struct StatCard: View {
     }
 }
 
+@MainActor
 struct ProjectCard: View {
     let project: Project
 
@@ -454,6 +457,7 @@ struct ProjectCard: View {
     }
 }
 
+@MainActor
 struct CompletedProjectCard: View {
     let project: Project
 
@@ -485,6 +489,7 @@ struct CompletedProjectCard: View {
     }
 }
 
+@MainActor
 struct StatusBadge: View {
     let status: ProjectStatus
 
@@ -512,6 +517,7 @@ struct StatusBadge: View {
 
 // MARK: - Projektliste
 
+@MainActor
 struct ProjectsListView: View {
     @Environment(\.modelContext) private var modelContext
     private var _projects = Query<Project, [Project]>(sort: \Project.updatedAt, order: .reverse)
@@ -648,6 +654,7 @@ struct ProjectsListView: View {
     }
 }
 
+@MainActor
 struct ProjectListRow: View {
     let project: Project
 
@@ -684,6 +691,7 @@ struct ProjectListRow: View {
 
 // MARK: - Projektdetail
 
+@MainActor
 struct ProjectDetailView: View {
     let project: Project
     @Environment(\.modelContext) private var modelContext
@@ -988,6 +996,7 @@ struct ProjectDetailView: View {
     }
 }
 
+@MainActor
 struct InfoTile: View {
     let label: String
     let value: String

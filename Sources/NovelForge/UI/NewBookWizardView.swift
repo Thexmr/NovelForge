@@ -1038,6 +1038,7 @@ struct NewBookWizardView: View {
     }
 }
 
+@MainActor
 struct ReviewRow: View {
     let label: String
     let value: String

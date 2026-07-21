@@ -3,6 +3,7 @@ import SwiftData
 
 /// Lektor-Chat: Nach Fertigstellung kann der Autor Wünsche/Korrekturen schreiben.
 /// Ist ein Kapitel gewählt, überarbeitet der Agent es direkt; sonst beantwortet er.
+@MainActor
 struct EditorChatView: View {
     @Environment(\.modelContext) private var modelContext
     private var _projects = Query<Project, [Project]>(sort: \Project.updatedAt, order: .reverse)
