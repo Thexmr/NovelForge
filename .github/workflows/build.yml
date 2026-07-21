@@ -45,7 +45,7 @@ jobs:
         with:
           node-version: "20"
       - name: KDP-Sidecar-Abhängigkeiten (Puppeteer)
-        run: cd kdp-sidecar && (npm ci || npm install) --no-audit --no-fund
+        run: cd kdp-sidecar && (npm ci --no-audit --no-fund || npm install --no-audit --no-fund)
       - name: App-Bundle bauen (inkl. gebündeltem Sidecar)
         run: bash Scripts/build-app.sh
       - name: DMG-Installer bauen
