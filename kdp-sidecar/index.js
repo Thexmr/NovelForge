@@ -75,10 +75,19 @@ async function launch(profileDir, chromePath, { headless } = { headless: false }
     headless: headless ? 'new' : false,
     userDataDir: profileDir,
     defaultViewport: null,
-    args: ['--no-first-run', '--no-default-browser-check', '--window-size=1400,1000'],
+    args: ['--no-first-run', '--no-default-browser-check', '--window-size=1400,1000',
+           '--lang=de-DE', '--accept-lang=de-DE,de'],
   });
   return browser;
 }
+
+// Setzt die Sprache der Seite auf Deutsch, damit Amazon die Anmeldung NICHT
+// auf Englisch/US zeigt. Vor jeder Navigation aufrufen.
+async function germanLocale(page) {
+  try { await page.setExtraHTTPHeaders({ 'Accept-Language': 'de-DE,de;q=0.9,en;q=0.5' }); } catch (_) {}
+}
+// KDP mit erzwungener deutscher Sprache öffnen (leitet die Anmeldung auf Deutsch weiter).
+const KDP_HOME_DE = 'https://kdp.amazon.com/?language=de_DE';
 
 const KDP_BOOKSHELF = 'https://kdp.amazon.com/en_US/bookshelf';
 const KDP_LOGIN_PROOF = '#dp-bookshelf, .a-nav-link, [data-testid="bookshelf"]';
@@ -107,10 +116,10 @@ async function cmdLogin() {
   report({ stage: 'login', progress: 0.1, message: 'Öffne KDP-Login (einmalig, manuell inkl. 2FA) …' });
   const browser = await launch(args.profile, args.chrome, { headless: false });
   const page = (await browser.pages())[0] || await browser.newPage();
-  // KDP selbst aufrufen — Amazon leitet dann mit ALLEN korrekten OpenID-Parametern
-  // zur echten Anmeldeseite weiter (eine selbstgebaute /ap/signin-URL zeigt sonst
-  // „Es ist ein Fehler aufgetreten").
-  await page.goto('https://kdp.amazon.com/', { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+  await germanLocale(page);
+  // KDP mit deutscher Sprache aufrufen — Amazon leitet dann mit ALLEN korrekten
+  // OpenID-Parametern zur DEUTSCHEN Anmeldeseite weiter (nicht der US-Anmeldung).
+  await page.goto(KDP_HOME_DE, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
   await page.bringToFront().catch(() => {});
   report({ stage: 'login', progress: 0.4, message: 'Bitte im geöffneten Fenster bei Amazon KDP einloggen (inkl. 2FA). Warte auf dein Bücherregal …' });
   // Bis zu 8 Minuten warten – OHNE das Fenster wegzunavigieren (passiv prüfen).
@@ -134,6 +143,7 @@ async function cmdLogin() {
 async function cmdCheck() {
   const browser = await launch(args.profile, args.chrome, { headless: false });
   const page = (await browser.pages())[0] || await browser.newPage();
+  await germanLocale(page);
   const ok = await isLoggedIn(page);
   report({ stage: 'check', progress: 1, ok, message: ok ? 'Eingeloggt.' : 'Nicht eingeloggt.' });
   await browser.close();
@@ -190,6 +200,7 @@ async function cmdUpload() {
   try {
     const page = (await browser.pages())[0] || await browser.newPage();
     page.setDefaultTimeout(45000);
+    await germanLocale(page);
 
     report({ stage: 'auth', progress: 0.06, message: 'Prüfe KDP-Login …' });
     if (!(await isLoggedIn(page))) {
