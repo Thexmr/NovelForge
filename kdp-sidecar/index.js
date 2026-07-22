@@ -89,7 +89,7 @@ async function germanLocale(page) {
 // KDP mit erzwungener deutscher Sprache öffnen (leitet die Anmeldung auf Deutsch weiter).
 const KDP_HOME_DE = 'https://kdp.amazon.com/?language=de_DE';
 
-const KDP_BOOKSHELF = 'https://kdp.amazon.com/en_US/bookshelf';
+const KDP_BOOKSHELF = 'https://kdp.amazon.com/de_DE/bookshelf';
 const KDP_LOGIN_PROOF = '#dp-bookshelf, .a-nav-link, [data-testid="bookshelf"]';
 
 // Prüft, ob eine gültige Session besteht.
@@ -117,9 +117,10 @@ async function cmdLogin() {
   const browser = await launch(args.profile, args.chrome, { headless: false });
   const page = (await browser.pages())[0] || await browser.newPage();
   await germanLocale(page);
-  // KDP mit deutscher Sprache aufrufen — Amazon leitet dann mit ALLEN korrekten
-  // OpenID-Parametern zur DEUTSCHEN Anmeldeseite weiter (nicht der US-Anmeldung).
-  await page.goto(KDP_HOME_DE, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+  // WICHTIG: direkt aufs deutsche Bücherregal — das ERZWINGT die (deutsche) Anmeldung
+  // mit korrektem return_to. Die Startseite (kdp.amazon.com/) zeigt jedem eine
+  // Marketing-Seite OHNE Login → dort würde nie echt authentifiziert.
+  await page.goto(KDP_BOOKSHELF, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
   await page.bringToFront().catch(() => {});
   report({ stage: 'login', progress: 0.4, message: 'Bitte im geöffneten Fenster bei Amazon KDP einloggen (inkl. 2FA). Warte auf dein Bücherregal …' });
   // Bis zu 8 Minuten warten – OHNE das Fenster wegzunavigieren (passiv prüfen).
@@ -209,7 +210,7 @@ async function cmdUpload() {
 
     // Neues Kindle-eBook.
     report({ stage: 'create', progress: 0.12, message: 'Lege neues Kindle-eBook an …' });
-    await page.goto('https://kdp.amazon.com/en_US/title-setup/kindle/new/details',
+    await page.goto('https://kdp.amazon.com/de_DE/title-setup/kindle/new/details',
       { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('#data-print-book-title, #data-ebook-title, input[name="title"]',
       { timeout: 45000 }).catch(() => {});
@@ -242,7 +243,7 @@ async function cmdUpload() {
 
     // Content-Upload: EPUB + Cover.
     report({ stage: 'content', progress: 0.62, message: 'Lade Manuskript (EPUB) und Cover hoch …' });
-    await page.goto('https://kdp.amazon.com/en_US/title-setup/kindle/new/content',
+    await page.goto('https://kdp.amazon.com/de_DE/title-setup/kindle/new/content',
       { waitUntil: 'domcontentloaded' }).catch(() => {});
     const epubInput = await page.$('input[type="file"][accept*="epub"], #data-ebook-manuscript-file, input[type="file"]');
     if (epubInput && job.epubPath && fs.existsSync(job.epubPath)) {
@@ -259,7 +260,7 @@ async function cmdUpload() {
 
     // Preis.
     report({ stage: 'pricing', progress: 0.88, message: `Setze Preis (${job.priceEUR} €) …` });
-    await page.goto('https://kdp.amazon.com/en_US/title-setup/kindle/new/pricing',
+    await page.goto('https://kdp.amazon.com/de_DE/title-setup/kindle/new/pricing',
       { waitUntil: 'domcontentloaded' }).catch(() => {});
     await typeInto(page, ['#data-pricing-print-list-price-EUR', 'input[name="priceEUR"]', 'input[name="listPrice"]'], String(job.priceEUR));
 
