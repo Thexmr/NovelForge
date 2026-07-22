@@ -102,11 +102,20 @@ async function isLoggedIn(page, { navigate = true } = {}) {
     await page.goto(KDP_BOOKSHELF, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
   }
   const url = page.url();
-  if (url.includes('/ap/signin') || url.includes('/ap/') || url.includes('signin')) return false;
-  // Auf einer KDP-Seite (nicht signin) → eingeloggt, wenn ein Regal-/Nav-Element existiert.
+  const onSignin = url.includes('/ap/signin') || url.includes('/ap/') || url.includes('signin');
+  // Zuverlässigster Nachweis: das persistente Amazon-Auth-Token-Cookie (at-main /
+  // sess-at-main / x-main). Ist es gesetzt UND wir sind nicht gerade auf der
+  // Anmeldeseite → eingeloggt. Robuster als (sich ändernde) DOM-Selektoren.
+  try {
+    const cs = await page.cookies('https://www.amazon.com', 'https://kdp.amazon.com');
+    const hasAuth = cs.some(c => /^(at-main|sess-at-main|x-main)$/.test(c.name) && c.value && c.value.length > 8);
+    if (hasAuth && !onSignin) return true;
+  } catch (_) { /* Cookie-Abfrage fehlgeschlagen – Fallback unten */ }
+  if (onSignin) return false;
+  // Fallback: auf einer KDP-Seite (nicht signin) mit Regal-/Nav-Element.
   if (url.includes('kdp.amazon')) {
     try { await page.waitForSelector(KDP_LOGIN_PROOF, { timeout: 3000 }); return true; }
-    catch (_) { return !url.includes('signin') && !url.includes('/ap/'); }
+    catch (_) { return true; } // KDP-Seite, nicht signin → als eingeloggt werten
   }
   return false;
 }
@@ -123,8 +132,8 @@ async function cmdLogin() {
   await page.goto(KDP_BOOKSHELF, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
   await page.bringToFront().catch(() => {});
   report({ stage: 'login', progress: 0.4, message: 'Bitte im geöffneten Fenster bei Amazon KDP einloggen (inkl. 2FA). Warte auf dein Bücherregal …' });
-  // Bis zu 8 Minuten warten – OHNE das Fenster wegzunavigieren (passiv prüfen).
-  const deadline = Date.now() + 480000;
+  // Bis zu 30 Minuten warten – OHNE das Fenster wegzunavigieren (passiv prüfen).
+  const deadline = Date.now() + 1800000;
   let ok = false;
   while (Date.now() < deadline) {
     // Browser-/Fenster-Schließung durch den Nutzer sauber abfangen.
@@ -167,11 +176,23 @@ async function typeInto(page, selectors, value, { label } = {}) {
   return false;
 }
 
-// Beschreibung in KDPs CKEditor schreiben. auto-kdp-validiert: Quelltext-Button
-// #cke_18 aktivieren, dann in #cke_1_contents > textarea schreiben. Fallbacks:
-// contenteditable-Editor oder klassisches Textfeld.
+// Beschreibung in KDPs CKEditor schreiben. PRIMÄR (an echter eBook-Seite validiert):
+// die CKEditor-Instanz direkt per setData füllen (KDP nutzt 'editor1'). Danach
+// Fallbacks: Quelltext-Button + Textarea / contenteditable / klassisches Textfeld.
 async function fillDescription(page, text) {
   if (!text) return false;
+  const html = '<p>' + String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>') + '</p>';
+  const viaCke = await page.evaluate((h) => {
+    try {
+      if (window.CKEDITOR && CKEDITOR.instances) {
+        const keys = Object.keys(CKEDITOR.instances);
+        if (keys.length) { CKEDITOR.instances[keys[0]].setData(h); return true; }
+      }
+    } catch (e) { /* Fallback unten */ }
+    return false;
+  }, html).catch(() => false);
+  if (viaCke) return true;
   const srcBtn = await page.$('#cke_18, a.cke_button__source, .cke_button__source');
   if (srcBtn) { await srcBtn.click().catch(() => {}); await new Promise(r => setTimeout(r, 600)); }
   const ta = await page.$('#cke_1_contents > textarea, #cke_1_contents textarea, textarea.cke_source');
@@ -212,28 +233,28 @@ async function cmdUpload() {
     report({ stage: 'create', progress: 0.12, message: 'Lege neues Kindle-eBook an …' });
     await page.goto('https://kdp.amazon.com/de_DE/title-setup/kindle/new/details',
       { waitUntil: 'domcontentloaded' });
-    await page.waitForSelector('#data-print-book-title, #data-ebook-title, input[name="title"]',
+    await page.waitForSelector('#data-title, #data-print-book-title, input[name="data[title]"]',
       { timeout: 45000 }).catch(() => {});
 
-    // Details ausfüllen. Primär-Selektoren aus dem im Betrieb validierten auto-kdp-Projekt,
-    // mit eBook-/generischen Fallbacks (KDP-IDs können je Format leicht abweichen).
+    // Details ausfüllen. PRIMÄR: die an der echten deutschen KDP-eBook-Seite LIVE
+    // validierten IDs (#data-title etc.). Fallbacks: auto-kdp-Print + name-Attribute.
     report({ stage: 'metadata', progress: 0.25, message: 'Fülle Titel, Autor, Beschreibung …' });
-    await typeInto(page, ['#data-print-book-title', '#data-ebook-title', 'input[name="title"]'], job.title, { label: 'Titel' });
-    await typeInto(page, ['#data-print-book-subtitle', '#data-ebook-subtitle', 'input[name="subtitle"]'], job.subtitle);
-    // Autor: KDP trennt Vor- und Nachname (auto-kdp: primary-author-first/last-name).
+    await typeInto(page, ['#data-title', '#data-print-book-title', 'input[name="data[title]"]', 'input[name="title"]'], job.title, { label: 'Titel' });
+    await typeInto(page, ['#data-subtitle', '#data-print-book-subtitle', 'input[name="data[subtitle]"]'], job.subtitle);
+    // Autor: KDP trennt Vor- und Nachname (eBook: data-primary-author-first/last-name).
     const _ap = String(job.author || '').trim().split(/\s+/).filter(Boolean);
     const authorLast = _ap.length > 1 ? _ap[_ap.length - 1] : (_ap[0] || '');
     const authorFirst = _ap.length > 1 ? _ap.slice(0, -1).join(' ') : '';
-    await typeInto(page, ['#data-print-book-primary-author-first-name', 'input[name="authorFirstName"]'], authorFirst, { label: 'Autor-Vorname' });
-    await typeInto(page, ['#data-print-book-primary-author-last-name', '#data-ebook-primary-author-last-name', 'input[name="authorLastName"]'], authorLast, { label: 'Autor-Nachname' });
-    // Beschreibung über den CKEditor (auto-kdp-Weg, mit Fallbacks).
+    await typeInto(page, ['#data-primary-author-first-name', '#data-print-book-primary-author-first-name', 'input[name="data[primary_author][first_name]"]'], authorFirst, { label: 'Autor-Vorname' });
+    await typeInto(page, ['#data-primary-author-last-name', '#data-print-book-primary-author-last-name', 'input[name="data[primary_author][last_name]"]'], authorLast, { label: 'Autor-Nachname' });
+    // Beschreibung über den CKEditor (Instanz 'editor1' → setData; mit Fallbacks).
     await fillDescription(page, job.description);
 
-    // Keywords (7 Slots).
+    // Keywords (7 Slots) — eBook: data-keywords-0..6.
     report({ stage: 'keywords', progress: 0.4, message: 'Trage Keywords ein …' });
     const kws = (job.keywords || []).slice(0, 7);
     for (let i = 0; i < kws.length; i++) {
-      await typeInto(page, [`#data-print-book-keywords-${i}`, `#data-ebook-keywords-${i}`, `input[name="keywords[${i}]"]`], kws[i]);
+      await typeInto(page, [`#data-keywords-${i}`, `#data-print-book-keywords-${i}`, `input[name="data[keywords][${i}]"]`], kws[i]);
     }
 
     // KI-Offenlegung (Pflicht bei KDP): job.aiDisclosure = 'ai-generated' | 'ai-assisted' | 'none'
