@@ -156,6 +156,30 @@ async function typeInto(page, selectors, value, { label } = {}) {
   return false;
 }
 
+// Beschreibung in KDPs CKEditor schreiben. auto-kdp-validiert: Quelltext-Button
+// #cke_18 aktivieren, dann in #cke_1_contents > textarea schreiben. Fallbacks:
+// contenteditable-Editor oder klassisches Textfeld.
+async function fillDescription(page, text) {
+  if (!text) return false;
+  const srcBtn = await page.$('#cke_18, a.cke_button__source, .cke_button__source');
+  if (srcBtn) { await srcBtn.click().catch(() => {}); await new Promise(r => setTimeout(r, 600)); }
+  const ta = await page.$('#cke_1_contents > textarea, #cke_1_contents textarea, textarea.cke_source');
+  if (ta) {
+    await ta.click({ clickCount: 3 }).catch(() => {});
+    await ta.type(String(text), { delay: 3 }).catch(() => {});
+    return true;
+  }
+  const ce = await page.$('#cke_1_contents div[contenteditable="true"], div[contenteditable="true"]');
+  if (ce) {
+    await page.evaluate((el, t) => {
+      el.innerHTML = '<p>' + String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>') + '</p>';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }, ce, String(text));
+    return true;
+  }
+  return await typeInto(page, ['textarea[name="description"]', '#data-ebook-description'], text, { label: 'Beschreibung' });
+}
+
 // ---------- Befehl: upload ----------
 async function cmdUpload() {
   const job = JSON.parse(fs.readFileSync(args.job, 'utf8'));
@@ -179,19 +203,25 @@ async function cmdUpload() {
     await page.waitForSelector('#data-print-book-title, #data-ebook-title, input[name="title"]',
       { timeout: 45000 }).catch(() => {});
 
-    // Details ausfüllen (Selektoren defensiv, mit Fallbacks — KDP-IDs ändern sich).
+    // Details ausfüllen. Primär-Selektoren aus dem im Betrieb validierten auto-kdp-Projekt,
+    // mit eBook-/generischen Fallbacks (KDP-IDs können je Format leicht abweichen).
     report({ stage: 'metadata', progress: 0.25, message: 'Fülle Titel, Autor, Beschreibung …' });
-    await typeInto(page, ['#data-ebook-title', '#data-print-book-title', 'input[name="title"]'], job.title, { label: 'Titel' });
-    await typeInto(page, ['#data-ebook-subtitle', 'input[name="subtitle"]'], job.subtitle);
-    await typeInto(page, ['#data-ebook-primary-author-last-name', 'input[name="authorLastName"]'], job.author);
-    // Beschreibung liegt oft in einem RTF-Editor (iframe/cke); als Fallback ins Textfeld.
-    await typeInto(page, ['#cke_18 iframe', 'textarea[name="description"]', '#data-ebook-description'], job.description, { label: 'Beschreibung' });
+    await typeInto(page, ['#data-print-book-title', '#data-ebook-title', 'input[name="title"]'], job.title, { label: 'Titel' });
+    await typeInto(page, ['#data-print-book-subtitle', '#data-ebook-subtitle', 'input[name="subtitle"]'], job.subtitle);
+    // Autor: KDP trennt Vor- und Nachname (auto-kdp: primary-author-first/last-name).
+    const _ap = String(job.author || '').trim().split(/\s+/).filter(Boolean);
+    const authorLast = _ap.length > 1 ? _ap[_ap.length - 1] : (_ap[0] || '');
+    const authorFirst = _ap.length > 1 ? _ap.slice(0, -1).join(' ') : '';
+    await typeInto(page, ['#data-print-book-primary-author-first-name', 'input[name="authorFirstName"]'], authorFirst, { label: 'Autor-Vorname' });
+    await typeInto(page, ['#data-print-book-primary-author-last-name', '#data-ebook-primary-author-last-name', 'input[name="authorLastName"]'], authorLast, { label: 'Autor-Nachname' });
+    // Beschreibung über den CKEditor (auto-kdp-Weg, mit Fallbacks).
+    await fillDescription(page, job.description);
 
     // Keywords (7 Slots).
-    report({ stage: 'keywords', progress: 0.4, message: 'Trage Keywords und Kategorien ein …' });
+    report({ stage: 'keywords', progress: 0.4, message: 'Trage Keywords ein …' });
     const kws = (job.keywords || []).slice(0, 7);
     for (let i = 0; i < kws.length; i++) {
-      await typeInto(page, [`#data-ebook-keywords-${i}`, `input[name="keywords[${i}]"]`], kws[i]);
+      await typeInto(page, [`#data-print-book-keywords-${i}`, `#data-ebook-keywords-${i}`, `input[name="keywords[${i}]"]`], kws[i]);
     }
 
     // KI-Offenlegung (Pflicht bei KDP): job.aiDisclosure = 'ai-generated' | 'ai-assisted' | 'none'
