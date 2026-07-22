@@ -49,14 +49,21 @@ enum CoverComposer {
         // 1) Artwork als Aspect-Fill (füllt das Cover ohne Verzerrung).
         drawAspectFill(artwork, in: full)
 
-        // 2) Dunkle Verläufe oben (Titel) und unten (Autor) für sichere Lesbarkeit.
+        // 2) Dunkle Verläufe oben (Titel) und unten (Autor) – in der Textzone NAHEZU
+        //    DECKEND, damit vom KI-Motiv evtl. eingebackener Text-Müll sicher überdeckt
+        //    wird. Mehrstufig, damit der Übergang zum Motiv weich bleibt.
         //    Koordinaten sind nicht geflippt: y = 0 unten, y = height oben.
+        let rgb = NSColorSpace.deviceRGB
         NSGradient(colors: [NSColor.black.withAlphaComponent(0.0),
-                            NSColor.black.withAlphaComponent(0.6)])?
-            .draw(in: NSRect(x: 0, y: height * 0.66, width: width, height: height * 0.34), angle: 90)
-        NSGradient(colors: [NSColor.black.withAlphaComponent(0.62),
-                            NSColor.black.withAlphaComponent(0.0)])?
-            .draw(in: NSRect(x: 0, y: 0, width: width, height: height * 0.22), angle: 90)
+                            NSColor.black.withAlphaComponent(0.88),
+                            NSColor.black.withAlphaComponent(0.98)],
+                   atLocations: [0.0, 0.62, 1.0], colorSpace: rgb)?
+            .draw(in: NSRect(x: 0, y: height * 0.62, width: width, height: height * 0.38), angle: 90)
+        NSGradient(colors: [NSColor.black.withAlphaComponent(0.99),
+                            NSColor.black.withAlphaComponent(0.9),
+                            NSColor.black.withAlphaComponent(0.0)],
+                   atLocations: [0.0, 0.5, 1.0], colorSpace: rgb)?
+            .draw(in: NSRect(x: 0, y: 0, width: width, height: height * 0.30), angle: 90)
 
         // 3) Titel im oberen Drittel, Autor unten. usesLineFragmentOrigin legt den
         //    Text vom oberen Rand des Rechtecks nach unten an.
