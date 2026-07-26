@@ -15,6 +15,7 @@
 // Alle Schritte schreiben nach status.json (Fortschritt für die Swift-App).
 
 import fs from 'fs';
+import path from 'path';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
@@ -61,24 +62,129 @@ function findChrome(explicit) {
   return null;
 }
 
+// ---- Das ECHTE Chrome des Nutzers verwenden ----------------------------------
+// Ziel: KDP soll mit der bestehenden Anmeldung des Nutzers arbeiten – kein zweiter Login.
+// Strategien in dieser Reihenfolge:
+//   1) --cdp <url>            an ein laufendes Chrome mit --remote-debugging-port andocken
+//   2) --use-my-chrome        Chrome mit dem ECHTEN Profil starten (nur wenn Chrome zu ist)
+//   3) --use-my-chrome-copy   Sitzungsdaten (Cookies) aus dem echten Profil übernehmen und
+//                             in einem eigenen Profil arbeiten → dein Chrome bleibt nutzbar
+//   4) Standard               eigenes Profil (einmaliger Login per `login`)
+
+function realChromeProfileDir() {
+  const home = process.env.HOME || '';
+  if (process.platform === 'darwin') return path.join(home, 'Library', 'Application Support', 'Google', 'Chrome');
+  if (process.platform === 'win32') return path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'User Data');
+  return path.join(home, '.config', 'google-chrome');
+}
+
+/** Prüft, ob das echte Chrome-Profil gerade von einer laufenden Chrome-Instanz gesperrt ist. */
+function realChromeRunning() {
+  try {
+    const out = require('child_process').execSync('ps -A -o command=', { encoding: 'utf8' });
+    return out.split('\n').some((l) =>
+      /Google Chrome\.app\/Contents\/MacOS\/Google Chrome/.test(l) && !/--user-data-dir=/.test(l));
+  } catch (_) { return false; }
+}
+
+/**
+ * Übernimmt die ANMELDE-SITZUNG aus dem echten Chrome-Profil in ein eigenes Arbeitsprofil:
+ * kopiert nur die Sitzungsdateien (Cookies + „Local State" für den Entschlüsselungsschlüssel
+ * + Preferences). Es werden KEINE Passwörter kopiert und keine Werte gelesen/ausgegeben.
+ * So bleibt dein normales Chrome geöffnet und nutzbar.
+ */
+function hydrateSessionFromRealChrome(targetDir, profileName) {
+  const src = realChromeProfileDir();
+  const prof = profileName || 'Default';
+  const pairs = [
+    [path.join(src, 'Local State'), path.join(targetDir, 'Local State')],
+    [path.join(src, prof, 'Cookies'), path.join(targetDir, prof, 'Cookies')],
+    [path.join(src, prof, 'Network', 'Cookies'), path.join(targetDir, prof, 'Network', 'Cookies')],
+    [path.join(src, prof, 'Preferences'), path.join(targetDir, prof, 'Preferences')],
+  ];
+  let copied = 0;
+  for (const [from, to] of pairs) {
+    try {
+      if (!fs.existsSync(from)) continue;
+      fs.mkdirSync(path.dirname(to), { recursive: true });
+      fs.copyFileSync(from, to);
+      copied++;
+    } catch (_) { /* einzelne Datei gesperrt → weiter */ }
+  }
+  return copied;
+}
+
 async function launch(profileDir, chromePath, { headless } = { headless: false }) {
   const puppeteer = (await import('puppeteer-extra')).default;
   try {
     const Stealth = (await import('puppeteer-extra-plugin-stealth')).default;
     puppeteer.use(Stealth());
   } catch (_) { /* Stealth optional */ }
+
+  // (1) An ein bereits laufendes Chrome andocken (nutzt DEINE offene Sitzung 1:1).
+  const cdp = args.cdp || process.env.NF_CHROME_CDP;
+  if (cdp) {
+    const browserURL = String(cdp).startsWith('http') ? String(cdp) : 'http://127.0.0.1:' + String(cdp);
+    try {
+      const browser = await puppeteer.connect({ browserURL, defaultViewport: null });
+      console.log('  (an laufendes Chrome angedockt: ' + browserURL + ')');
+      browser.__nfAttached = true; // nicht schließen – es ist DEIN Browser
+      return browser;
+    } catch (e) {
+      throw new Error('Konnte nicht an Chrome andocken (' + browserURL + '): ' + e.message
+        + '\nStarte Chrome einmal mit: open -a "Google Chrome" --args --remote-debugging-port=9222');
+    }
+  }
+
   const executablePath = findChrome(chromePath);
   if (!executablePath) throw new Error('Kein Chrome/Chromium/Edge/Brave gefunden. Bitte --chrome <pfad> angeben.');
-  fs.mkdirSync(profileDir, { recursive: true });
-  const browser = await puppeteer.launch({
+
+  const wantMine = !!(args['use-my-chrome'] || process.env.NF_USE_MY_CHROME);
+  const wantCopy = !!(args['use-my-chrome-copy'] || process.env.NF_USE_MY_CHROME_COPY);
+  const profileName = args['chrome-profile'] || 'Default';
+  let userDataDir = profileDir;
+  const extraArgs = [];
+  // Puppeteer setzt standardmäßig --use-mock-keychain und --password-store=basic.
+  // Damit kann Chrome die im macOS-Schlüsselbund verschlüsselten Cookies NICHT
+  // entschlüsseln → übernommene Sitzungen wären wertlos. Für „mein Chrome" abschalten.
+  const ignoreDefaultArgs = (wantMine || wantCopy)
+    ? ['--use-mock-keychain', '--password-store=basic']
+    : undefined;
+
+  if (wantMine && !realChromeRunning()) {
+    // (2) Direkt im echten Profil arbeiten – alle Logins vorhanden.
+    userDataDir = realChromeProfileDir();
+    extraArgs.push('--profile-directory=' + profileName);
+    console.log('  (nutzt DEIN echtes Chrome-Profil: ' + userDataDir + ' / ' + profileName + ')');
+  } else if (wantMine || wantCopy) {
+    // (3) Chrome läuft → Sitzung ins Arbeitsprofil übernehmen, dein Chrome bleibt offen.
+    fs.mkdirSync(profileDir, { recursive: true });
+    const n = hydrateSessionFromRealChrome(profileDir, profileName);
+    extraArgs.push('--profile-directory=' + profileName);
+    console.log('  (Sitzung aus deinem Chrome übernommen: ' + n + ' Sitzungsdateien; dein Chrome bleibt offen)');
+  }
+
+  fs.mkdirSync(userDataDir, { recursive: true });
+  const launchOpts = {
     executablePath,
     headless: headless ? 'new' : false,
-    userDataDir: profileDir,
+    userDataDir,
     defaultViewport: null,
     args: ['--no-first-run', '--no-default-browser-check', '--window-size=1400,1000',
-           '--lang=de-DE', '--accept-lang=de-DE,de'],
-  });
+           '--lang=de-DE', '--accept-lang=de-DE,de', ...extraArgs],
+  };
+  if (ignoreDefaultArgs) launchOpts.ignoreDefaultArgs = ignoreDefaultArgs;
+  const browser = await puppeteer.launch(launchOpts);
   return browser;
+}
+
+// Angedockte Browser (dein echtes Chrome) NUR trennen, nie schließen. Eigene Instanzen schließen.
+async function endSession(browser) {
+  if (!browser) return;
+  try {
+    if (browser.__nfAttached) await browser.disconnect();
+    else await endSession(browser);
+  } catch (_) { /* egal */ }
 }
 
 // Setzt die Sprache der Seite auf Deutsch, damit Amazon die Anmeldung NICHT
@@ -145,7 +251,7 @@ async function cmdLogin() {
   }
   report({ stage: 'login', progress: 1, ok, message: ok ? 'Login erfolgreich, Session gespeichert.' : 'Login nicht abgeschlossen (Zeit abgelaufen oder Fenster geschlossen).' });
   await new Promise(r => setTimeout(r, 2500));
-  await browser.close().catch(() => {});
+  await endSession(browser);
   if (!ok) process.exit(2);
 }
 
@@ -156,7 +262,7 @@ async function cmdCheck() {
   await germanLocale(page);
   const ok = await isLoggedIn(page);
   report({ stage: 'check', progress: 1, ok, message: ok ? 'Eingeloggt.' : 'Nicht eingeloggt.' });
-  await browser.close();
+  await endSession(browser);
   process.exit(ok ? 0 : 2);
 }
 
@@ -299,12 +405,12 @@ async function cmdUpload() {
   } catch (e) {
     report({ stage: 'error', progress: statusObj.progress, ok: false, error: String(e.message || e),
       message: 'Fehler: ' + String(e.message || e) });
-    await browser.close().catch(() => {});
+    await endSession(browser);
     process.exit(1);
   }
   // Fenster kurz offen lassen zur Sichtkontrolle, dann schließen.
   await new Promise(r => setTimeout(r, 3000));
-  await browser.close().catch(() => {});
+  await endSession(browser);
 }
 
 (async () => {
