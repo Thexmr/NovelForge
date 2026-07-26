@@ -226,6 +226,31 @@ enum CoverDesignService {
         """
     }
 
+    /// Objekt-Stillleben je Genre – NUR Objekte OHNE Schrift/Ziffern.
+    ///
+    /// In echten Läufen belegt: (1) Bildmodelle ignorieren Verneinungen („keine Personen"),
+    /// deshalb muss das Motiv POSITIV und konkret benannt werden – Gesichter/Hände sind die
+    /// stärksten KI-Verräter. (2) Objekte mit Schrift (Uhren, Bücher, Schilder) werden
+    /// verkrüppelt dargestellt und verraten die KI sofort → konsequent schriftfreie Motive.
+    static func objectMotif(for project: Project) -> String {
+        let hay = [project.genre, project.subgenre ?? "", project.bookProfile?.premise ?? ""]
+            .joined(separator: " ").lowercased()
+        let library: [(String, String)] = [
+            ("thriller|krimi|spannung|mord|crime", "macro still-life photograph of a single brass shell casing on wet asphalt, raindrops, hard side light from a street lamp, cold blue-grey tones, background bokeh"),
+            ("horror|grusel|mystery", "still-life photograph of a burnt-down candle on weathered wood, a single thread of rising smoke, deep shadows, dusty air"),
+            ("liebe|romance|romantik|herz", "still-life photograph of two plain ceramic cups on a windowsill, soft morning light through fogged glass, warm desaturated tones, dried flowers"),
+            ("fantasy|magie|drache|elfen", "still-life photograph of an ornate iron key on dark velvet, candlelight from the side, dust motes in the beam"),
+            ("science|sci-?fi|zukunft|space|raum", "architectural photograph of a single monolithic concrete structure against dense fog, hard edge, minimalist, cool twilight"),
+            ("histor|mittelalter|krieg", "still-life photograph of an antique brass telescope on dark oak, window light from the left, dust in the air"),
+            ("kinder|jugend|märchen", "still-life photograph of a paper boat on still water, soft afternoon light, gentle pastel tones"),
+            ("sach|ratgeber|business|finanz|gesund", "minimalist studio photograph of one clean geometric shape in matte material on coloured paper, directional light, crisp cast shadow"),
+        ]
+        for (pattern, motif) in library {
+            if hay.range(of: pattern, options: .regularExpression) != nil { return motif }
+        }
+        return "still-life photograph of one characteristic object on a textured surface, directional side light, muted colours"
+    }
+
     static func buildPrompt(for project: Project) -> String {
         let profile = project.bookProfile
         let chapterContext = chapterBrief(for: project)
@@ -238,8 +263,17 @@ enum CoverDesignService {
         let tonality = clean(profile?.tonality)
         let audience = clean(profile?.targetAudience)
 
+        // Das konkrete Objekt-Motiv steht ganz vorn: Bildmodelle gewichten den Anfang am
+        // stärksten, und ein positiv benanntes Objekt verhindert zuverlässiger als jede
+        // Verneinung, dass wieder eine Figur-Szene entsteht.
+        let motif = objectMotif(for: project)
+
         return """
-        Create premium front-cover ARTWORK (illustration only, no text) for a polished commercial Amazon KDP bestseller book cover.
+        SUBJECT (this is literally what to photograph): \(motif)
+
+        Create premium front-cover ARTWORK (image only, no text) for a polished commercial Amazon KDP bestseller book cover.
+        The result must look like a real photograph shot for a publishing house - never like an AI image.
+        The story signals below are CONTEXT for mood and colour only - do NOT turn them into a scene with characters; photograph the SUBJECT named above.
 
         BOOK IDENTITY
         Title: \(project.title)
@@ -262,7 +296,11 @@ enum CoverDesignService {
         COVER DIRECTION
         Format: portrait 2:3 front cover, suitable for Amazon KDP thumbnail and full-size preview.
         Visual mood: \(visualMood)
-        Design level: high-end publishing house, cinematic but not generic stock art, strong focal point, readable hierarchy, professional typography, clean negative space.
+        Medium: editorial analogue photography, shot on 35mm film, visible fine film grain, subtle halation, slight lens vignetting, muted cinematic colour grade with desaturated shadows, natural imperfect available light (window light, overcast daylight, single practical lamp), shallow depth of field with a soft natural bokeh falloff, one honest focal plane, minor real-world imperfections like dust, scratches on surfaces, uneven wear.
+        Subject: exactly ONE strong symbolic object, or one radically reduced scene (an object in its place, a detail of a room, a landscape fragment) that carries the central conflict of this book. No second competing subject, no collage, no floating icons.
+        People: show NO visible faces, NO hands, NO people in the foreground. Human presence may only be implied indirectly - an empty chair, a coat over a rail, footprints, a lit window seen from outside, a distant silhouette very small in the frame and turned away.
+        Design level: high-end publishing house, quiet and confident, cinematic but never glossy or staged like stock art; strong focal point, calm composition, generous clean negative space.
+        Realism rule: no CGI, no 3D render, no digital-art look, no glossy AI sheen, no symmetrical figure-walking-into-light cliche, no airbrushed plastic surfaces, no impossible perfect symmetry, no rim-light halo around everything, no oversaturated teal-and-orange grade, no lens flares sprayed over the frame, no fantasy-painting brushwork.
         Typography: render NO text, NO lettering, NO title, NO author name, NO words or numbers anywhere in the image. Title and author are added afterwards as a separate, razor-sharp typographic overlay, so the artwork itself must contain absolutely no letters.
         Composition for overlay: leave clean, low-detail negative space in the upper third (where the title will sit) and the lower quarter (for the author name); keep the central focal subject between them, with calm low-contrast areas behind the future text so overlaid type stays perfectly legible.
         Disclosure rule: keine KI-Hinweise, no "AI generated" labels, no process notes, no production badges.
