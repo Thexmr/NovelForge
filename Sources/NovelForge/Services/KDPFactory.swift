@@ -57,6 +57,22 @@ final class KDPFactory: ObservableObject {
         var draftURL: String?
         var enqueuedAt: Date
         var updatedAt: Date
+        /// Zahl der Fehlversuche – Grundlage für die wachsende Wartezeit.
+        var attempts: Int = 0
+        /// Zeitpunkt des letzten Versuchs (auch des gescheiterten).
+        var lastTriedAt: Date? = nil
+
+        /// Darf dieser Eintrag JETZT (wieder) versucht werden?
+        ///
+        /// Nach einem Fehlversuch wächst die Wartezeit: 15 min, 30 min, 1 h, 2 h … bis 12 h.
+        /// Ohne das lief ein dauerhaft scheiternder Eintrag im Minutentakt in denselben
+        /// Fehler und blockierte dabei alle folgenden Bücher, weil er vorn in der
+        /// Warteschlange stehen blieb.
+        func retryDue(at now: Date) -> Bool {
+            guard attempts > 0, let last = lastTriedAt else { return true }
+            let wartezeit = min(12 * 3600, 900 * pow(2, Double(attempts - 1)))
+            return now.timeIntervalSince(last) >= wartezeit
+        }
     }
 
     struct UploadRecord: Codable, Identifiable {
@@ -241,8 +257,14 @@ final class KDPFactory: ObservableObject {
             }
             return
         }
-        guard let next = queue.first(where: { $0.stage == .queued || $0.stage == .waitingSlot || $0.stage == .failed })
-        else { return }
+        // Nur Einträge, deren Wartezeit abgelaufen ist – sonst blockiert ein dauerhaft
+        // scheiterndes Buch (z. B. weil die Selbstprüfung es zurückhält) die gesamte
+        // Warteschlange und alle folgenden Bücher kommen nie an die Reihe.
+        let jetzt = Date()
+        guard let next = queue.first(where: {
+            ($0.stage == .queued || $0.stage == .waitingSlot || $0.stage == .failed)
+                && $0.retryDue(at: jetzt)
+        }) else { return }
         let resolver = resolveProject ?? projectResolver
         guard let project = resolver?(next.projectID) else {
             update(next.id) { $0.lastMessage = "Projekt nicht gefunden – übersprungen." }
@@ -259,13 +281,18 @@ final class KDPFactory: ObservableObject {
             history.append(UploadRecord(id: UUID(), projectID: next.projectID, title: next.title, uploadedAt: Date()))
             update(next.id) {
                 $0.stage = .draftReady
+                $0.attempts = 0
+                $0.lastTriedAt = Date()
                 $0.draftURL = result.draftURL
                 $0.lastMessage = "Entwurf in KDP – Preis prüfen und veröffentlichen."
             }
         } catch {
             update(next.id) {
                 $0.stage = .failed
-                $0.lastMessage = "Fehlgeschlagen: \((error as? AIError)?.errorDescription ?? error.localizedDescription)"
+                $0.attempts += 1
+                $0.lastTriedAt = Date()
+                $0.lastMessage = "Fehlgeschlagen (Versuch \($0.attempts)): "
+                    + ((error as? AIError)?.errorDescription ?? error.localizedDescription)
             }
         }
         isDispatching = false
