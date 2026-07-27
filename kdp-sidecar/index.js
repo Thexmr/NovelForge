@@ -232,12 +232,168 @@ async function autoAnmelden(page) {
   return { versucht: true, zweiFaktor: false, hinweis: 'Anmeldung mit hinterlegten Daten versucht.' };
 }
 
+/**
+ * SELBSTPRÜFUNG UND SELBSTHEILUNG der Detailseite.
+ *
+ * Statt Blocker einzeln zu entdecken (was mehrere Anläufe kostet), liest diese Funktion
+ * den Zustand der Seite aus, behebt selbstständig, was sie beheben kann, prüft erneut
+ * und meldet am Ende ehrlich, was wirklich offen ist.
+ *
+ * Bewusst gedeckelt (max. 3 Runden) – sie kann nicht endlos laufen.
+ * Rückgabe: { sauber, behoben:[], offen:[] }
+ */
+async function pruefeUndRepariere(page, job, maxRunden = 3) {
+  const behoben = [];
+  let offen = [];
+
+  for (let runde = 1; runde <= maxRunden; runde++) {
+    // 1) Zustand erheben: Was ist gesetzt, welche Hinweise stehen auf der Seite?
+    const zustand = await page.evaluate(() => {
+      const sicht = (e) => e && e.offsetParent !== null;
+      const hinweise = [...document.querySelectorAll('[class*="error" i],[class*="alert" i],[role="alert"]')]
+        .filter(sicht)
+        .map((e) => (e.innerText || '').replace(/\s+/g, ' ').trim())
+        .filter((t) => t.length > 6 && t.length < 220);
+      let beschreibungLeer = null;
+      try {
+        const k = Object.keys((window.CKEDITOR && window.CKEDITOR.instances) || {});
+        if (k.length) beschreibungLeer = !window.CKEDITOR.instances[k[0]].getData().trim();
+      } catch (_) { /* egal */ }
+      return {
+        titelLeer: !((document.querySelector('#data-title') || {}).value || '').trim(),
+        autorLeer: !((document.querySelector('#data-primary-author-last-name') || {}).value || '').trim(),
+        beschreibungLeer,
+        rechteOffen: !(document.querySelector('#non-public-domain') || {}).checked,
+        alterOffen: ![...document.querySelectorAll('input[name="data[is_adult_content]-radio"]')].some((r) => r.checked),
+        kategorieOffen: /kategorie/i.test(document.body.innerText)
+          && /hinzufügen|fehlt|auswählen|mindestens/i.test(document.body.innerText),
+        hinweise: [...new Set(hinweise)].slice(0, 6),
+      };
+    }).catch(() => null);
+    if (!zustand) return { sauber: false, behoben, offen: ['Seitenzustand nicht lesbar'] };
+
+    offen = [];
+
+    // 2) Selbst beheben, was bekannt ist.
+    if (zustand.rechteOffen) {
+      const ok = await page.evaluate(() => {
+        const r = document.querySelector('#non-public-domain');
+        if (!r) return false; if (!r.checked) { r.click(); r.dispatchEvent(new Event('change', { bubbles: true })); }
+        return true;
+      }).catch(() => false);
+      ok ? behoben.push('Verlagsrechte') : offen.push('Verlagsrechte');
+    }
+    if (zustand.alterOffen) {
+      const ok = await page.evaluate(() => {
+        const r = document.querySelector('input[name="data[is_adult_content]-radio"][value="false"]');
+        if (!r) return false; if (!r.checked) { r.click(); r.dispatchEvent(new Event('change', { bubbles: true })); }
+        return true;
+      }).catch(() => false);
+      ok ? behoben.push('Alterseinstufung') : offen.push('Alterseinstufung');
+    }
+    if (zustand.titelLeer) {
+      const r = await typeVerified(page, ['#data-title', 'input[name="data[title]"]'], job.title, { label: 'Titel' });
+      r.ok ? behoben.push('Titel') : offen.push('Titel');
+    }
+    if (zustand.autorLeer && job.author) {
+      const teile = String(job.author).trim().split(/\s+/).filter(Boolean);
+      const r = await typeVerified(page, ['#data-primary-author-last-name'],
+        teile.length > 1 ? teile[teile.length - 1] : teile[0], { label: 'Autor' });
+      r.ok ? behoben.push('Autor') : offen.push('Autor');
+    }
+    if (zustand.beschreibungLeer === true && job.description) {
+      (await fillDescription(page, job.description)) ? behoben.push('Beschreibung') : offen.push('Beschreibung');
+    }
+    if (zustand.kategorieOffen) {
+      (await setzeKategorie(page, job)) ? behoben.push('Kategorie') : offen.push('Kategorie');
+    }
+
+    // 3) Nichts mehr zu tun? Dann ist die Seite sauber.
+    const nochOffen = zustand.rechteOffen || zustand.alterOffen || zustand.titelLeer
+      || zustand.autorLeer || zustand.kategorieOffen;
+    if (!nochOffen) {
+      return { sauber: true, behoben, offen: [], hinweise: zustand.hinweise };
+    }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  return { sauber: offen.length === 0, behoben, offen };
+}
+
+/**
+ * Wartet, bis KDP eine hochgeladene Datei WIRKLICH angenommen hat – und beweist das
+ * am Seiteninhalt, nicht an einer Wartezeit. KDP zeigt nach der Verarbeitung den
+ * Dateinamen samt „Hochgeladen am …" an; scheitert die Prüfung, erscheint stattdessen
+ * eine Fehlermeldung. Beides wird hier unterschieden.
+ */
+async function warteAufUploadFertig(page, dateiPfad, timeoutMs = 240000, melde = () => {}) {
+  const name = path.basename(dateiPfad);
+  const stamm = name.replace(/\.[^.]+$/, '').slice(0, 24);
+  const bis = Date.now() + timeoutMs;
+  let zuletzt = '';
+  while (Date.now() < bis) {
+    const s = await page.evaluate((stamm) => {
+      const txt = (document.body.innerText || '');
+      const fehler = [...document.querySelectorAll('[class*="error" i],[role="alert"]')]
+        .filter((e) => e.offsetParent !== null)
+        .map((e) => (e.innerText || '').replace(/\s+/g, ' ').trim())
+        .find((t) => t.length > 6 && /fehl|error|ungültig|nicht|problem/i.test(t));
+      return {
+        nameDa: stamm.length > 3 && txt.includes(stamm),
+        fertig: /hochgeladen am|erfolgreich hochgeladen|upload successful|hochgeladen \(/i.test(txt),
+        laeuft: /wird hochgeladen|hochladen …|uploading|wird verarbeitet/i.test(txt),
+        fehler: fehler || '',
+      };
+    }, stamm).catch(() => null);
+    if (!s) return { ok: false, hinweis: 'Seite nicht lesbar' };
+    if (s.fehler) return { ok: false, hinweis: 'KDP meldet: ' + s.fehler.slice(0, 140) };
+    if (s.fertig || s.nameDa) return { ok: true, hinweis: 'von KDP angenommen (' + name + ')' };
+    const stand = s.laeuft ? 'wird verarbeitet …' : 'warte auf Rückmeldung …';
+    if (stand !== zuletzt) { zuletzt = stand; melde(stand); }
+    await new Promise(r => setTimeout(r, 4000));
+  }
+  return { ok: false, hinweis: 'keine Bestätigung innerhalb der Wartezeit' };
+}
+
+/** Öffnet den Kategorie-Dialog, wählt Ober-/Unterkategorie und speichert. */
+async function setzeKategorie(page, job) {
+  const wunsch = String((job.categories || '').split('|')[0] || '').split('>')[0].trim() || 'Krimis & Thriller';
+  // Der Knopf hat die ID #categories-modal-button. Daneben steht der Hilfe-Link
+  // „Was sind Kategorien?" – wird der getroffen, öffnet sich die Hilfe statt des Dialogs.
+  const auf = await page.$('#categories-modal-button');
+  if (!auf) return false;
+  await auf.click().catch(() => {});
+  await new Promise(r => setTimeout(r, 4000));
+  const gesetzt = await page.evaluate((w) => {
+    const s = [...document.querySelectorAll('select')].find((x) =>
+      x.offsetParent !== null && [...x.options].some((o) => o.text.includes(w)));
+    if (!s) return false;
+    const opt = [...s.options].find((o) => o.text.includes(w));
+    Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set.call(s, opt.value);
+    s.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  }, wunsch).catch(() => false);
+  if (!gesetzt) return false;
+  await new Promise(r => setTimeout(r, 3000));
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll('input[type="checkbox"]')].find((c) => c.offsetParent !== null && !c.checked);
+    if (b) { b.click(); b.dispatchEvent(new Event('change', { bubbles: true })); }
+  }).catch(() => {});
+  await new Promise(r => setTimeout(r, 2000));
+  const gespeichert = await page.evaluate(() => {
+    const b = [...document.querySelectorAll('button')].find((e) =>
+      /kategorien speichern/i.test((e.innerText || '').trim()) && e.offsetParent !== null);
+    if (!b) return false; b.click(); return true;
+  }).catch(() => false);
+  await new Promise(r => setTimeout(r, 4000));
+  return gespeichert;
+}
+
 // Angedockte Browser (dein echtes Chrome) NUR trennen, nie schließen. Eigene Instanzen schließen.
 async function endSession(browser) {
   if (!browser) return;
   try {
     if (browser.__nfAttached) await browser.disconnect();
-    else await endSession(browser);
+    else await browser.close();
   } catch (_) { /* egal */ }
 }
 
@@ -581,88 +737,20 @@ async function cmdUpload() {
     if (kwOk < kws.length) probleme.push(`Keywords: ${kws.length - kwOk} nicht gesetzt`);
     report({ stage: 'metadata', progress: 0.45, message: `Geprüft eingetragen: ${gefuellt.join(' · ') || 'nichts'}` });
 
-    // PFLICHTANGABEN. Ohne sie sperrt KDP die Weiterleitung zur Inhaltsseite – der
-    // Manuskript-/Cover-Upload scheitert dann mit „Feld nicht gefunden", weil man in
-    // Wahrheit noch auf der Detailseite steht (live beobachtet).
-    // Selektoren an der echten deutschen eBook-Seite erhoben:
-    //   Verlagsrechte : input#non-public-domain          (name=data-is-public-domain)
-    //   Alterseinstufung: input[name="data[is_adult_content]-radio"][value="false"]
-    report({ stage: 'required', progress: 0.48, message: 'Setze Pflichtangaben (Rechte, Alterseinstufung) …' });
-    const pflicht = await page.evaluate(() => {
-      const gesetzt = [];
-      const klick = (el, name) => {
-        if (!el) return;
-        if (!el.checked) {
-          el.click();
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-        gesetzt.push(name);
-      };
-      klick(document.querySelector('#non-public-domain'), 'Verlagsrechte');
-      klick(document.querySelector('input[name="data[is_adult_content]-radio"][value="false"]'), 'Alterseinstufung');
-      return gesetzt;
-    }).catch(() => []);
-    if (pflicht.length) {
-      report({ stage: 'required', progress: 0.5, message: 'Pflichtangaben gesetzt: ' + pflicht.join(', ') });
-    } else {
-      probleme.push('Pflichtangaben (Rechte/Alterseinstufung) nicht gefunden');
-    }
-
-    // KATEGORIE (Pflicht). Ohne sie bleibt die Inhaltsseite gesperrt – live beobachtet:
-    // „Fügen Sie eine Kategorie für Ihr Buch hinzu." Ablauf im Dialog: Knopf „Wählen Sie
-    // Kategorien" → Oberkategorie im Auswahlfeld → erste Platzierung ankreuzen → speichern.
-    report({ stage: 'category', progress: 0.54, message: 'Wähle Kategorie …' });
-    const katWunsch = String((job.categories || '').split('|')[0] || '').split('>')[0].trim()
-      || 'Krimis & Thriller';
-    const katOk = await (async () => {
-      // Der Knopf heißt „Wählen Sie Kategorien" und hat die ID categories-modal-button
-      // (live erhoben). Daneben steht der Hilfe-Link „Was sind Kategorien?" – wird der
-      // getroffen, öffnet sich die Hilfe statt des Dialogs. Deshalb: nur BUTTON, nie
-      // ein <a>, und Hilfe-Texte ausschließen.
-      const auf = await page.$('#categories-modal-button');
-      if (auf) { await auf.click().catch(() => {}); }
-      else {
-        const per = await page.evaluate(() => {
-          const b = [...document.querySelectorAll('button')].find((e) => {
-            const t = (e.innerText || '').replace(/\s+/g, ' ').trim();
-            return /wählen sie kategorien|kategorien? (auswählen|bearbeiten)/i.test(t)
-              && !/was sind|hilfe|mehr dazu/i.test(t);
-          });
-          if (!b) return false; b.click(); return true;
-        }).catch(() => false);
-        if (!per) return false;
-      }
-      await new Promise(r => setTimeout(r, 4000));
-      // Oberkategorie im sichtbaren Auswahlfeld setzen.
-      const gesetzt = await page.evaluate((wunsch) => {
-        const s = [...document.querySelectorAll('select')].find((x) =>
-          x.offsetParent !== null && [...x.options].some((o) => o.text.includes(wunsch)));
-        if (!s) return false;
-        const opt = [...s.options].find((o) => o.text.includes(wunsch));
-        const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
-        setter.call(s, opt.value);
-        s.dispatchEvent(new Event('change', { bubbles: true }));
-        return true;
-      }, katWunsch).catch(() => false);
-      if (!gesetzt) return false;
-      await new Promise(r => setTimeout(r, 2500));
-      // Erste angebotene Platzierung ankreuzen.
-      await page.evaluate(() => {
-        const box = [...document.querySelectorAll('input[type="checkbox"]')].find((c) => c.offsetParent !== null && !c.checked);
-        if (box) { box.click(); box.dispatchEvent(new Event('change', { bubbles: true })); }
-      }).catch(() => {});
-      await new Promise(r => setTimeout(r, 1500));
-      // Speichern.
-      const gespeichert = await page.evaluate(() => {
-        const b = [...document.querySelectorAll('button,a')].find((e) =>
-          /kategorien speichern|speichern/i.test((e.innerText || '').trim()) && e.offsetParent !== null);
-        if (!b) return false; b.click(); return true;
-      }).catch(() => false);
-      await new Promise(r => setTimeout(r, 3000));
-      return gespeichert;
-    })();
-    if (katOk) gefuellt.push('Kategorie: ' + katWunsch);
-    else probleme.push('Kategorie nicht gesetzt');
+    // SELBSTPRÜFUNG: Das Programm ermittelt selbst, was noch fehlt (Rechte, Alters-
+    // einstufung, Kategorie, leere Pflichtfelder), behebt es selbst und prüft erneut.
+    // Vorher wurden diese Blocker einzeln entdeckt – jeder Fehlversuch kostete einen
+    // überflüssigen Entwurf. Jetzt erledigt das der Ablauf in einem Durchgang.
+    report({ stage: 'selbstpruefung', progress: 0.48, message: 'Prüfe Pflichtangaben und behebe Fehlendes …' });
+    const pruef = await pruefeUndRepariere(page, job);
+    if (pruef.behoben.length) gefuellt.push('Selbst behoben: ' + pruef.behoben.join(', '));
+    for (const o of pruef.offen) probleme.push(o + ' nicht gesetzt');
+    report({
+      stage: 'selbstpruefung', progress: 0.55,
+      message: pruef.sauber
+        ? 'Alle Pflichtangaben stehen' + (pruef.behoben.length ? ' (behoben: ' + pruef.behoben.join(', ') + ')' : '') + '.'
+        : 'Noch offen: ' + pruef.offen.join(', '),
+    });
 
     // KI-Offenlegung (Pflicht bei KDP): job.aiDisclosure = 'ai-generated' | 'ai-assisted' | 'none'
     report({ stage: 'ai-disclosure', progress: 0.56, message: `KI-Kennzeichnung: ${job.aiDisclosure || 'ai-assisted'}` });
@@ -682,21 +770,43 @@ async function cmdUpload() {
         await new Promise(r => setTimeout(r, 4000));
       }
 
+      // BEWEIS statt Annahme: Sind wir wirklich weitergekommen? Bleibt die Detailseite
+      // stehen, hat KDP die Eingabe abgelehnt (Pflichtfeld). Dann noch einmal selbst
+      // prüfen, beheben und erneut fortfahren – höchstens zweimal.
+      for (let versuch = 1; versuch <= 2 && /\/details/.test(page.url()); versuch++) {
+        const p2 = await pruefeUndRepariere(page, job, 2);
+        if (p2.behoben.length) gefuellt.push('Nach Weiter behoben: ' + p2.behoben.join(', '));
+        report({ stage: 'content', progress: 0.62,
+          message: `Detailseite blieb stehen (Versuch ${versuch}) – behoben: ${p2.behoben.join(', ') || 'nichts'}` });
+        const nochmal = await page.$('#save-and-continue-announce, #save-and-continue');
+        if (!nochmal) break;
+        await nochmal.click().catch(() => {});
+        await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+        await new Promise(r => setTimeout(r, 4000));
+      }
+      if (/\/details/.test(page.url())) {
+        probleme.push('Inhaltsseite nicht erreicht (Detailseite meldet noch Pflichtfelder)');
+      }
+
       // Manuskript + Cover auf der Inhaltsseite hochladen (Feld-IDs live erhoben).
       report({ stage: 'content', progress: 0.68, message: 'Lade Manuskript (EPUB) und Cover hoch …' });
       const manuskriptFeld = await page.$('#data-assets-interior-file-upload-AjaxInput, input[type="file"][accept*="epub"]');
       if (manuskriptFeld && job.epubPath && fs.existsSync(job.epubPath)) {
         await manuskriptFeld.uploadFile(job.epubPath).catch(() => {});
         report({ stage: 'content', progress: 0.74, message: 'Manuskript übergeben, warte auf Verarbeitung …' });
-        await new Promise(r => setTimeout(r, 12000));
+        const b = await warteAufUploadFertig(page, job.epubPath, 240000, (t) =>
+          report({ stage: 'content', progress: 0.76, message: 'Manuskript: ' + t }));
+        (b.ok ? gefuellt : probleme).push('Manuskript: ' + b.hinweis);
       } else {
         probleme.push('Manuskript: Upload-Feld nicht gefunden');
       }
       const coverFeld = await page.$('#data-assets-cover-file-upload-AjaxInput, input[type="file"][accept*="jpeg"], input[type="file"][accept*="jpg"]');
       if (coverFeld && job.coverPath && fs.existsSync(job.coverPath)) {
         await coverFeld.uploadFile(job.coverPath).catch(() => {});
-        report({ stage: 'content', progress: 0.80, message: 'Cover übergeben.' });
-        await new Promise(r => setTimeout(r, 8000));
+        report({ stage: 'content', progress: 0.80, message: 'Cover übergeben, warte auf Verarbeitung …' });
+        const b = await warteAufUploadFertig(page, job.coverPath, 180000, (t) =>
+          report({ stage: 'content', progress: 0.82, message: 'Cover: ' + t }));
+        (b.ok ? gefuellt : probleme).push('Cover: ' + b.hinweis);
       } else if (job.coverPath) {
         probleme.push('Cover: Upload-Feld nicht gefunden');
       }
