@@ -51,6 +51,66 @@ enum KeychainService {
         return nil
     }
 
+    // MARK: - KDP-Zugangsdaten
+    //
+    // Amazon-Anmeldedaten für den autonomen Upload. Sie liegen ausschließlich im
+    // System-Schlüsselbund (gerätegebunden, nur bei entsperrtem Gerät lesbar) – nie in
+    // Dateien, Einstellungen oder Protokollen. Weitergegeben werden sie einzig als
+    // Umgebungsvariable an den Sidecar-Prozess, nicht über die Kommandozeile.
+    private static let kdpEmailKey = "kdp_login_email"
+    private static let kdpPasswordKey = "kdp_login_password"
+
+    static func saveKDPCredentials(email: String, password: String) {
+        writeGeneric(email, account: kdpEmailKey)
+        writeGeneric(password, account: kdpPasswordKey)
+    }
+
+    static func kdpCredentials() -> (email: String, password: String)? {
+        guard let mail = readGeneric(account: kdpEmailKey), !mail.isEmpty,
+              let pass = readGeneric(account: kdpPasswordKey), !pass.isEmpty else { return nil }
+        return (mail, pass)
+    }
+
+    static func hasKDPCredentials() -> Bool { kdpCredentials() != nil }
+
+    static func deleteKDPCredentials() {
+        for account in [kdpEmailKey, kdpPasswordKey] {
+            SecItemDelete([
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: serviceName,
+                kSecAttrAccount as String: account,
+            ] as CFDictionary)
+        }
+    }
+
+    private static func writeGeneric(_ value: String, account: String) {
+        SecItemDelete([
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: serviceName,
+            kSecAttrAccount as String: account,
+        ] as CFDictionary)
+        SecItemAdd([
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: serviceName,
+            kSecAttrAccount as String: account,
+            kSecValueData as String: Data(value.utf8),
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+        ] as CFDictionary, nil)
+    }
+
+    private static func readGeneric(account: String) -> String? {
+        var result: AnyObject?
+        let status = SecItemCopyMatching([
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: serviceName,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ] as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
     private static func saveToKeychain(_ apiKey: String, for provider: AIProvider) {
         let key = "api_key_\(provider.rawValue)"
         let deleteQuery: [String: Any] = [

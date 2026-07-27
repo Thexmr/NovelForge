@@ -75,6 +75,15 @@ enum KDPUploadService {
             process.executableURL = URL(fileURLWithPath: node)
             process.arguments = [index.path] + arguments
             process.currentDirectoryURL = dir
+            // Hinterlegte KDP-Zugangsdaten NUR als Umgebungsvariable weitergeben:
+            // über die Kommandozeile stünden sie in der Prozessliste, in der Job-Datei
+            // auf der Platte. So bleiben sie im Speicher dieses einen Prozesses.
+            if let zugang = KeychainService.kdpCredentials() {
+                var umgebung = ProcessInfo.processInfo.environment
+                umgebung["NF_KDP_EMAIL"] = zugang.email
+                umgebung["NF_KDP_PASSWORD"] = zugang.password
+                process.environment = umgebung
+            }
             let pipe = Pipe()
             process.standardOutput = pipe
             process.standardError = pipe

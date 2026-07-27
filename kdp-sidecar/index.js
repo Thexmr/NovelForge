@@ -178,6 +178,60 @@ async function launch(profileDir, chromePath, { headless } = { headless: false }
   return browser;
 }
 
+/**
+ * Meldet sich bei Amazon an, WENN hinterlegte Zugangsdaten vorliegen und gerade das
+ * Anmeldeformular sichtbar ist.
+ *
+ * Die Daten kommen ausschließlich über UMGEBUNGSVARIABLEN (NF_KDP_EMAIL / NF_KDP_PASSWORD),
+ * die die App aus dem System-Schlüsselbund liest. Bewusst NICHT über die Kommandozeile
+ * (dort stünden sie in der Prozessliste) und NICHT über die Job-Datei (die liegt auf der
+ * Platte). Es wird nichts protokolliert – auch keine Länge, kein Ausschnitt.
+ *
+ * Bleibt eine Zwei-Faktor-Abfrage (SMS/App-Code) stehen, wird das gemeldet: diesen Schritt
+ * macht der Mensch, bzw. auf Android liest die App den SMS-Code selbst aus.
+ */
+async function autoAnmelden(page) {
+  const email = process.env.NF_KDP_EMAIL;
+  const passwort = process.env.NF_KDP_PASSWORD;
+  if (!email || !passwort) return { versucht: false, hinweis: 'keine Zugangsdaten hinterlegt' };
+
+  const emailFeld = await page.$('#ap_email, input[name="email"], #ap_email_login');
+  const passFeld = await page.$('#ap_password, input[name="password"]');
+  if (!emailFeld && !passFeld) return { versucht: false, hinweis: 'kein Anmeldeformular sichtbar' };
+
+  report({ stage: 'login', progress: 0.08, message: 'Melde mit hinterlegten Zugangsdaten an …' });
+  if (emailFeld) {
+    await emailFeld.click({ clickCount: 3 }).catch(() => {});
+    await emailFeld.type(email, { delay: 25 }).catch(() => {});
+    // Zweistufige Maske: erst „Weiter", dann Passwort.
+    const weiter = await page.$('#continue, input#continue');
+    if (weiter && !passFeld) {
+      await weiter.click().catch(() => {});
+      await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+      await new Promise(r => setTimeout(r, 1500));
+    }
+  }
+  const passFeld2 = await page.$('#ap_password, input[name="password"]');
+  if (passFeld2) {
+    await passFeld2.click({ clickCount: 3 }).catch(() => {});
+    await passFeld2.type(passwort, { delay: 25 }).catch(() => {});
+    // „Angemeldet bleiben" ankreuzen: verlängert die Sitzung, spart künftige Anmeldungen.
+    await page.$eval('input[name="rememberMe"], #auth-remember-me', (e) => { if (!e.checked) e.click(); }).catch(() => {});
+    const senden = await page.$('#signInSubmit, input#signInSubmit');
+    if (senden) {
+      await senden.click().catch(() => {});
+      await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {});
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+  // Steht jetzt eine Zwei-Faktor-Abfrage? Dann ehrlich melden statt „erfolgreich".
+  const zweiFaktor = await page.$('#auth-mfa-otpcode, input[name="otpCode"], #cvf-input-code');
+  if (zweiFaktor) {
+    return { versucht: true, zweiFaktor: true, hinweis: 'Bestätigungscode erforderlich (SMS/App) – bitte im Fenster eingeben.' };
+  }
+  return { versucht: true, zweiFaktor: false, hinweis: 'Anmeldung mit hinterlegten Daten versucht.' };
+}
+
 // Angedockte Browser (dein echtes Chrome) NUR trennen, nie schließen. Eigene Instanzen schließen.
 async function endSession(browser) {
   if (!browser) return;
@@ -419,7 +473,16 @@ async function cmdUpload() {
 
     report({ stage: 'auth', progress: 0.06, message: 'Prüfe KDP-Login …' });
     if (!(await isLoggedIn(page))) {
-      throw new Error('Nicht bei KDP eingeloggt. Bitte zuerst „KDP-Login" ausführen.');
+      // Sind Zugangsdaten hinterlegt, wird jetzt angemeldet – sonst bleibt es beim Hinweis.
+      const anmeldung = await autoAnmelden(page);
+      if (anmeldung.versucht && !anmeldung.zweiFaktor && await isLoggedIn(page)) {
+        report({ stage: 'auth', progress: 0.1, message: 'Angemeldet.' });
+      } else if (anmeldung.zweiFaktor) {
+        throw new Error(anmeldung.hinweis);
+      } else {
+        throw new Error('Nicht bei KDP eingeloggt. Entweder in den Einstellungen Zugangsdaten '
+          + 'hinterlegen oder einmal „KDP-Login" ausführen.');
+      }
     }
 
     // Neues Kindle-eBook.

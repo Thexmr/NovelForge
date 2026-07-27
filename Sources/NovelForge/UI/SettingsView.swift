@@ -610,9 +610,44 @@ struct PrivacySettingsView: View {
 
     @State private var confirmDeleteKeys = false
     @State private var confirmDeleteProjects = false
+    @State private var kdpEmail = ""
+    @State private var kdpPasswort = ""
+    @State private var kdpGespeichert = KeychainService.hasKDPCredentials()
 
     var body: some View {
         Form {
+            Section {
+                Text(kdpGespeichert
+                     ? "Zugangsdaten sind hinterlegt. Die Fabrik meldet sich damit selbst an, wenn die Browser-Sitzung abgelaufen ist."
+                     : "Optional. Ohne Zugangsdaten nutzt die Fabrik die bestehende Anmeldung aus deinem Chrome – das genügt meistens und ist sicherer.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("Amazon-E-Mail", text: $kdpEmail)
+                    .textContentType(.username)
+                SecureField("Amazon-Passwort", text: $kdpPasswort)
+                    .textContentType(.password)
+                HStack {
+                    Button("Sicher speichern") {
+                        KeychainService.saveKDPCredentials(email: kdpEmail.trimmingCharacters(in: .whitespaces),
+                                                           password: kdpPasswort)
+                        kdpEmail = ""; kdpPasswort = ""
+                        kdpGespeichert = KeychainService.hasKDPCredentials()
+                    }
+                    .disabled(kdpEmail.isEmpty || kdpPasswort.isEmpty)
+                    if kdpGespeichert {
+                        Button("Löschen", role: .destructive) {
+                            KeychainService.deleteKDPCredentials()
+                            kdpGespeichert = false
+                        }
+                    }
+                }
+                Text("Gespeichert wird ausschließlich im macOS-Schlüsselbund (gerätegebunden, nur bei entsperrtem Mac lesbar) – nicht in Dateien, Einstellungen oder Protokollen. Verlangt Amazon zusätzlich einen Bestätigungscode, musst du diesen weiterhin selbst eingeben.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("KDP-Anmeldung")
+            }
+
             Section("Datenhaltung") {
                 LabeledContent("Projekte & Manuskripte", value: "Lokal auf diesem Mac")
                 LabeledContent("API-Keys", value: "Lokaler App-Speicher mit Keychain-Backup")
