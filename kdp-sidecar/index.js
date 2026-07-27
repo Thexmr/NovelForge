@@ -312,11 +312,13 @@ async function pruefeUndRepariere(page, job, maxRunden = 3) {
     const nochOffen = zustand.rechteOffen || zustand.alterOffen || zustand.titelLeer
       || zustand.autorLeer || zustand.kategorieOffen;
     if (!nochOffen) {
-      return { sauber: true, behoben, offen: [], hinweise: zustand.hinweise };
+      return { sauber: true, behoben: [...new Set(behoben)], offen: [], hinweise: zustand.hinweise };
     }
     await new Promise(r => setTimeout(r, 2000));
   }
-  return { sauber: offen.length === 0, behoben, offen };
+  // Über mehrere Runden kann derselbe Punkt mehrfach angefasst werden – im Bericht
+  // soll er trotzdem nur einmal stehen.
+  return { sauber: offen.length === 0, behoben: [...new Set(behoben)], offen: [...new Set(offen)] };
 }
 
 /**
@@ -356,7 +358,18 @@ async function warteAufUploadFertig(page, dateiPfad, timeoutMs = 240000, melde =
 
 /** Öffnet den Kategorie-Dialog, wählt Ober-/Unterkategorie und speichert. */
 async function setzeKategorie(page, job) {
-  const wunsch = String((job.categories || '').split('|')[0] || '').split('>')[0].trim() || 'Krimis & Thriller';
+  // Kategorien kommen je nach Aufrufer als Liste oder als „A > B | C > D"-Zeichenkette.
+  // Beides annehmen: ein fest angenommenes Format hat hier schon einmal dazu geführt,
+  // dass gar keine Kategorie gesetzt wurde.
+  const katListe = Array.isArray(job.categories)
+    ? job.categories
+    : String(job.categories || '').split('|');
+  const wunsch = String(katListe[0] || '').split('>')[0].trim();
+  // KEINE Kategorie erfinden. Vorher stand hier „Krimis & Thriller" als Notnagel –
+  // damit bekam ein Ratgeber oder Liebesroman stillschweigend eine falsche Kategorie.
+  // Eine falsche Kategorie schadet dem Ranking mehr als eine fehlende, und der Mensch
+  // sieht am Entwurf sofort, dass hier noch etwas zu tun ist.
+  if (!wunsch) return false;
   // Der Knopf hat die ID #categories-modal-button. Daneben steht der Hilfe-Link
   // „Was sind Kategorien?" – wird der getroffen, öffnet sich die Hilfe statt des Dialogs.
   const auf = await page.$('#categories-modal-button');
@@ -641,6 +654,25 @@ async function cmdUpload() {
       }
     }
 
+    // BESTEHENDEN ENTWURF FORTSETZEN statt jedes Mal einen neuen anzulegen.
+    // Ohne das entsteht bei jedem Versuch ein weiterer Entwurf im echten Konto –
+    // genau das ist beim Einrichten mehrfach passiert. Kennt der Auftrag die Buch-ID
+    // (job.bookId oder --book), wird dieser Entwurf geöffnet und weitergeführt.
+    const bestehend = args.book || job.bookId || null;
+    let formularDa = false;
+    if (bestehend) {
+      report({ stage: 'create', progress: 0.12, message: `Öffne bestehenden Entwurf ${bestehend} …` });
+      await page.goto(`https://kdp.amazon.com/de_DE/title-setup/kindle/${bestehend}/details`,
+        { waitUntil: 'domcontentloaded' }).catch(() => {});
+      formularDa = await page.waitForSelector('#data-title, input[name="data[title]"]', { timeout: 45000 })
+        .then(() => true).catch(() => false);
+      if (!formularDa) {
+        report({ stage: 'create', progress: 0.13,
+          message: 'Bestehender Entwurf nicht erreichbar – lege stattdessen einen neuen an.' });
+      }
+    }
+
+    if (!formularDa) {
     // Neues Kindle-eBook.
     //
     // WICHTIG: Die Formular-URL NICHT direkt aufrufen. Amazon hängt an solche Deeplinks
@@ -679,21 +711,28 @@ async function cmdUpload() {
     const schritt1 = await klickeText('neuen titel|neue serie');
     if (schritt1) await new Promise(r => setTimeout(r, 5000));
 
-    // Schritt 2: Format wählen – der Knopf heißt „eBook erstellen" (live verifiziert:
-    // führt nach title-setup/kindle/new/details).
-    const schritt2 = await klickeText('ebook erstellen');
+    // Schritt 2: Format wählen. Für das eBook heißt der Knopf „eBook erstellen"
+    // (live verifiziert: führt nach title-setup/kindle/new/details), für das
+    // gedruckte Buch „Taschenbuch erstellen" → title-setup/paperback/new/details.
+    // Der Ablauf danach ist derselbe; nur die Dateien unterscheiden sich:
+    // Taschenbuch verlangt ein Cover-PDF, kein JPEG.
+    const taschenbuch = job.format === 'paperback' || !!args.paperback;
+    const schritt2 = await klickeText(taschenbuch ? 'taschenbuch erstellen' : 'ebook erstellen');
     if (schritt2) await new Promise(r => setTimeout(r, 6000));
 
     if (!schritt1 && !schritt2) {
       // Ersatzweg: Deeplink versuchen (klappt, wenn keine Neu-Anmeldung verlangt wird).
-      await page.goto('https://kdp.amazon.com/de_DE/title-setup/kindle/new/details',
+      await page.goto(taschenbuch
+        ? 'https://kdp.amazon.com/de_DE/title-setup/paperback/new/details'
+        : 'https://kdp.amazon.com/de_DE/title-setup/kindle/new/details',
         { waitUntil: 'domcontentloaded' }).catch(() => {});
     }
 
-    const formularDa = await page.waitForSelector(
+    formularDa = await page.waitForSelector(
       '#data-title, #data-print-book-title, input[name="data[title]"]',
       { timeout: 45000 },
     ).then(() => true).catch(() => false);
+    } // Ende: nur wenn kein bestehender Entwurf geöffnet wurde
 
     // Nicht weitermachen, wenn das Formular nie erschien – sonst wird „erfolgreich"
     // gemeldet, obwohl nichts eingetragen werden konnte.
@@ -800,11 +839,15 @@ async function cmdUpload() {
       } else {
         probleme.push('Manuskript: Upload-Feld nicht gefunden');
       }
-      const coverFeld = await page.$('#data-assets-cover-file-upload-AjaxInput, input[type="file"][accept*="jpeg"], input[type="file"][accept*="jpg"]');
-      if (coverFeld && job.coverPath && fs.existsSync(job.coverPath)) {
-        await coverFeld.uploadFile(job.coverPath).catch(() => {});
+      // Beim Taschenbuch verlangt KDP das Cover als druckfertiges PDF (Vorderseite,
+      // Buchrücken und Rückseite in einer Datei) – ein JPEG wird dort abgelehnt.
+      const coverDatei = (job.format === 'paperback' && job.wrapPdfPath && fs.existsSync(job.wrapPdfPath))
+        ? job.wrapPdfPath : job.coverPath;
+      const coverFeld = await page.$('#data-assets-cover-file-upload-AjaxInput, input[type="file"][accept*="pdf"], input[type="file"][accept*="jpeg"], input[type="file"][accept*="jpg"]');
+      if (coverFeld && coverDatei && fs.existsSync(coverDatei)) {
+        await coverFeld.uploadFile(coverDatei).catch(() => {});
         report({ stage: 'content', progress: 0.80, message: 'Cover übergeben, warte auf Verarbeitung …' });
-        const b = await warteAufUploadFertig(page, job.coverPath, 180000, (t) =>
+        const b = await warteAufUploadFertig(page, coverDatei, 180000, (t) =>
           report({ stage: 'content', progress: 0.82, message: 'Cover: ' + t }));
         (b.ok ? gefuellt : probleme).push('Cover: ' + b.hinweis);
       } else if (job.coverPath) {
