@@ -20,6 +20,24 @@ enum KDPUploadService {
         }
     }
 
+    /// Schlüssel für das in den Einstellungen hinterlegte Sicht-Modell.
+    static let visionModelDefaultsKey = "novelforge.visionModel"
+
+    /// Zugangsdaten für die Sicht-Kontrolle des Sidecars.
+    /// Nur der lokale Ollama wird verwendet: ein Bildschirmfoto der KDP-Seite soll das
+    /// Gerät nicht verlassen.
+    private static func visionConfig() -> [String: Any]? {
+        let modell = (UserDefaults.standard.string(forKey: visionModelDefaultsKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !modell.isEmpty else { return nil }
+        return [
+            "baseUrl": AIProvider.ollamaLocal.defaultBaseURL ?? "http://localhost:11434",
+            "model": modell,
+            "visionModel": modell,
+            "apiKey": "",
+        ]
+    }
+
     // MARK: - Pfade
 
     private static var appSupport: URL {
@@ -201,11 +219,18 @@ enum KDPUploadService {
             "aiDisclosure": aiDisclosure,
             "priceEUR": priceEUR,
             "epubPath": epub.path,
-            "coverPath": cover?.path ?? "",
+            "coverPath": coverURL?.path ?? "",
         ]
+        // SICHT-KONTROLLE: Ohne dieses Feld übersprang der Sidecar seine Bildprüfung
+        // still – der Code dafür war vorhanden, lief aber nie. Ein multimodales Modell
+        // sieht damit nach, was wirklich im KDP-Formular steht. Ist keines hinterlegt,
+        // bleibt die Prüfung bewusst aus und der Upload verlässt sich allein auf das
+        // Zurücklesen aus dem Formular.
+        var vollstaendigerJob = job
+        if let sicht = visionConfig() { vollstaendigerJob["ai"] = sicht }
         let jobURL = appSupport.appendingPathComponent("kdp_job_\(project.id.uuidString).json")
         let statusURL = appSupport.appendingPathComponent("kdp_status_\(project.id.uuidString).json")
-        try JSONSerialization.data(withJSONObject: job, options: .prettyPrinted).write(to: jobURL)
+        try JSONSerialization.data(withJSONObject: vollstaendigerJob, options: .prettyPrinted).write(to: jobURL)
 
         var args = ["upload", "--job", jobURL.path, "--status", statusURL.path,
                     "--profile", chromeProfile.path]

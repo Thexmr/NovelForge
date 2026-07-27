@@ -84,6 +84,7 @@ struct GeneralSettingsView: View {
     @AppStorage("defaultAuthorBio") private var defaultAuthorBio = DefaultBookSettings.authorBio
     @AppStorage("kdpCoverStudioPath") private var kdpCoverStudioPath = "/Users/dave/AMZ KDP KI"
     @AppStorage("novelforge.writingModel") private var writingModel = ""
+    @AppStorage(KDPUploadService.visionModelDefaultsKey) private var visionModel = ""
 
     var body: some View {
         Form {
@@ -124,6 +125,17 @@ struct GeneralSettingsView: View {
                         Text($0).tag($0)
                     }
                 }
+            }
+
+            Section("Sicht-Kontrolle beim KDP-Upload") {
+                TextField("Sicht-Modell (leer = aus)", text: $visionModel)
+                Text("Ein multimodales Modell im lokalen Ollama (z. B. qwen3-vl) sieht während "
+                     + "des Uploads nach, was wirklich im KDP-Formular steht, und meldet sichtbare "
+                     + "Fehlerhinweise. Maßgeblich bleibt immer das Zurücklesen aus dem Formular – "
+                     + "Bildmodelle antworten erfahrungsgemäß zu optimistisch. Das Bildschirmfoto "
+                     + "verlässt das Gerät nicht.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Schreibqualität · Autoren-Modell (Prosa)") {
