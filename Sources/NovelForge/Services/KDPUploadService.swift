@@ -145,6 +145,51 @@ enum KDPUploadService {
             cover = CoverArtService.coverURL(for: project)
         }
 
+        // Unveränderliche Kopie: `cover` ist eine var, und ein var-Zugriff in einer
+        // nebenläufigen Closure ist im Swift-6-Modus ein Fehler.
+        let coverURL = cover
+
+        // DRUCKCOVER: Vorderseite + Buchrücken + Rückseite mit Verkaufstext.
+        // Kein Abbruchgrund – das eBook erscheint auch ohne Taschenbuch-Fassung.
+        let druckcover = await MainActor.run { () -> (URL, PrintCoverService.Dimensions)? in
+            guard let cover = coverURL else { return nil }
+            let woerter = (project.chapters ?? []).reduce(0) {
+                $0 + ($1.finalText ?? $1.revisedText ?? $1.draftText ?? "")
+                    .split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
+            }
+            let seiten = PrintCoverService.estimatePages(words: woerter)
+            let jpeg = cover.deletingLastPathComponent().appendingPathComponent("druckcover.jpg")
+            let pdf = cover.deletingLastPathComponent().appendingPathComponent("druckcover.pdf")
+            let blatt = KDPSalesSheet.make(for: project)
+            let texte = PrintCoverService.Texts(
+                title: blatt.title.isEmpty ? project.title : blatt.title,
+                author: project.authorName,
+                hook: blatt.hook,
+                blurb: blatt.salesDescription)
+            guard let r = try? PrintCoverService.makeWrap(artworkURL: cover, pages: seiten,
+                                                          texts: texte, jpegURL: jpeg, pdfURL: pdf)
+            else { return nil }
+            return (r.jpegURL, r.dimensions)
+        }
+        if let druckcover {
+            progress("Druckcover erzeugt: \(druckcover.1.summary)")
+        }
+
+        // SELBSTBEWEIS vor dem Upload. Das Programm misst sein eigenes Ergebnis –
+        // Umfang, EPUB-Struktur, Cover-Maße, Keyword-Deckung, Verkaufstext. Fällt eine
+        // Pflichtprüfung durch, wird NICHT hochgeladen: ein fehlerhaftes Buch im echten
+        // KDP-Konto kostet mehr Zeit, als der Abbruch hier spart.
+        progress("Prüfe das eigene Ergebnis …")
+        let nachweis = await MainActor.run {
+            ProofService.prove(project: project, epubURL: epub, coverURL: coverURL,
+                               wrapURL: druckcover?.0, wrapDimensions: druckcover?.1)
+        }
+        guard nachweis.passed else {
+            let offen = nachweis.openRequired.map { "\($0.name) (\($0.evidence))" }.joined(separator: "; ")
+            throw SidecarError.failed("Selbstprüfung nicht bestanden – deshalb kein Upload. Offen: \(offen)")
+        }
+        progress("Selbstprüfung bestanden: \(nachweis.allChecks.count) Einzelnachweise.")
+
         let sheet = KDPSalesSheet.make(for: project)
         let job: [String: Any] = [
             "title": sheet.title.isEmpty ? project.title : sheet.title,

@@ -184,6 +184,13 @@
     "swift-dependencies": "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/PipelineOrchestrator.swiftdeps",
     "diagnostics": "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/PipelineOrchestrator.dia"
   },
+  "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/PrintCoverService.swift": {
+    "dependencies": "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/PrintCoverService.d",
+    "object": "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/PrintCoverService.swift.o",
+    "swiftmodule": "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/PrintCoverService~partial.swiftmodule",
+    "swift-dependencies": "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/PrintCoverService.swiftdeps",
+    "diagnostics": "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/PrintCoverService.dia"
+  },
   "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProductionIncidentStore.swift": {
     "dependencies": "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProductionIncidentStore.d",
     "object": "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProductionIncidentStore.swift.o",
@@ -211,6 +218,13 @@
     "swiftmodule": "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProductionStabilityPolicy~partial.swiftmodule",
     "swift-dependencies": "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProductionStabilityPolicy.swiftdeps",
     "diagnostics": "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProductionStabilityPolicy.dia"
+  },
+  "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProofService.swift": {
+    "dependencies": "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProofService.d",
+    "object": "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProofService.swift.o",
+    "swiftmodule": "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProofService~partial.swiftmodule",
+    "swift-dependencies": "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProofService.swiftdeps",
+    "diagnostics": "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProofService.dia"
   },
   "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProviderGateway.swift": {
     "dependencies": "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProviderGateway.d",

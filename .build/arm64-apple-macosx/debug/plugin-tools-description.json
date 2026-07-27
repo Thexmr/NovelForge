@@ -132,6 +132,10 @@
         },
         {
           "kind" : "file",
+          "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/PrintCoverService.swift"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProductionIncidentStore.swift"
         },
         {
@@ -145,6 +149,10 @@
         {
           "kind" : "file",
           "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProductionStabilityPolicy.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProofService.swift"
         },
         {
           "kind" : "file",
@@ -261,10 +269,12 @@
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/NonfictionResearchService.swift.o",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/OllamaCloudModelCatalog.swift.o",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/PipelineOrchestrator.swift.o",
+        "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/PrintCoverService.swift.o",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProductionIncidentStore.swift.o",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProductionRecoveryService.swift.o",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProductionSleepManager.swift.o",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProductionStabilityPolicy.swift.o",
+        "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProofService.swift.o",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProviderGateway.swift.o",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProviderStore.swift.o",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/PublicContentGuard.swift.o",
@@ -436,6 +446,10 @@
         },
         {
           "kind" : "file",
+          "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/PrintCoverService.swift.o"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProductionIncidentStore.swift.o"
         },
         {
@@ -449,6 +463,10 @@
         {
           "kind" : "file",
           "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProductionStabilityPolicy.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProofService.swift.o"
         },
         {
           "kind" : "file",
@@ -559,10 +577,12 @@
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/NonfictionResearchService.swift",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/OllamaCloudModelCatalog.swift",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/PipelineOrchestrator.swift",
+        "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/PrintCoverService.swift",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProductionIncidentStore.swift",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProductionRecoveryService.swift",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProductionSleepManager.swift",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProductionStabilityPolicy.swift",
+        "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProofService.swift",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProviderGateway.swift",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProviderStore.swift",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/PublicContentGuard.swift",
@@ -702,6 +722,10 @@
         },
         {
           "kind" : "file",
+          "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Tests/NovelForgeTests/PrintCoverTests.swift"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Tests/NovelForgeTests/QualityScoreTests.swift"
         },
         {
@@ -730,6 +754,7 @@
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForgeTests.build/LogicTests.swift.o",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForgeTests.build/NonfictionModeTests.swift.o",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForgeTests.build/ParserTests.swift.o",
+        "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForgeTests.build/PrintCoverTests.swift.o",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForgeTests.build/QualityScoreTests.swift.o",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForgeTests.build/UnlimitedProductionTests.swift.o"
       ],
@@ -799,6 +824,10 @@
         },
         {
           "kind" : "file",
+          "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForgeTests.build/PrintCoverTests.swift.o"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForgeTests.build/QualityScoreTests.swift.o"
         },
         {
@@ -817,6 +846,7 @@
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Tests/NovelForgeTests/LogicTests.swift",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Tests/NovelForgeTests/NonfictionModeTests.swift",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Tests/NovelForgeTests/ParserTests.swift",
+        "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Tests/NovelForgeTests/PrintCoverTests.swift",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Tests/NovelForgeTests/QualityScoreTests.swift",
         "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Tests/NovelForgeTests/UnlimitedProductionTests.swift"
       ],
@@ -861,10 +891,12 @@
       "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/NonfictionResearchService.swift",
       "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/OllamaCloudModelCatalog.swift",
       "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/PipelineOrchestrator.swift",
+      "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/PrintCoverService.swift",
       "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProductionIncidentStore.swift",
       "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProductionRecoveryService.swift",
       "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProductionSleepManager.swift",
       "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProductionStabilityPolicy.swift",
+      "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProofService.swift",
       "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProviderGateway.swift",
       "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProviderStore.swift",
       "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/PublicContentGuard.swift",
@@ -996,6 +1028,7 @@
       "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Tests/NovelForgeTests/LogicTests.swift",
       "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Tests/NovelForgeTests/NonfictionModeTests.swift",
       "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Tests/NovelForgeTests/ParserTests.swift",
+      "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Tests/NovelForgeTests/PrintCoverTests.swift",
       "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Tests/NovelForgeTests/QualityScoreTests.swift",
       "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Tests/NovelForgeTests/UnlimitedProductionTests.swift",
       "-I",
@@ -1205,6 +1238,10 @@
         },
         {
           "kind" : "file",
+          "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/PrintCoverService.swift"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProductionIncidentStore.swift"
         },
         {
@@ -1218,6 +1255,10 @@
         {
           "kind" : "file",
           "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProductionStabilityPolicy.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProofService.swift"
         },
         {
           "kind" : "file",
@@ -1439,6 +1480,10 @@
         },
         {
           "kind" : "file",
+          "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/PrintCoverService.swift.o"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProductionIncidentStore.swift.o"
         },
         {
@@ -1456,6 +1501,10 @@
         {
           "kind" : "file",
           "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Project.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProofService.swift.o"
         },
         {
           "kind" : "file",
@@ -1659,6 +1708,10 @@
         },
         {
           "kind" : "file",
+          "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/PrintCoverService.swift.o"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProductionIncidentStore.swift.o"
         },
         {
@@ -1676,6 +1729,10 @@
         {
           "kind" : "file",
           "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/Project.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForge.build/ProofService.swift.o"
         },
         {
           "kind" : "file",
@@ -1747,6 +1804,10 @@
         },
         {
           "kind" : "file",
+          "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForgeTests.build/PrintCoverTests.swift.o"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/.build/arm64-apple-macosx/debug/NovelForgeTests.build/QualityScoreTests.swift.o"
         },
         {
@@ -1782,6 +1843,10 @@
         {
           "kind" : "file",
           "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Tests/NovelForgeTests/ParserTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/dave/LEBENSLAUF/nf-work/NovelForge/Tests/NovelForgeTests/PrintCoverTests.swift"
         },
         {
           "kind" : "file",

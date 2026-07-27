@@ -24,10 +24,12 @@
 /Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/NonfictionResearchService.swift
 /Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/OllamaCloudModelCatalog.swift
 /Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/PipelineOrchestrator.swift
+/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/PrintCoverService.swift
 /Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProductionIncidentStore.swift
 /Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProductionRecoveryService.swift
 /Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProductionSleepManager.swift
 /Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProductionStabilityPolicy.swift
+/Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProofService.swift
 /Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProviderGateway.swift
 /Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/ProviderStore.swift
 /Users/dave/LEBENSLAUF/nf-work/NovelForge/Sources/NovelForge/Services/PublicContentGuard.swift
