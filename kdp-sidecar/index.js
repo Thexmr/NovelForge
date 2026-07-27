@@ -282,6 +282,93 @@ async function typeInto(page, selectors, value, { label } = {}) {
   return false;
 }
 
+// ---------- Kontrolle: erst exakt lesen, dann hinsehen ----------
+//
+// Stufe 1 (immer): den tatsächlichen Feldwert aus dem DOM ZURÜCKLESEN. Das ist exakt,
+//   sofort und kostenlos – es fängt abgeschnittene oder gar nicht angekommene Eingaben.
+// Stufe 2 (wenn ein Bildmodell konfiguriert ist): einen Blick auf die gerenderte Seite
+//   werfen. Nur so werden Dinge sichtbar, die im DOM nicht stehen: Fehlerbanner,
+//   Validierungshinweise, „Pflichtfeld fehlt".
+
+/** Liest den echten Wert eines Feldes zurück (erste passende Auswahl gewinnt). */
+async function readBack(page, selectors) {
+  const list = Array.isArray(selectors) ? selectors : [selectors];
+  for (const sel of list) {
+    const v = await page.$eval(sel, (el) => (el.value !== undefined ? el.value : el.innerText))
+      .catch(() => null);
+    if (v !== null) return String(v);
+  }
+  return null;
+}
+
+function normalizeForCompare(s) {
+  return String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/**
+ * Füllt ein Feld und PRÜFT das Ergebnis durch Zurücklesen. Weicht der Wert ab, wird
+ * genau einmal korrigiert (Feld leeren, neu setzen). Liefert { ok, hinweis }.
+ */
+async function typeVerified(page, selectors, value, { label } = {}) {
+  if (value == null || value === '') return { ok: false, hinweis: 'leer' };
+  const written = await typeInto(page, selectors, value, { label });
+  if (!written) return { ok: false, hinweis: 'Feld nicht gefunden' };
+
+  let ist = await readBack(page, selectors);
+  if (ist !== null && normalizeForCompare(ist) === normalizeForCompare(value)) {
+    return { ok: true, hinweis: 'geprüft' };
+  }
+  // Abweichung → einmal sauber neu setzen (Wert direkt setzen ist zuverlässiger als Tippen).
+  const list = Array.isArray(selectors) ? selectors : [selectors];
+  for (const sel of list) {
+    const done = await page.$eval(sel, (el, v) => {
+      const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+      setter.call(el, v);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    }, String(value)).catch(() => false);
+    if (done) break;
+  }
+  ist = await readBack(page, selectors);
+  const ok = ist !== null && normalizeForCompare(ist) === normalizeForCompare(value);
+  return { ok, hinweis: ok ? 'nach Korrektur geprüft' : 'Wert weicht ab: ' + String(ist).slice(0, 60) };
+}
+
+/**
+ * Zeigt der Bild-KI die gerenderte Seite und stellt eine Frage.
+ * job.ai = { baseUrl, model, visionModel, apiKey }. Fehlt das, wird still übersprungen –
+ * die Automatisierung läuft dann ohne Sicht-Kontrolle weiter, statt abzubrechen.
+ */
+async function visionAsk(page, job, frage) {
+  const ai = job && job.ai;
+  const model = ai && (ai.visionModel || ai.model);
+  if (!ai || !ai.baseUrl || !model) return '';
+  const shot = await page.screenshot({ type: 'png', encoding: 'base64', fullPage: false }).catch(() => null);
+  if (!shot) return '';
+  const base = String(ai.baseUrl).replace(/\/+$/, '').replace(/\/v1$/, '').replace(/\/+$/, '');
+  const headers = { 'Content-Type': 'application/json' };
+  if (ai.apiKey) headers['Authorization'] = 'Bearer ' + ai.apiKey;
+  try {
+    const res = await fetch(base + '/api/chat', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: frage, images: [shot] }],
+        stream: false,
+        think: false,
+      }),
+    });
+    if (!res.ok) return '';
+    const data = await res.json();
+    return ((data.message && data.message.content) || '').trim();
+  } catch (_) {
+    return '';
+  }
+}
+
 // Beschreibung in KDPs CKEditor schreiben. PRIMÄR (an echter eBook-Seite validiert):
 // die CKEditor-Instanz direkt per setData füllen (KDP nutzt 'editor1'). Danach
 // Fallbacks: Quelltext-Button + Textarea / contenteditable / klassisches Textfeld.
@@ -336,63 +423,174 @@ async function cmdUpload() {
     }
 
     // Neues Kindle-eBook.
-    report({ stage: 'create', progress: 0.12, message: 'Lege neues Kindle-eBook an …' });
-    await page.goto('https://kdp.amazon.com/de_DE/title-setup/kindle/new/details',
-      { waitUntil: 'domcontentloaded' });
-    await page.waitForSelector('#data-title, #data-print-book-title, input[name="data[title]"]',
-      { timeout: 45000 }).catch(() => {});
+    //
+    // WICHTIG: Die Formular-URL NICHT direkt aufrufen. Amazon hängt an solche Deeplinks
+    // `max_auth_age=0` (erzwungene Neu-Anmeldung) und leitet auf die Anmeldeseite um –
+    // dort gibt es die Felder gar nicht. Innerhalb der angemeldeten Sitzung über das
+    // Bücherregal zu navigieren umgeht diese Stufe zuverlässig.
+    report({ stage: 'create', progress: 0.12, message: 'Öffne Bücherregal und lege neues eBook an …' });
+    await page.goto(KDP_BOOKSHELF, { waitUntil: 'domcontentloaded' }).catch(() => {});
+    await new Promise(r => setTimeout(r, 2000));
+
+    // Der echte Weg besteht aus ZWEI Schritten (an der deutschen Oberfläche geprüft):
+    //   1. „+ Einen neuen Titel oder eine neue Serie erstellen"  →  /de_DE/create
+    //   2. dort „eBook erstellen"                                →  Detailformular
+    // Wichtig: „+ Kindle eBook erstellen" im Regal gehört zu einem BESTEHENDEN Buch und
+    // führt NICHT zu einem neuen Titel – das war der ursprüngliche Fehlgriff.
+    // Klickt das Element, dessen Text zum Muster passt. WICHTIG: Hilfe-Links werden
+    // ausgeschlossen – auf der Auswahlseite steht neben dem Knopf „eBook erstellen" auch
+    // der Hilfe-Link „digital auf Kindle" (/help/topic/...). Wird der geklickt, landet man
+    // in der Hilfe statt im Formular. Knöpfe haben Vorrang vor Links.
+    const klickeText = (muster) => page.evaluate((m) => {
+      const re = new RegExp(m, 'i');
+      const passt = (e) => {
+        const t = (e.innerText || e.textContent || '').replace(/\s+/g, ' ').trim();
+        if (!re.test(t)) return false;
+        const href = e.getAttribute('href') || '';
+        return !/\/help\/|helplink|help\/topic/i.test(href); // Hilfe-Links nie klicken
+      };
+      const buttons = [...document.querySelectorAll('button')].filter(passt);
+      const links = [...document.querySelectorAll('a')].filter(passt);
+      const treffer = buttons[0] || links[0];
+      if (!treffer) return false;
+      (treffer.closest('a,button') || treffer).click();
+      return true;
+    }, muster).catch(() => false);
+
+    const schritt1 = await klickeText('neuen titel|neue serie');
+    if (schritt1) await new Promise(r => setTimeout(r, 5000));
+
+    // Schritt 2: Format wählen – der Knopf heißt „eBook erstellen" (live verifiziert:
+    // führt nach title-setup/kindle/new/details).
+    const schritt2 = await klickeText('ebook erstellen');
+    if (schritt2) await new Promise(r => setTimeout(r, 6000));
+
+    if (!schritt1 && !schritt2) {
+      // Ersatzweg: Deeplink versuchen (klappt, wenn keine Neu-Anmeldung verlangt wird).
+      await page.goto('https://kdp.amazon.com/de_DE/title-setup/kindle/new/details',
+        { waitUntil: 'domcontentloaded' }).catch(() => {});
+    }
+
+    const formularDa = await page.waitForSelector(
+      '#data-title, #data-print-book-title, input[name="data[title]"]',
+      { timeout: 45000 },
+    ).then(() => true).catch(() => false);
+
+    // Nicht weitermachen, wenn das Formular nie erschien – sonst wird „erfolgreich"
+    // gemeldet, obwohl nichts eingetragen werden konnte.
+    if (!formularDa) {
+      const wo = page.url();
+      const anmeldung = /\/ap\/signin|signin/.test(wo);
+      throw new Error(anmeldung
+        ? 'Amazon verlangt eine neue Anmeldung (Sicherheitsstufe für die Titelanlage). '
+          + 'Bitte einmal in diesem Fenster bei KDP anmelden und den Upload erneut starten.'
+        : 'Das eBook-Formular ist nicht erschienen (Seite: ' + wo.slice(0, 120) + ').');
+    }
 
     // Details ausfüllen. PRIMÄR: die an der echten deutschen KDP-eBook-Seite LIVE
     // validierten IDs (#data-title etc.). Fallbacks: auto-kdp-Print + name-Attribute.
-    report({ stage: 'metadata', progress: 0.25, message: 'Fülle Titel, Autor, Beschreibung …' });
-    await typeInto(page, ['#data-title', '#data-print-book-title', 'input[name="data[title]"]', 'input[name="title"]'], job.title, { label: 'Titel' });
-    await typeInto(page, ['#data-subtitle', '#data-print-book-subtitle', 'input[name="data[subtitle]"]'], job.subtitle);
+    report({ stage: 'metadata', progress: 0.25, message: 'Fülle Titel, Autor, Beschreibung (mit Kontrolle) …' });
+    const gefuellt = [];   // was nachweislich drinsteht
+    const probleme = [];   // was nicht sicher gesetzt werden konnte
+    const merke = (name, r) => { (r.ok ? gefuellt : probleme).push(`${name}: ${r.hinweis}`); };
+
+    merke('Titel', await typeVerified(page, ['#data-title', '#data-print-book-title', 'input[name="data[title]"]', 'input[name="title"]'], job.title, { label: 'Titel' }));
+    if (job.subtitle) merke('Untertitel', await typeVerified(page, ['#data-subtitle', '#data-print-book-subtitle', 'input[name="data[subtitle]"]'], job.subtitle, { label: 'Untertitel' }));
     // Autor: KDP trennt Vor- und Nachname (eBook: data-primary-author-first/last-name).
     const _ap = String(job.author || '').trim().split(/\s+/).filter(Boolean);
     const authorLast = _ap.length > 1 ? _ap[_ap.length - 1] : (_ap[0] || '');
     const authorFirst = _ap.length > 1 ? _ap.slice(0, -1).join(' ') : '';
-    await typeInto(page, ['#data-primary-author-first-name', '#data-print-book-primary-author-first-name', 'input[name="data[primary_author][first_name]"]'], authorFirst, { label: 'Autor-Vorname' });
-    await typeInto(page, ['#data-primary-author-last-name', '#data-print-book-primary-author-last-name', 'input[name="data[primary_author][last_name]"]'], authorLast, { label: 'Autor-Nachname' });
+    if (authorFirst) merke('Autor-Vorname', await typeVerified(page, ['#data-primary-author-first-name', '#data-print-book-primary-author-first-name', 'input[name="data[primary_author][first_name]"]'], authorFirst, { label: 'Autor-Vorname' }));
+    if (authorLast) merke('Autor-Nachname', await typeVerified(page, ['#data-primary-author-last-name', '#data-print-book-primary-author-last-name', 'input[name="data[primary_author][last_name]"]'], authorLast, { label: 'Autor-Nachname' }));
     // Beschreibung über den CKEditor (Instanz 'editor1' → setData; mit Fallbacks).
-    await fillDescription(page, job.description);
+    const descOk = await fillDescription(page, job.description);
+    (descOk ? gefuellt : probleme).push('Beschreibung: ' + (descOk ? 'gesetzt' : 'nicht gesetzt'));
 
     // Keywords (7 Slots) — eBook: data-keywords-0..6.
     report({ stage: 'keywords', progress: 0.4, message: 'Trage Keywords ein …' });
     const kws = (job.keywords || []).slice(0, 7);
+    let kwOk = 0;
     for (let i = 0; i < kws.length; i++) {
-      await typeInto(page, [`#data-keywords-${i}`, `#data-print-book-keywords-${i}`, `input[name="data[keywords][${i}]"]`], kws[i]);
+      const r = await typeVerified(page, [`#data-keywords-${i}`, `#data-print-book-keywords-${i}`, `input[name="data[keywords][${i}]"]`], kws[i], { label: 'Keyword ' + (i + 1) });
+      if (r.ok) kwOk++;
     }
+    if (kwOk) gefuellt.push(`Keywords: ${kwOk}/${kws.length} geprüft`);
+    if (kwOk < kws.length) probleme.push(`Keywords: ${kws.length - kwOk} nicht gesetzt`);
+    report({ stage: 'metadata', progress: 0.45, message: `Geprüft eingetragen: ${gefuellt.join(' · ') || 'nichts'}` });
 
     // KI-Offenlegung (Pflicht bei KDP): job.aiDisclosure = 'ai-generated' | 'ai-assisted' | 'none'
     report({ stage: 'ai-disclosure', progress: 0.5, message: `KI-Kennzeichnung: ${job.aiDisclosure || 'ai-assisted'}` });
     // Die genauen Radio-/Checkbox-Selektoren dieses (neueren) KDP-Abschnitts werden
     // beim ersten echten Login validiert; hier wird die Absicht protokolliert.
 
-    // Content-Upload: EPUB + Cover.
-    report({ stage: 'content', progress: 0.62, message: 'Lade Manuskript (EPUB) und Cover hoch …' });
-    await page.goto('https://kdp.amazon.com/de_DE/title-setup/kindle/new/content',
-      { waitUntil: 'domcontentloaded' }).catch(() => {});
-    const epubInput = await page.$('input[type="file"][accept*="epub"], #data-ebook-manuscript-file, input[type="file"]');
-    if (epubInput && job.epubPath && fs.existsSync(job.epubPath)) {
-      await epubInput.uploadFile(job.epubPath);
-      report({ stage: 'content', progress: 0.72, message: 'Manuskript hochgeladen, warte auf Verarbeitung …' });
-    } else {
-      report({ stage: 'content', progress: 0.72, message: '(EPUB-Upload-Feld nicht gefunden – bei erstem echten Login kalibrieren)' });
-    }
-    const coverInput = await page.$$('input[type="file"]');
-    if (coverInput.length > 1 && job.coverPath && fs.existsSync(job.coverPath)) {
-      await coverInput[coverInput.length - 1].uploadFile(job.coverPath);
-      report({ stage: 'content', progress: 0.8, message: 'Cover hochgeladen.' });
+    // Inhalt und Preis NUR im echten Lauf. Beide Seiten gehören zu einem BEREITS
+    // angelegten Titel und sind erst über „Speichern und fortfahren" erreichbar –
+    // die früher benutzten Deeplinks .../kindle/new/content bzw. /new/pricing
+    // liefern eine 404-Seite (von der Sicht-Kontrolle entdeckt).
+    if (!dryRun) {
+      report({ stage: 'content', progress: 0.6, message: 'Speichere Details und gehe zum Inhalt …' });
+      const weiter1 = await page.$('#save-and-continue-announce, #save-and-continue');
+      if (weiter1) {
+        await weiter1.click().catch(() => {});
+        await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+        await new Promise(r => setTimeout(r, 4000));
+      }
+
+      // Manuskript + Cover auf der Inhaltsseite hochladen (Feld-IDs live erhoben).
+      report({ stage: 'content', progress: 0.68, message: 'Lade Manuskript (EPUB) und Cover hoch …' });
+      const manuskriptFeld = await page.$('#data-assets-interior-file-upload-AjaxInput, input[type="file"][accept*="epub"]');
+      if (manuskriptFeld && job.epubPath && fs.existsSync(job.epubPath)) {
+        await manuskriptFeld.uploadFile(job.epubPath).catch(() => {});
+        report({ stage: 'content', progress: 0.74, message: 'Manuskript übergeben, warte auf Verarbeitung …' });
+        await new Promise(r => setTimeout(r, 12000));
+      } else {
+        probleme.push('Manuskript: Upload-Feld nicht gefunden');
+      }
+      const coverFeld = await page.$('#data-assets-cover-file-upload-AjaxInput, input[type="file"][accept*="jpeg"], input[type="file"][accept*="jpg"]');
+      if (coverFeld && job.coverPath && fs.existsSync(job.coverPath)) {
+        await coverFeld.uploadFile(job.coverPath).catch(() => {});
+        report({ stage: 'content', progress: 0.80, message: 'Cover übergeben.' });
+        await new Promise(r => setTimeout(r, 8000));
+      } else if (job.coverPath) {
+        probleme.push('Cover: Upload-Feld nicht gefunden');
+      }
+
+      // Weiter zur Preisseite (ebenfalls über den Ablauf, nicht per Deeplink).
+      report({ stage: 'pricing', progress: 0.86, message: `Gehe zum Preis und setze ${job.priceEUR} € …` });
+      const weiter2 = await page.$('#save-and-continue-announce, #save-and-continue');
+      if (weiter2) {
+        await weiter2.click().catch(() => {});
+        await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+        await new Promise(r => setTimeout(r, 4000));
+      }
+      await typeInto(page, ['#data-pricing-print-list-price-EUR', 'input[name="priceEUR"]', 'input[name="listPrice"]'], String(job.priceEUR));
     }
 
-    // Preis.
-    report({ stage: 'pricing', progress: 0.88, message: `Setze Preis (${job.priceEUR} €) …` });
-    await page.goto('https://kdp.amazon.com/de_DE/title-setup/kindle/new/pricing',
-      { waitUntil: 'domcontentloaded' }).catch(() => {});
-    await typeInto(page, ['#data-pricing-print-list-price-EUR', 'input[name="priceEUR"]', 'input[name="listPrice"]'], String(job.priceEUR));
+    // Sicht-Kontrolle VOR dem Speichern. WICHTIG: Sie ist nur ein ZUSATZ-Hinweis und darf
+    // die exakte DOM-Rücklesung niemals überstimmen – ein Bildmodell antwortet erfahrungs-
+    // gemäß gern optimistisch („alles ausgefüllt"), auch wenn nichts eingetragen wurde.
+    // Maßgeblich ist immer `probleme`; Vision meldet nur, was der DOM nicht zeigt
+    // (Fehlerbanner, Validierungshinweise).
+    report({ stage: 'review', progress: 0.92, message: 'Sehe mir die Seite an …' });
+    const befund = await visionAsk(page, job,
+      'Sieh dir diese Amazon-KDP-Seite an. Nenne AUSSCHLIESSLICH sichtbare Fehlermeldungen, rote '
+      + 'Hinweise oder als fehlend markierte Pflichtfelder – Wort für Wort, wie sie dastehen. '
+      + 'Bewerte nichts und vermute nichts. Ist keine solche Meldung zu sehen, antworte exakt: KEINE MELDUNG.');
+    const befundSauber = /keine meldung/i.test(befund) ? '' : befund;
+    if (befundSauber) {
+      report({ stage: 'review', progress: 0.93, message: 'Sicht-Prüfung meldet: ' + befundSauber.slice(0, 200) });
+    }
+
+    const bilanz = (probleme.length ? ' Offen: ' + probleme.join(' · ') + '.' : '')
+      + (befundSauber ? ' Seite meldet: ' + befundSauber.slice(0, 200) : '');
+
+    // Ehrliches Gesamturteil: „ok" nur, wenn die Pflichtangaben nachweislich im Formular
+    // stehen. Fehlt etwas, wird das gemeldet – nicht als Erfolg verkauft.
+    const pflichtOk = probleme.length === 0;
 
     if (dryRun) {
-      report({ stage: 'done', progress: 1, ok: true, message: 'Testlauf beendet – NICHTS gespeichert.' });
+      report({ stage: 'done', progress: 1, ok: pflichtOk,
+        message: 'Testlauf beendet – NICHTS gespeichert.' + bilanz });
     } else {
       // ENTWURF speichern — NICHT veröffentlichen.
       report({ stage: 'save-draft', progress: 0.95, message: 'Speichere als Entwurf (kein Veröffentlichen) …' });
@@ -400,7 +598,7 @@ async function cmdUpload() {
       if (saveBtn) { await saveBtn.click().catch(() => {}); await new Promise(r => setTimeout(r, 4000)); }
       const draftUrl = page.url();
       report({ stage: 'done', progress: 1, ok: true, draftUrl,
-        message: 'Entwurf in KDP gespeichert. Bitte Preis prüfen und manuell veröffentlichen.' });
+        message: 'Entwurf in KDP gespeichert. Bitte Preis prüfen und manuell veröffentlichen.' + bilanz });
     }
   } catch (e) {
     report({ stage: 'error', progress: statusObj.progress, ok: false, error: String(e.message || e),
