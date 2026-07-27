@@ -323,7 +323,16 @@ enum ProofService {
 
         let keywords = (profile?.kdpKeywords ?? "")
             .components(separatedBy: ",").map { $0.trimmingCharacters(in: CharacterSet.whitespaces) }.filter { !$0.isEmpty }
-        checks.append(Check("7 Suchphrasen", keywords.count == 7, "\(keywords.count) Phrasen"))
+        // KDP erlaubt BIS ZU 7 Suchphrasen – 7 ist keine Pflicht. Sechs Phrasen, die das
+        // Buch wirklich trifft, sind besser als sieben mit einer erfundenen dabei. Deshalb
+        // ist die Untergrenze 5 verbindlich; ungenutzte Plätze werden nur genannt.
+        checks.append(Check("Mindestens 5 Suchphrasen", keywords.count >= 5,
+                            "\(keywords.count) von 7 möglichen Plätzen belegt"))
+        if keywords.count < 7 {
+            checks.append(Check("Alle 7 Suchplätze genutzt", false,
+                                "\(7 - keywords.count) Platz/Plätze frei – jeder ungenutzte Platz "
+                                + "ist eine Suche weniger", required: false))
+        }
 
         let banned = ["kostenlos", "gratis", "bestseller", "kindle", "ebook", "amazon", "taschenbuch"]
         let badKeywords = keywords.filter { k in
