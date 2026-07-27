@@ -23,6 +23,9 @@ struct BookExportSnapshot: Sendable {
     let kdpDescription: String
     let isNonfiction: Bool
     let bibliography: String
+    /// Pfad zum fertigen Cover – wird ins EPUB eingebettet, damit das Titelbild IM Buch
+    /// steht und nicht nur als eigene Datei danebenliegt.
+    let coverURL: URL?
     let chapters: [Chapter]
 
     var totalWordCount: Int {
@@ -48,6 +51,7 @@ struct BookExportSnapshot: Sendable {
             project.bookProfile?.sourceManifest ?? ""
         )
         bibliography = bundle?.bibliography ?? ""
+        coverURL = CoverArtService.coverURL(for: project)
         var contentChapters: [BookExportSnapshot.Chapter] = (project.chapters ?? [])
             .sorted { $0.chapterNumber < $1.chapterNumber }
             .compactMap { chapter in
@@ -233,6 +237,32 @@ struct ExportEngine {
         // Professionelles eBook-Stylesheet (Verlagskonventionen).
         try epubStylesheet.write(to: oebpsDir.appendingPathComponent("stylesheet.css"), atomically: true, encoding: .utf8)
         manifest += "    <item id=\"css\" href=\"stylesheet.css\" media-type=\"text/css\" />\n"
+
+        // TITELBILD einbetten. Ohne das enthält das EPUB kein Cover – Lese-Apps und die
+        // KDP-Vorschau zeigen dann nur die Textseite, obwohl das Cover als eigene Datei
+        // längst existiert. properties="cover-image" ist die Auszeichnung, an der
+        // Lese-Apps und Shops das Titelbild erkennen.
+        if let coverURL = book.coverURL,
+           let coverDaten = try? Data(contentsOf: coverURL), coverDaten.count > 1024 {
+            let istJPEG = coverDaten.count > 2 && coverDaten[0] == 0xFF && coverDaten[1] == 0xD8
+            let name = istJPEG ? "cover.jpg" : "cover.png"
+            try coverDaten.write(to: oebpsDir.appendingPathComponent(name))
+            manifest += "    <item id=\"coverimg\" href=\"\(name)\" media-type=\""
+                + (istJPEG ? "image/jpeg" : "image/png") + "\" properties=\"cover-image\" />\n"
+
+            let coverSeite = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <html xmlns="http://www.w3.org/1999/xhtml">
+            <head><title>Cover</title>
+            <style>html,body{margin:0;padding:0;height:100%;text-align:center}img{max-width:100%;max-height:100%}</style>
+            </head>
+            <body><img src="\(name)" alt="Cover" /></body>
+            </html>
+            """
+            try coverSeite.write(to: oebpsDir.appendingPathComponent("cover.xhtml"), atomically: true, encoding: .utf8)
+            manifest += "    <item id=\"coverpage\" href=\"cover.xhtml\" media-type=\"application/xhtml+xml\" />\n"
+            spine += "    <itemref idref=\"coverpage\" />\n"
+        }
 
         let titlePage = generateTitlePageHTML(book: book)
         try titlePage.write(to: oebpsDir.appendingPathComponent("titlepage.xhtml"), atomically: true, encoding: .utf8)
