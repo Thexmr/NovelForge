@@ -4797,7 +4797,11 @@ final class PipelineOrchestrator: ObservableObject {
                     system: "Du bist Profi für virale Buchtitel im deutschsprachigen Amazon-KDP-Markt. Antworte nur im geforderten Format.",
                     maxTokens: 600, temperature: 0.85, config: config, creative: true) {
                     let viral = AutonomousContentQuality.chooseViralTitle(from: titleResp.text, genre: project.genre)
-                    if AutonomousContentQuality.isUsableTitle(viral, genre: project.genre) {
+                    // Nur übernehmen, wenn der Titel im geschriebenen Buch VORKOMMT –
+                    // ein erfundener Titel enttäuscht nach dem Klick und kostet Ranking.
+                    let kapitelTexte = sortedChapters(project).map { $0.finalText ?? $0.revisedText ?? $0.draftText ?? "" }
+                    if AutonomousContentQuality.isUsableTitle(viral, genre: project.genre),
+                       AutonomousContentQuality.titleIsCoveredByBook(viral, chapters: kapitelTexte) {
                         profile.kdpTitle = viral
                         // Schwachen/Platzhalter-Buchtitel durch den viralen Titel ersetzen.
                         if AutonomousContentQuality.isWeakTitle(project.title, genre: project.genre) {

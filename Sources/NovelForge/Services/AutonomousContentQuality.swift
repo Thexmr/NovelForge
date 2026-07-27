@@ -443,6 +443,24 @@ enum AutonomousContentQuality {
         s.trimmingCharacters(in: CharacterSet(charactersIn: " \t\"'„“”»«*-–—_.").union(.whitespacesAndNewlines))
     }
 
+    /// Ist der Titel durch das GESCHRIEBENE Buch gedeckt?
+    ///
+    /// Modelle erfinden gern klangvolle Titel mit Begriffen, die im Buch gar nicht
+    /// vorkommen („Der Drachenthron" für einen Krimi). Solche Titel enttäuschen Leser
+    /// nach dem Klick – und enttäuschte Leser sind auf Amazon teurer als ein
+    /// unspektakulärer Titel. Deshalb muss mindestens ein inhaltstragendes Wort des
+    /// Titels wirklich im Manuskript stehen.
+    static func titleIsCoveredByBook(_ title: String, chapters: [String]) -> Bool {
+        let stoppwoerter: Set<String> = ["der", "die", "das", "ein", "eine", "und", "oder",
+                                         "von", "dem", "den", "des", "im", "in", "auf", "mit", "für"]
+        let woerter = title.lowercased()
+            .components(separatedBy: CharacterSet.letters.inverted)
+            .filter { $0.count >= 4 && !stoppwoerter.contains($0) }
+        guard !woerter.isEmpty else { return true }   // reine Funktionswörter: nichts zu prüfen
+        let text = chapters.joined(separator: " ").lowercased()
+        return woerter.contains { text.contains($0) }
+    }
+
     /// Brauchbar als gewählter Titel (Länge ok, kein Platzhalter/Berufsklischee/Genre-Label).
     static func isUsableTitle(_ title: String, genre: String) -> Bool {
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
