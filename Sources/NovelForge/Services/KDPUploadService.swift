@@ -116,11 +116,25 @@ enum KDPUploadService {
                             progress: @escaping (String) -> Void) async throws -> UploadResult {
         guard sidecarReady else { throw SidecarError.depsMissing }
 
-        // EPUB + Cover müssen existieren.
-        guard let epub = latestEPUB(for: project) else {
-            throw SidecarError.failed("Kein EPUB gefunden – bitte zuerst exportieren.")
+        // EPUB + Cover: fehlen sie, werden sie JETZT erzeugt – die Fabrik soll autonom
+        // arbeiten und nicht abbrechen, nur weil vorher niemand exportiert hat.
+        var epubOptional = latestEPUB(for: project)
+        if epubOptional == nil {
+            progress("Kein EPUB vorhanden – exportiere jetzt …")
+            // ExportEngine ist an den Main-Actor gebunden (arbeitet auf SwiftData-Objekten).
+            epubOptional = try? await MainActor.run { try ExportEngine.exportToEPUB(project: project) }
         }
-        let cover = CoverArtService.coverURL(for: project)
+        guard let epub = epubOptional else {
+            throw SidecarError.failed("EPUB konnte nicht erzeugt werden – bitte Buch prüfen.")
+        }
+
+        var cover = CoverArtService.coverURL(for: project)
+        if cover == nil {
+            progress("Kein Cover vorhanden – erzeuge jetzt …")
+            // generateCover liefert ein CoverResult; danach steht die Datei unter coverURL.
+            _ = try? await CoverArtService.generateCover(for: project)
+            cover = CoverArtService.coverURL(for: project)
+        }
 
         let sheet = KDPSalesSheet.make(for: project)
         let job: [String: Any] = [
@@ -141,6 +155,11 @@ enum KDPUploadService {
 
         var args = ["upload", "--job", jobURL.path, "--status", statusURL.path,
                     "--profile", chromeProfile.path]
+        // Die bestehende KDP-Anmeldung aus dem ECHTEN Chrome des Nutzers übernehmen:
+        // der Sidecar kopiert nur die Sitzungsdateien (Cookies), das normale Chrome
+        // bleibt geöffnet und nutzbar. Ohne diese Angabe bräuchte die App eine
+        // zweite, eigene Anmeldung.
+        args.append("--use-my-chrome-copy")
         if dryRun { args.append("--dry-run") }
 
         let code = try await runSidecar(args, onLine: progress)
