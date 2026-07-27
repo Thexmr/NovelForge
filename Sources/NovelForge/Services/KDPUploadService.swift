@@ -184,7 +184,10 @@ enum KDPUploadService {
                 author: project.authorName,
                 hook: blatt.hook,
                 blurb: blatt.salesDescription)
-            guard let r = try? PrintCoverService.makeWrap(artworkURL: cover, pages: seiten,
+            // Rohes Motiv bevorzugen: das fertige eBook-Cover trägt den Titel bereits
+            // eingebrannt, er erschiene auf dem Wrap sonst ein zweites Mal.
+            let motiv = CoverArtService.motifURL(for: project) ?? cover
+            guard let r = try? PrintCoverService.makeWrap(artworkURL: motiv, pages: seiten,
                                                           texts: texte, jpegURL: jpeg, pdfURL: pdf)
             else { return nil }
             return (r.jpegURL, r.dimensions)

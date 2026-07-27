@@ -240,7 +240,20 @@ enum PrintCoverService {
             // Der Verkaufstext darf das Barcode-Feld nicht berühren.
             let untereGrenze = barcodeRect.maxY + 70
             let blurbAttr = attributes(size: 40, weight: .regular, color: NSColor(calibratedWhite: 0.94, alpha: 1), kern: 0, font: .serif)
-            for absatz in texts.blurb.components(separatedBy: "\n").map({ $0.trimmingCharacters(in: .whitespaces) }).filter({ !$0.isEmpty }) {
+            // Der Haken IST der erste Satz des Klappentexts. Stünde er groß oben und
+            // gleich darunter noch einmal als erster Absatz, läse sich die Rückseite
+            // wie ein Fehler.
+            let norm: (String) -> String = {
+                $0.components(separatedBy: .whitespacesAndNewlines)
+                    .filter { !$0.isEmpty }.joined(separator: " ").lowercased()
+            }
+            let hakenNorm = norm(texts.hook)
+            let absaetze = texts.blurb.components(separatedBy: "\n")
+                .map { $0.trimmingCharacters(in: CharacterSet.whitespaces) }.filter { !$0.isEmpty }
+                .enumerated()
+                .filter { !($0.offset == 0 && !hakenNorm.isEmpty && norm($0.element) == hakenNorm) }
+                .map(\.element)
+            for absatz in absaetze {
                 if cursorY <= untereGrenze { break }
                 let box = NSRect(x: backX + safe, y: untereGrenze, width: textWidth, height: cursorY - untereGrenze)
                 let used = drawWrapped(absatz, in: box, topY: cursorY, attributes: blurbAttr)

@@ -73,6 +73,13 @@ enum CoverArtService {
     }
 
     /// Erzeugt das Cover mit dem gewählten Anbieter und speichert es als JPG.
+    /// Pfad des rohen, textfreien Motivs (Grundlage für das Druckcover).
+    static func motifURL(for project: Project) -> URL? {
+        guard let dir = try? ExportEngine.exportDirectory(for: project) else { return nil }
+        let url = dir.appendingPathComponent("cover_motiv.jpg")
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
     static func generateCover(for project: Project,
                               provider: Provider = selectedProvider) async throws -> CoverResult {
         let prompt = buildPrompt(for: project)
@@ -93,6 +100,10 @@ enum CoverArtService {
         let dir = try ExportEngine.exportDirectory(for: project)
         let url = dir.appendingPathComponent("cover_ebook.jpg")
         try jpeg.write(to: url, options: .atomic)
+        // Das ROHE, textfreie Motiv separat sichern. Das Druckcover braucht genau dieses
+        // Bild – nimmt man das fertige eBook-Cover, ist dessen Titel schon eingebrannt und
+        // erscheint auf dem Wrap ein zweites Mal quer über Rück- und Vorderseite.
+        try? rawImage.write(to: dir.appendingPathComponent("cover_motiv.jpg"), options: .atomic)
         return CoverResult(url: url, provider: provider)
     }
 
