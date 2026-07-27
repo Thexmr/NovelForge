@@ -518,8 +518,84 @@ async function cmdUpload() {
     if (kwOk < kws.length) probleme.push(`Keywords: ${kws.length - kwOk} nicht gesetzt`);
     report({ stage: 'metadata', progress: 0.45, message: `Geprüft eingetragen: ${gefuellt.join(' · ') || 'nichts'}` });
 
+    // PFLICHTANGABEN. Ohne sie sperrt KDP die Weiterleitung zur Inhaltsseite – der
+    // Manuskript-/Cover-Upload scheitert dann mit „Feld nicht gefunden", weil man in
+    // Wahrheit noch auf der Detailseite steht (live beobachtet).
+    // Selektoren an der echten deutschen eBook-Seite erhoben:
+    //   Verlagsrechte : input#non-public-domain          (name=data-is-public-domain)
+    //   Alterseinstufung: input[name="data[is_adult_content]-radio"][value="false"]
+    report({ stage: 'required', progress: 0.48, message: 'Setze Pflichtangaben (Rechte, Alterseinstufung) …' });
+    const pflicht = await page.evaluate(() => {
+      const gesetzt = [];
+      const klick = (el, name) => {
+        if (!el) return;
+        if (!el.checked) {
+          el.click();
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        gesetzt.push(name);
+      };
+      klick(document.querySelector('#non-public-domain'), 'Verlagsrechte');
+      klick(document.querySelector('input[name="data[is_adult_content]-radio"][value="false"]'), 'Alterseinstufung');
+      return gesetzt;
+    }).catch(() => []);
+    if (pflicht.length) {
+      report({ stage: 'required', progress: 0.5, message: 'Pflichtangaben gesetzt: ' + pflicht.join(', ') });
+    } else {
+      probleme.push('Pflichtangaben (Rechte/Alterseinstufung) nicht gefunden');
+    }
+
+    // KATEGORIE (Pflicht). Ohne sie bleibt die Inhaltsseite gesperrt – live beobachtet:
+    // „Fügen Sie eine Kategorie für Ihr Buch hinzu." Ablauf im Dialog: Knopf „Wählen Sie
+    // Kategorien" → Oberkategorie im Auswahlfeld → erste Platzierung ankreuzen → speichern.
+    report({ stage: 'category', progress: 0.54, message: 'Wähle Kategorie …' });
+    const katWunsch = String((job.categories || '').split('|')[0] || '').split('>')[0].trim()
+      || 'Krimis & Thriller';
+    const katOk = await (async () => {
+      const auf = await page.$('#categories-modal-button, button[data-action*="categor" i]');
+      if (auf) { await auf.click().catch(() => {}); }
+      else {
+        const per = await page.evaluate(() => {
+          const b = [...document.querySelectorAll('button,a')].find((e) =>
+            /wählen sie kategorien|kategorien? (auswählen|bearbeiten)/i.test((e.innerText || '').trim()));
+          if (!b) return false; b.click(); return true;
+        }).catch(() => false);
+        if (!per) return false;
+      }
+      await new Promise(r => setTimeout(r, 3000));
+      // Oberkategorie im sichtbaren Auswahlfeld setzen.
+      const gesetzt = await page.evaluate((wunsch) => {
+        const s = [...document.querySelectorAll('select')].find((x) =>
+          x.offsetParent !== null && [...x.options].some((o) => o.text.includes(wunsch)));
+        if (!s) return false;
+        const opt = [...s.options].find((o) => o.text.includes(wunsch));
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
+        setter.call(s, opt.value);
+        s.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      }, katWunsch).catch(() => false);
+      if (!gesetzt) return false;
+      await new Promise(r => setTimeout(r, 2500));
+      // Erste angebotene Platzierung ankreuzen.
+      await page.evaluate(() => {
+        const box = [...document.querySelectorAll('input[type="checkbox"]')].find((c) => c.offsetParent !== null && !c.checked);
+        if (box) { box.click(); box.dispatchEvent(new Event('change', { bubbles: true })); }
+      }).catch(() => {});
+      await new Promise(r => setTimeout(r, 1500));
+      // Speichern.
+      const gespeichert = await page.evaluate(() => {
+        const b = [...document.querySelectorAll('button,a')].find((e) =>
+          /kategorien speichern|speichern/i.test((e.innerText || '').trim()) && e.offsetParent !== null);
+        if (!b) return false; b.click(); return true;
+      }).catch(() => false);
+      await new Promise(r => setTimeout(r, 3000));
+      return gespeichert;
+    })();
+    if (katOk) gefuellt.push('Kategorie: ' + katWunsch);
+    else probleme.push('Kategorie nicht gesetzt');
+
     // KI-Offenlegung (Pflicht bei KDP): job.aiDisclosure = 'ai-generated' | 'ai-assisted' | 'none'
-    report({ stage: 'ai-disclosure', progress: 0.5, message: `KI-Kennzeichnung: ${job.aiDisclosure || 'ai-assisted'}` });
+    report({ stage: 'ai-disclosure', progress: 0.56, message: `KI-Kennzeichnung: ${job.aiDisclosure || 'ai-assisted'}` });
     // Die genauen Radio-/Checkbox-Selektoren dieses (neueren) KDP-Abschnitts werden
     // beim ersten echten Login validiert; hier wird die Absicht protokolliert.
 
