@@ -169,11 +169,37 @@ enum ProofService {
                             firstName == "mimetype" && method == 0,
                             "erster Eintrag „\(firstName)“, Methode \(method == 0 ? "stored" : "deflate")"))
 
-        let ascii = String(decoding: data, as: UTF8.self)
+        // Direkt in den Bytes suchen. Ein mehrere Megabyte großes EPUB in einen String
+        // zu verwandeln kostet unnötig Speicher – und weil ZIP-Daten kein gültiges UTF-8
+        // sind, würde dabei zusätzlich verfälscht.
+        func enthaelt(_ muster: String) -> Bool {
+            let nadel = Array(muster.utf8)
+            guard !nadel.isEmpty, data.count >= nadel.count else { return false }
+            return data.withUnsafeBytes { roh -> Bool in
+                let bytes = roh.bindMemory(to: UInt8.self)
+                outer: for start in 0...(bytes.count - nadel.count) {
+                    for i in 0..<nadel.count where bytes[start + i] != nadel[i] { continue outer }
+                    return true
+                }
+                return false
+            }
+        }
         checks.append(Check("Pflichtdateien enthalten",
-                            ascii.contains("META-INF/container.xml") && ascii.contains(".opf"),
+                            enthaelt("META-INF/container.xml") && enthaelt(".opf"),
                             "container.xml und OPF im Archiv"))
-        _ = chapterCount
+
+        // Die Kapiteldateien im Archiv müssen zur Kapitelzahl des Projekts passen –
+        // sonst fehlt im ausgelieferten Buch stillschweigend Text.
+        if chapterCount > 0 {
+            var gefunden = 0
+            for nummer in 1...chapterCount where enthaelt("chapter\(nummer).xhtml") || enthaelt("chap\(nummer).xhtml") {
+                gefunden += 1
+            }
+            checks.append(Check("Alle Kapitel im EPUB", gefunden == 0 || gefunden >= chapterCount,
+                                gefunden == 0 ? "Kapiteldateien anders benannt – nicht prüfbar"
+                                              : "\(gefunden) von \(chapterCount) Kapiteldateien",
+                                required: gefunden > 0))
+        }
         return checks
     }
 
@@ -311,12 +337,18 @@ enum ProofService {
         checks.append(Check("Suchphrasen mehrwortig (echte Suchanfragen)", singleWord.isEmpty,
                             singleWord.isEmpty ? "alle mit 2+ Wörtern" : singleWord.joined(separator: " / ")))
 
-        // Deckung: Jede Phrase muss mit mindestens einem inhaltstragenden Wort im BUCH
-        // stehen. Sonst wird das Buch für Suchen ausgespielt, die es nicht bedient –
-        // das kostet Ranking, weil Leser abspringen.
+        // Deckung: Jede Suchphrase muss etwas benennen, das das Buch WIRKLICH liefert –
+        // sonst kommen Leser über eine Suche, die das Buch nicht bedient, und springen ab.
+        //
+        // ABER: Genre-, Ton- und Leseerwartungswörter („psychothriller", „spannend")
+        // stehen naturgemäß NIE im Prosatext eines Romans. Sie hier zu verlangen wäre
+        // ein Denkfehler und würde gute Keywords verwerfen. Geprüft wird deshalb nur
+        // der KONKRETE Teil einer Phrase: Schauplatz, Figurentyp, Gegenstand.
         let uncovered = keywords.filter { k in
-            let significant = k.split(separator: " ").map(String.init).filter { $0.count >= 5 }
-            return !significant.isEmpty && !significant.contains { fullText.contains($0.lowercased()) }
+            let concrete = k.split(separator: " ").map { String($0).lowercased() }
+                .filter { wort in wort.count >= 5 && !searchVocabulary.contains { wort.contains($0) } }
+            if concrete.isEmpty { return false }        // reine Genre-/Tonphrase ist zulässig
+            return !concrete.contains { fullText.contains($0) }
         }
         checks.append(Check("Suchphrasen durch den Buchtext gedeckt", uncovered.isEmpty,
                             uncovered.isEmpty ? "\(keywords.count) Phrasen im Text belegt"
@@ -331,6 +363,17 @@ enum ProofService {
     }
 
     // MARK: - Hilfen
+
+    /// Wortstämme, die eine SUCHABSICHT beschreiben (Genre, Ton, Leseerwartung).
+    /// Sie kommen im Romantext nicht vor und dürfen es auch nicht – sie sind trotzdem
+    /// genau die Begriffe, die Leser bei Amazon eintippen.
+    private static let searchVocabulary = [
+        "thriller", "krimi", "roman", "fantasy", "horror", "grusel", "liebes", "romance",
+        "mystery", "sachbuch", "ratgeber", "jugend", "kinder", "dystop", "science",
+        "spann", "fessel", "packend", "unheimlich", "düster", "atmosph",
+        "psycholog", "wendung", "nervenkitzel", "abgründ", "deutsch",
+        "reihe", "band", "kurzgeschichte", "debüt",
+    ]
 
     private static func wordCount(_ s: String) -> Int {
         s.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
