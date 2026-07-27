@@ -229,6 +229,14 @@ enum PrintCoverService {
                                  width: barcodeWidthInch * dpi,
                                  height: barcodeHeightInch * dpi)
 
+        // Der Rückseitentext darf NIE über sein Panel hinauslaufen. Sonst schiebt er sich
+        // unter den Buchrücken und wird dort abgeschnitten – im Druck sähe das aus wie
+        // ein Satzfehler. Die Begrenzung erzwingt das unabhängig davon, wie gut die
+        // Breitenschätzung des Umbruchs trifft.
+        NSGraphicsContext.current?.saveGraphicsState()
+        NSBezierPath(rect: NSRect(x: backX + safe, y: trimBottom,
+                                  width: textWidth, height: trimH)).setClip()
+
         var cursorY = trimBottom + trimH - safe     // von oben nach unten arbeiten
         if !texts.hook.isEmpty {
             let hookAttr = attributes(size: 54, weight: .bold, color: NSColor(calibratedRed: 0.91, green: 0.78, blue: 0.40, alpha: 1), kern: 2, font: .systemFont)
@@ -266,9 +274,12 @@ enum PrintCoverService {
             }
         }
 
-        // 5) Barcode-Feld weiß freihalten – Pflicht, Amazon druckt hier den EAN.
-        NSColor.white.setFill()
-        barcodeRect.fill()
+        NSGraphicsContext.current?.restoreGraphicsState()
+
+        // 5) Barcode-Feld: KDP druckt hier den EAN und empfiehlt ausdrücklich, den
+        //    Bereich mit dem eigenen HINTERGRUND zu füllen statt mit Weiß – ein weißer
+        //    Kasten sähe im Regal wie ein Druckfehler aus. Freigehalten wird er trotzdem:
+        //    die Textausgabe oben endet vor dieser Zone.
 
         // 6) Buchrücken (erst ab 79 Seiten mit Text).
         NSColor.black.withAlphaComponent(0.82).setFill()
@@ -331,7 +342,11 @@ enum PrintCoverService {
                                color: NSColor(calibratedRed: 0.79, green: 0.64, blue: 0.29, alpha: 1), kern: 3, font: .systemFont)
         let a = author.uppercased() as NSString
         let asz = a.size(withAttributes: aAttr)
-        a.draw(at: NSPoint(x: 0, y: -asz.height / 2), withAttributes: aAttr)
+        // Nach der Drehung zeigt die lokale x-Achse NACH UNTEN. Vom unteren Sicherheits-
+        // rand aus in +x zu zeichnen ließ den Autornamen unten aus dem Bild laufen –
+        // er muss von dort aus nach OBEN gesetzt werden, also um seine eigene Länge
+        // nach hinten versetzt.
+        a.draw(at: NSPoint(x: -asz.width, y: -asz.height / 2), withAttributes: aAttr)
         ctx.restoreGState()
     }
 
@@ -383,6 +398,23 @@ enum PrintCoverService {
 
     // MARK: - PDF
 
+    /// Wandelt ein Bild in den Druckfarbraum CMYK.
+    ///
+    /// KDP verlangt für den Druck ein PDF „in Druckqualität mit CMYK-Farbprofil"
+    /// (so steht es in der offiziellen Cover-Vorlage). Ein RGB-PDF wird zwar meist
+    /// angenommen, aber die Farbumrechnung übernimmt dann Amazon – das Ergebnis
+    /// weicht dann von dem ab, was hier zu sehen war.
+    private static func toCMYK(_ image: CGImage) -> CGImage? {
+        guard let cmyk = CGColorSpace(name: CGColorSpace.genericCMYK) else { return nil }
+        guard let ctx = CGContext(data: nil,
+                                  width: image.width, height: image.height,
+                                  bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: cmyk,
+                                  bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return nil }
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return ctx.makeImage()
+    }
+
     /// Schreibt das Cover als druckfertiges PDF in exakter Seitengröße.
     /// KDP misst genau daran, ob Rücken und Beschnitt stimmen (1 Punkt = 1/72 Zoll).
     static func writePDF(jpegData: Data, dim: Dimensions, to url: URL) throws {
@@ -405,7 +437,7 @@ enum PrintCoverService {
             ])
         }
         ctx.beginPDFPage(nil)
-        ctx.draw(image, in: mediaBox)
+        ctx.draw(toCMYK(image) ?? image, in: mediaBox)
         ctx.endPDFPage()
         ctx.closePDF()
     }

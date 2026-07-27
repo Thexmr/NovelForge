@@ -20,6 +20,42 @@ final class PrintCoverTests: XCTestCase {
         XCTAssertTrue(d.spineTextAllowed)
     }
 
+    /// Werte aus der offiziellen KDP-Cover-Vorlage
+    /// PAPERBACK_6.000x9.000_500_STANDARD_WHITE_de_DE:
+    ///   Gesamtabmessungen 13.376" x 9.250"  (339.75 mm x 234.95 mm)
+    ///   Buchrückenbreite  1.126"            (28.60 mm)
+    /// Weicht die Rechnung davon ab, lehnt KDP das Cover ab.
+    func testMatchesOfficialKDPTemplate6x9With500Pages() {
+        let d = PrintCoverService.dimensions(pages: 500, trim: .sixByNine, paper: .white)
+        XCTAssertEqual(d.spineInch, 1.126, accuracy: 0.0001, "Buchrückenbreite")
+        XCTAssertEqual(d.totalWidthInch, 13.376, accuracy: 0.0001, "Gesamtbreite")
+        XCTAssertEqual(d.totalHeightInch, 9.250, accuracy: 0.0001, "Gesamthöhe")
+        // Gegenprobe in Millimetern, wie sie in der Vorlage stehen.
+        XCTAssertEqual(String(format: "%.2f", d.totalWidthInch * 25.4), "339.75")
+        XCTAssertEqual(String(format: "%.2f", d.totalHeightInch * 25.4), "234.95")
+        XCTAssertEqual(String(format: "%.2f", d.spineInch * 25.4), "28.60")
+    }
+
+    func testPanelsFillCanvasExactly() throws {
+        // Links Rückseite, mittig Buchrücken, rechts Vorderseite – und die Teile müssen
+        // die Leinwand GENAU ausfüllen. Rundet man die Teile einzeln und addiert sie,
+        // steht die Vorderseite je nach Format ein Pixel über den Rand hinaus.
+        for (trim, pages) in [(PrintCoverService.TrimSize.sixByNine, 500),
+                              (.fiveByEight, 48),
+                              (.fiveHalfByEightHalf, 300)] {
+            let d = PrintCoverService.dimensions(pages: pages, trim: trim)
+            let bleed = Int((PrintCoverService.bleedInch * PrintCoverService.dpi).rounded())
+            let trimW = Int((trim.widthInch * PrintCoverService.dpi).rounded())
+            let frontX = d.widthPx - bleed - trimW
+            let spineX = bleed + trimW
+            XCTAssertGreaterThan(frontX, spineX, "\(trim.rawValue): Buchrücken liegt nicht zwischen den Deckeln")
+            XCTAssertEqual(frontX + trimW + bleed, d.widthPx,
+                           "\(trim.rawValue): Vorderseite endet nicht bündig am rechten Rand")
+            XCTAssertLessThanOrEqual(abs((frontX - spineX) - d.spinePx), 1,
+                                     "\(trim.rawValue): gezeichneter Rücken weicht von der Rechnung ab")
+        }
+    }
+
     func testSpineTextForbiddenBelow79Pages() {
         // KDP erlaubt Text auf dem Buchrücken erst ab 79 Seiten.
         XCTAssertFalse(PrintCoverService.dimensions(pages: 60).spineTextAllowed)
@@ -60,14 +96,33 @@ final class PrintCoverTests: XCTestCase {
         XCTAssertEqual(rep.pixelsWide, dim.widthPx)
         XCTAssertEqual(rep.pixelsHigh, dim.heightPx)
 
-        // Das Barcode-Feld MUSS weiß und leer sein – dort druckt Amazon den EAN.
+        // Das Barcode-Feld muss TEXTFREI sein – aber nicht weiß: KDP empfiehlt
+        // ausdrücklich, dort den eigenen Hintergrund zu zeigen. Geprüft wird deshalb
+        // gegen dieselbe Fassung OHNE Rückseitentext: ist der Ausschnitt identisch,
+        // wurde dort nichts gezeichnet.
+        let ohneText = try XCTUnwrap(PrintCoverService.renderJPEG(
+            artwork: artwork, dim: dim,
+            texts: .init(title: texts.title, author: texts.author, hook: "", blurb: "")))
+        let repOhne = try XCTUnwrap(NSBitmapImageRep(data: ohneText))
         let dpi = PrintCoverService.dpi
-        let x = Int((PrintCoverService.bleedInch + dim.trim.widthInch - PrintCoverService.safeInch
-                     - PrintCoverService.barcodeWidthInch / 2) * dpi)
-        let yFromBottom = Int((PrintCoverService.bleedInch + PrintCoverService.safeInch
-                               + PrintCoverService.barcodeHeightInch / 2) * dpi)
-        let mitte = try XCTUnwrap(rep.colorAt(x: x, y: rep.pixelsHigh - yFromBottom))
-        XCTAssertGreaterThan(mitte.whiteComponent, 0.9, "Barcode-Feld ist nicht frei")
+        let links = Int((PrintCoverService.bleedInch + dim.trim.widthInch - PrintCoverService.safeInch
+                         - PrintCoverService.barcodeWidthInch) * dpi) + 4
+        let untenAbstand = Int((PrintCoverService.bleedInch + PrintCoverService.safeInch) * dpi) + 4
+        let breite = Int(PrintCoverService.barcodeWidthInch * dpi) - 8
+        let hoehe = Int(PrintCoverService.barcodeHeightInch * dpi) - 8
+        var maxAbweichung = 0.0
+        var y = rep.pixelsHigh - untenAbstand - hoehe
+        while y < rep.pixelsHigh - untenAbstand {
+            var x = links
+            while x < links + breite {
+                if let a = rep.colorAt(x: x, y: y), let b = repOhne.colorAt(x: x, y: y) {
+                    maxAbweichung = max(maxAbweichung, abs(a.brightnessComponent - b.brightnessComponent))
+                }
+                x += 16
+            }
+            y += 16
+        }
+        XCTAssertLessThan(maxAbweichung, 0.12, "Im Barcode-Feld wurde Text gezeichnet")
     }
 
     func testPDFHasExactPageSizeInPoints() throws {
