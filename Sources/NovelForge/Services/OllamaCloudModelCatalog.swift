@@ -111,7 +111,10 @@ enum OllamaCloudModelCatalog {
         "qwen3-coder:480b"
     ]
 
-    private static func canonicalCloudName(_ model: String) -> String {
+    /// Vergleichsname ohne Herkunfts-Suffix: „kimi-k2.6:cloud" und „kimi-k2.6" sind
+    /// dasselbe Modell. Ollama meldet Cloud-Modelle mit Suffix, die kuratierten Listen
+    /// führen sie ohne – ohne diesen Abgleich findet die App ihr eigenes Modell nicht.
+    static func canonicalCloudName(_ model: String) -> String {
         model
             .replacingOccurrences(of: ":cloud", with: "")
             .replacingOccurrences(of: "-cloud", with: "")

@@ -9,6 +9,8 @@ actor ProviderGateway {
     private let urlSession: URLSession
     private let maxRetries = 5
     private var unavailableOllamaCloudModels = Set<String>()
+    /// Zwischenspeicher der LIVE bei Ollama vorhandenen Modellnamen, je Basis-URL.
+    private var liveOllamaModels: [String: [String]] = [:]
 
     init() {
         let config = URLSessionConfiguration.default
@@ -19,9 +21,46 @@ actor ProviderGateway {
 
     // MARK: - Public API
 
+    /// Übersetzt einen gewünschten Modellnamen in den Namen, unter dem der Server das
+    /// Modell TATSÄCHLICH führt.
+    ///
+    /// Ollama meldet Cloud-Modelle mit Suffix („kimi-k2.6:cloud"), die kuratierten
+    /// Listen der App führen sie ohne. Ein Aufruf mit dem Namen ohne Suffix scheitert
+    /// mit „model not found" – und weil in der Ausweichliste ALLE Namen ohne Suffix
+    /// stehen, scheiterte die ganze Kette. Auf einem Rechner mit ausschließlich
+    /// Cloud-Modellen konnte die App dadurch gar nichts erzeugen.
+    private func resolveOllamaModel(_ wanted: String, configuration: ProviderConfiguration) async -> String {
+        let wanted = wanted.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !wanted.isEmpty else { return wanted }
+        let key = configuration.baseURL ?? configuration.provider.defaultBaseURL ?? ""
+
+        var live = liveOllamaModels[key]
+        if live == nil {
+            live = try? await listOllamaModels(configuration: configuration)
+            if let live { liveOllamaModels[key] = live }
+        }
+        guard let live, !live.isEmpty else { return wanted }
+
+        // 1) Exakter Treffer – nichts zu tun.
+        if live.contains(where: { $0.caseInsensitiveCompare(wanted) == .orderedSame }) { return wanted }
+        // 2) Gleicher Name, anderes Suffix (kimi-k2.6 ⇄ kimi-k2.6:cloud).
+        let gesucht = OllamaCloudModelCatalog.canonicalCloudName(wanted.lowercased())
+        if let treffer = live.first(where: {
+            OllamaCloudModelCatalog.canonicalCloudName($0.lowercased()) == gesucht
+        }) { return treffer }
+        // 3) Nichts Passendes: unverändert lassen, damit die bestehende Ausweichlogik greift.
+        return wanted
+    }
+
     func generateText(request: GenerationRequest, configuration: ProviderConfiguration) async throws -> GenerationResponse {
         var attempt = 0
         var activeRequest = request
+        if request.provider == .ollamaCloud || request.provider == .ollamaLocal {
+            let aufgeloest = await resolveOllamaModel(request.model, configuration: configuration)
+            if aufgeloest != request.model {
+                activeRequest = replacingModel(in: activeRequest, with: aufgeloest)
+            }
+        }
         if request.provider == .ollamaCloud,
            unavailableOllamaCloudModels.contains(request.model.lowercased()),
            let fallback = nextOllamaCloudModel(configuration: configuration,
@@ -39,7 +78,10 @@ actor ProviderGateway {
                         configuration: configuration,
                         excluding: unavailableOllamaCloudModels
                     ) {
-                        activeRequest = replacingModel(in: activeRequest, with: fallback)
+                        // Auch den Ersatz auflösen – sonst läuft die Kette in dieselbe
+                        // Suffix-Falle wie das ursprüngliche Modell.
+                        let aufgeloest = await resolveOllamaModel(fallback, configuration: configuration)
+                        activeRequest = replacingModel(in: activeRequest, with: aufgeloest)
                         continue
                     }
                 }

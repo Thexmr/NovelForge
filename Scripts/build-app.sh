@@ -13,15 +13,32 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp .build/release/NovelForge "$APP/Contents/MacOS/NovelForge"
 
-# KDP-Upload-Sidecar mitbündeln (Node/Puppeteer). node_modules muss vorhanden sein
-# (einmalig: cd kdp-sidecar && npm install). Ohne node_modules bleibt die Fabrik im
-# Setup-Zustand, die App funktioniert aber normal weiter.
+# KDP-Upload-Sidecar mitbündeln (Node/Puppeteer).
+#
+# Die Abhängigkeiten werden bei Bedarf HIER installiert. Vorher verlangte das Skript
+# ein manuelles `npm install` – wurde das vergessen, entstand eine App, die aussieht
+# wie fertig, deren KDP-Upload aber wortlos mit „Abhängigkeiten fehlen" abbricht.
+# Genau das war der Zustand dieser Arbeitskopie.
 if [ -d "kdp-sidecar" ]; then
+  if [ ! -d "kdp-sidecar/node_modules" ]; then
+    if command -v npm >/dev/null 2>&1; then
+      echo "▸ Sidecar-Abhängigkeiten fehlen – installiere sie …"
+      (cd kdp-sidecar && npm install --omit=dev --no-audit --no-fund >/dev/null 2>&1) \
+        || echo "  ⚠ npm install fehlgeschlagen – der KDP-Upload bleibt deaktiviert."
+    else
+      echo "  ⚠ Node/npm nicht gefunden – der KDP-Upload bleibt deaktiviert."
+      echo "    Nachrüsten: brew install node, danach dieses Skript erneut ausführen."
+    fi
+  fi
+
   echo "▸ Bündle KDP-Sidecar …"
   mkdir -p "$APP/Contents/Resources/kdp-sidecar"
   cp kdp-sidecar/index.js kdp-sidecar/package.json "$APP/Contents/Resources/kdp-sidecar/" 2>/dev/null || true
   if [ -d "kdp-sidecar/node_modules" ]; then
     cp -R kdp-sidecar/node_modules "$APP/Contents/Resources/kdp-sidecar/node_modules"
+    echo "  ✓ Sidecar einsatzbereit ($(find kdp-sidecar/node_modules -maxdepth 1 -type d | wc -l | tr -d ' ') Pakete)"
+  else
+    echo "  ⚠ Sidecar ohne Abhängigkeiten gebündelt – KDP-Upload ist in dieser App deaktiviert."
   fi
 fi
 
