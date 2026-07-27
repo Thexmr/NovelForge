@@ -1372,8 +1372,21 @@ enum AutonomousContentQuality {
     /// Satz, der geradezu gehämmert wird. Diese Liste bestimmt sowohl die Freigabe als
     /// auch, was die Schlussreparatur gezielt entfernt (so konvergiert sie, statt kurze
     /// Beats endlos gegeneinander auszutauschen).
+    ///
+    /// Berücksichtigt zusätzlich, WO ein Satz wiederkehrt: Eine Wiederholung innerhalb
+    /// EINES Kapitels ist meist ein bewusstes Stilmittel (Refrain, Echo), eine über das
+    /// halbe Buch verteilte dagegen ein Textbaustein-Fehler. Ohne diese Unterscheidung
+    /// wurden literarisch gewollte Wiederholungen fälschlich als Mangel gemeldet – und
+    /// die Schlussreparatur tauschte sie sinnlos gegeneinander aus.
     static func blockingRepeatedSentences(inChapters chapters: [String]) -> [String] {
-        repeatedSentenceStats(inChapters: chapters, minimumOccurrences: 2).compactMap { stat in
+        func chapterIndices(containing sentence: String) -> [Int] {
+            chapters.indices.filter { chapters[$0].localizedCaseInsensitiveContains(sentence) }
+        }
+        return repeatedSentenceStats(inChapters: chapters, minimumOccurrences: 2).compactMap { stat in
+            let indices = chapterIndices(containing: stat.sentence)
+            if indices.count <= 1 { return nil }                       // Stilmittel im selben Kapitel
+            if indices.count == 2, let first = indices.first, let last = indices.last,
+               last - first <= 1, stat.words <= 8 { return nil }       // kurzes Leitmotiv nebenan
             let isDistinctive = stat.words >= 7 && stat.occurrences >= 2
             let isHammered = stat.occurrences >= 5
             return (isDistinctive || isHammered) ? stat.sentence : nil
