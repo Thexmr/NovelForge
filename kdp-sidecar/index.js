@@ -615,17 +615,24 @@ async function cmdUpload() {
     const katWunsch = String((job.categories || '').split('|')[0] || '').split('>')[0].trim()
       || 'Krimis & Thriller';
     const katOk = await (async () => {
-      const auf = await page.$('#categories-modal-button, button[data-action*="categor" i]');
+      // Der Knopf heißt „Wählen Sie Kategorien" und hat die ID categories-modal-button
+      // (live erhoben). Daneben steht der Hilfe-Link „Was sind Kategorien?" – wird der
+      // getroffen, öffnet sich die Hilfe statt des Dialogs. Deshalb: nur BUTTON, nie
+      // ein <a>, und Hilfe-Texte ausschließen.
+      const auf = await page.$('#categories-modal-button');
       if (auf) { await auf.click().catch(() => {}); }
       else {
         const per = await page.evaluate(() => {
-          const b = [...document.querySelectorAll('button,a')].find((e) =>
-            /wählen sie kategorien|kategorien? (auswählen|bearbeiten)/i.test((e.innerText || '').trim()));
+          const b = [...document.querySelectorAll('button')].find((e) => {
+            const t = (e.innerText || '').replace(/\s+/g, ' ').trim();
+            return /wählen sie kategorien|kategorien? (auswählen|bearbeiten)/i.test(t)
+              && !/was sind|hilfe|mehr dazu/i.test(t);
+          });
           if (!b) return false; b.click(); return true;
         }).catch(() => false);
         if (!per) return false;
       }
-      await new Promise(r => setTimeout(r, 3000));
+      await new Promise(r => setTimeout(r, 4000));
       // Oberkategorie im sichtbaren Auswahlfeld setzen.
       const gesetzt = await page.evaluate((wunsch) => {
         const s = [...document.querySelectorAll('select')].find((x) =>
