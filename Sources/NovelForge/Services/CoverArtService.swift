@@ -63,49 +63,58 @@ enum CoverArtService {
     /// Titel und Autor kommen später als gestochen scharfe Typografie darüber.
     static func artDirection(for genre: String) -> String {
         let g = genre.lowercased()
+
         if g.contains("dark romance") || g.contains("erotik") || g.contains("erotic") || g.contains("spicy") {
-            // Konvention: schwarzer Grund, ein kräftiger Kontrastton (Rot/Bordeaux),
-            // Objekt-Symbolik statt expliziter Darstellung ("discreet cover"), weiches
-            // Gegenlicht, kinoreife Stimmung.
-            return "schwarzer Hintergrund mit einem einzigen kräftigen Kontrastton in Bordeaux oder Tiefrot, "
-                + "Objekt-Symbolik in Nahaufnahme: eine seidene Krawatte über einer Stuhllehne, eine venezianische "
-                + "Maske auf dunklem Samt, eine einzelne dunkelrote Rose mit Dornen, ein geöffnetes Schloss an einer Kette; "
-                + "weiches Gegenlicht, tiefe Schatten, edler und andeutender Ton statt expliziter Darstellung"
+            // Beobachtet an erfolgreichen deutschen Titeln: fast schwarzer oder tief
+            // weinroter Grund mit weichem Leuchten aus der Mitte, ein KRANZ aus dunklen
+            // Rosen, der die Bildmitte umschließt, dazu Samt und ein einzelnes goldenes
+            // Objekt. Die Mitte bleibt ruhig – dort steht später der Titel.
+            // Der Kranz rahmt die RÄNDER, und die Mitte wird ausdrücklich benannt.
+            // Sagt man nur "ein Kranz umschließt die Mitte", füllt das Modell die Mitte
+            // mit einem Gesicht – Verneinungen ignorieren Bild-KIs zuverlässig.
+            return "tief weinroter bis fast schwarzer Grund mit weichem Leuchten, ein üppiger Kranz aus "
+                + "dunkelroten und magentafarbenen Rosen rahmt die BILDRÄNDER, IN DER BILDMITTE liegt "
+                + "ausschließlich glatter dunkler Samtstoff in weichen Falten, darauf ein einzelnes "
+                + "goldenes Schmuckstück, vereinzelt schwebende weiße Federn, satte Sättigung, "
+                + "weiches Studio-Gegenlicht, reine Objektfotografie eines Stilllebens, opulent und edel"
         }
-        if g.contains("roman") && (g.contains("liebe") || g.contains("romance")) || g.contains("liebesroman")
-            || g.contains("romantasy") || g.contains("chick") {
-            // Konvention: kräftige, klare Farben, warmes Licht, Alltagsgegenstände mit
-            // Gefühlswert; die moderne Linie geht weg von verspielten Schnörkeln.
-            return "warme, klare Farbflächen in Puderrosa, Korallrot oder Sonnengelb gegen einen ruhigen Grund, "
-                + "ein einzelnes Objekt mit Gefühlswert in Nahaufnahme: zwei Kaffeetassen auf einem Fensterbrett, "
-                + "ein zerknitterter Brief mit Kaffeerand, verschlungene Kirschzweige, ein Paar Schuhe am Bahnsteig; "
-                + "weiches Tageslicht, viel Luft im Bild, moderne und aufgeräumte Anmutung"
+
+        if g.contains("liebes") || g.contains("romance") || g.contains("romantasy") || g.contains("chick") {
+            return "warmer, leuchtender Farbverlauf von Puderrosa zu Altrosa mit goldenem Licht, "
+                + "zarte Blütenzweige und Blätter rahmen die Bildränder, ein einzelnes Objekt mit "
+                + "Gefühlswert in der unteren Bildhälfte, Lichtpunkte und weiches Bokeh, "
+                + "ruhige, helle Fläche in der Bildmitte, romantisch und hochwertig"
         }
+
         if g.contains("horror") || g.contains("grusel") || g.contains("gothic") {
-            // Konvention: dunkler Grund, gotische Strenge, Symmetrie, ein einziger
-            // Lichtakzent; das Unheimliche entsteht aus der Leere, nicht aus Blut.
-            return "sehr dunkler, fast schwarzer Grund mit einem einzigen kalten Lichtakzent, streng symmetrische "
-                + "Komposition, gotische Motive in Nahaufnahme: ein schmiedeeisernes Tor im Nebel, eine "
-                + "heruntergebrannte Kerze auf verwittertem Holz, eine leere Kirchenbank, ein Vogelschädel auf Stein; "
-                + "körniger Nebel, klamme Feuchtigkeit, das Unheimliche entsteht aus Leere und Stille"
+            // Beobachtet: Doppelbelichtung (Silhouette verschmilzt mit Schauplatz),
+            // Pergament-/Papiertextur, herablaufende Tinte, entsättigt mit einem
+            // einzigen blutroten Akzent.
+            return "entsättigter Grund in Grau und Papierbeige mit sichtbarer Pergamenttextur und "
+                + "herablaufenden Tintenschlieren, eine Doppelbelichtung: die Silhouette eines "
+                + "verlassenen Hauses mit kahlen Bäumen verschmilzt zu einer größeren Form, "
+                + "ein einziger blutroter Lichtakzent, Nebel und Körnung, klamm und beklemmend"
         }
+
         if g.contains("fantasy") || g.contains("mythol") || g.contains("saga") {
-            // Konvention: botanische Ornamentik, Dornen, Karten- und Reliefanmutung,
-            // erdige Töne mit einem metallischen Akzent.
-            return "erdige Farbwelt aus Moosgrün, Tiefblau und Anthrazit mit einem metallischen Akzent in Gold oder Kupfer, "
-                + "botanische und ornamentale Motive: dornige Ranken um einen alten Schlüssel, ein verwittertes "
-                + "Steinrelief, eine Landkarte auf Pergament, ein Schwertknauf im Farn; feine Ziselierung, "
-                + "handwerkliche Tiefe, Anmutung eines aufwendig gestalteten Schutzumschlags"
+            // Beobachtet: goldener Zierrahmen, Hell-Dunkel-Teilung, opulente Szene mit
+            // Schloss/Bergen, florale Ränder, metallische Ornamentik.
+            return "opulente LANDSCHAFTSSZENE mit goldenem Ornamentrahmen an den Bildkanten, deutliche "
+                + "Hell-Dunkel-Teilung zwischen warmem Goldlicht und tiefem Violett-Schwarz, IN DER "
+                + "BILDMITTE eine ferne gotische Burg auf einem Berg, Blitz über dem Tal, Ranken mit "
+                + "dunklen Rosen und hellen Blüten an den Rändern, metallische Goldakzente, "
+                + "Mondsichel-Emblem, märchenhafte Landschaftsmalerei ohne Lebewesen"
         }
+
         if g.contains("thriller") || g.contains("krimi") || g.contains("suspense") || g.contains("noir")
             || g.contains("viral") {
-            return "kalte blaugraue Farbwelt mit einem einzigen warmen Lichtpunkt, ein Objekt aus dem Tatgeschehen "
-                + "in Nahaufnahme: eine Messing-Patronenhülse auf nassem Asphalt, ein zerbrochenes Zifferblatt ohne "
-                + "Ziffern, ein Schlüsselbund im Türschloss, ein Autoschlüssel im Regenwasser; hartes Seitenlicht "
-                + "einer Straßenlaterne, Regentropfen, unruhige Schärfentiefe"
+            return "kalte blaugraue Farbwelt mit einem einzigen warmen Lichtpunkt, ein Objekt aus dem "
+                + "Tatgeschehen groß im Vordergrund, nasser Asphalt mit Spiegelungen, hartes Seitenlicht "
+                + "einer Straßenlaterne, Regen, unruhige Schärfentiefe, bedrohliche Stille"
         }
-        return "ein einzelnes charakteristisches Objekt auf strukturierter Oberfläche, gerichtetes Seitenlicht, "
-            + "gedämpfte, abgestimmte Farben, ruhige und hochwertige Komposition"
+
+        return "atmosphärische Szene mit weichem Gegenlicht, florale Elemente an den Bildrändern, "
+            + "satte abgestimmte Farben, ruhige Fläche in der Bildmitte, hochwertige Anmutung"
     }
 
     /// Baut den Bild-Prompt für das MOTIV.

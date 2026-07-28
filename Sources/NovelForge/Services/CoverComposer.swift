@@ -65,22 +65,32 @@ enum CoverComposer {
                    atLocations: [0.0, 0.5, 1.0], colorSpace: rgb)?
             .draw(in: NSRect(x: 0, y: 0, width: width, height: height * 0.30), angle: 90)
 
-        // 3) Titel im oberen Drittel, Autor unten. usesLineFragmentOrigin legt den
-        //    Text vom oberen Rand des Rechtecks nach unten an.
+        // 3) AUTOR OBEN, Titel darunter – so bauen es die erfolgreichen Titel im Regal.
+        //
+        // Vorher stand der Titel oben und der Autor unten. Der Blick auf reale Cover
+        // (deutsche Dark Romance, Erotik, Fantasy) zeigt durchgehend das Gegenteil: der
+        // Autorname steht als schmale, weit gesperrte Zeile ganz oben, der Titel bekommt
+        // die große Fläche darunter. Unten bleibt Platz für die Reihen-/Genrezeile.
         let margin = width * 0.08
         let textWidth = width - 2 * margin
 
-        let titleRect = NSRect(x: margin, y: height * 0.66, width: textWidth, height: height * 0.28)
+        // Autorname – IMMER der im Programm hinterlegte Name, nie ein erfundener.
+        let authorRect = NSRect(x: margin, y: height * 0.885, width: textWidth, height: height * 0.07)
+        drawText(author.uppercased(),
+                 in: authorRect,
+                 font: coverFont(for: genre, size: 58, bold: false),
+                 tracking: 9.0)
+
+        let titleRect = NSRect(x: margin, y: height * 0.50, width: textWidth, height: height * 0.32)
         drawText(title.uppercased(),
                  in: titleRect,
                  font: coverFont(for: genre, size: titleFontSize(for: title), bold: true),
                  tracking: 1.5)
 
-        let authorRect = NSRect(x: margin, y: height * 0.07, width: textWidth, height: height * 0.09)
-        drawText(author,
-                 in: authorRect,
-                 font: coverFont(for: genre, size: 64, bold: false),
-                 tracking: 3.0)
+        // Feine Zierlinie zwischen Autor und Titel – auf den Vorbildern trennt sie
+        // die beiden Ebenen und gibt dem Cover Halt.
+        NSColor(calibratedRed: 0.79, green: 0.64, blue: 0.29, alpha: 0.9).setFill()
+        NSRect(x: width / 2 - width * 0.09, y: height * 0.855, width: width * 0.18, height: 3).fill()
         canvas.unlockFocus()
 
         guard let tiff = canvas.tiffRepresentation,
