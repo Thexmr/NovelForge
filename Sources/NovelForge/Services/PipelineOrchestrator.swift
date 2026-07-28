@@ -1400,14 +1400,20 @@ final class PipelineOrchestrator: ObservableObject {
             // Eigene Autoren-Idee direkt als Prämisse nutzen, wenn das Modell nichts
             // Brauchbares lieferte – damit die Vorgabe NIE verloren geht.
             if let seed = seedIdea, !seed.isEmpty {
-                idea = ParsedIdea(title: "\(genre)-Roman", genre: genre, premise: seed)
+                // Die eigene Idee des Autors als Prämisse übernehmen – aber NICHT
+                // „Thriller-Roman" als Titel. So ein Gattungstitel geht in jeder
+                // Trefferliste unter; den Titel liefert die Notfall-Liste.
+                let ersatz = fallbackIdea(genre: genre, index: bookIndex ?? unlimitedBooksCompleted)
+                idea = ParsedIdea(title: ersatz.title, genre: genre, premise: seed)
             }
             if !AutonomousContentQuality.hasUsableIdea(idea) {
                 idea = fallbackIdea(genre: genre, index: bookIndex ?? unlimitedBooksCompleted)
             }
         }
 
-        let baseTitle = idea?.title ?? "\(genre)-Roman"
+        // Auch hier kein Gattungstitel als letzter Ausweg.
+        let baseTitle = idea?.title
+            ?? fallbackIdea(genre: genre, index: bookIndex ?? unlimitedBooksCompleted).title
         var title = baseTitle
         var suffix = 2
         while !claimTitle(title) {
@@ -2739,10 +2745,47 @@ final class PipelineOrchestrator: ObservableObject {
             "Zwei Fremde teilen sich durch einen Zufall eine Wohnung und merken zu spät, dass ihre Vergangenheiten auf eine Weise verbunden sind, die beide nicht loslässt.",
             "Eine Spurensuche nach einem verschwundenen Angehörigen führt eine junge Frau in ein Netz aus alten Lügen, in dem jeder Verbündete auch ein Verdächtiger sein könnte."
         ]
-        let base = titles[abs(index) % titles.count]
-        let title = index >= titles.count ? "\(base) \(index)" : base
+        // Titel wählen, der NOCH NICHT vergeben ist.
+        //
+        // Vorher stand hier titles[index % titles.count]. Der Index ist die Zahl der in
+        // DIESEM Lauf fertigen Bücher – bei jedem Neustart der Dauerproduktion steht er
+        // wieder auf 0, und es kam immer derselbe Titel heraus. Genau das war zu
+        // beobachten: mehrere Bücher mit identischem Notfall-Titel.
+        //
+        // Jetzt entscheidet der BESTAND: schon benutzte Titel werden übersprungen. Sind
+        // alle vergeben, sorgt eine Jahreszahl-freie Variante für Eindeutigkeit, ohne
+        // dass „Titel 2" entsteht.
+        // Vergebene Titel aus ZWEI Quellen: den Projekten in der Datenbank UND den
+        // Ordnernamen im Ausgabeverzeichnis. Nur die Datenbank zu prüfen reicht nicht –
+        // dort stehen bereits ausgelieferte Bücher oft nicht mehr, im Ordner aber schon.
+        // Genau deshalb entstand ein zweites „Honig auf der Klinge", obwohl das Buch
+        // längst auf der Platte lag.
+        var vergeben = Set(existingProjects().map {
+            $0.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        })
+        if let wurzel = try? ExportEngine.exportRootDirectory(),
+           let inhalt = try? FileManager.default.contentsOfDirectory(atPath: wurzel.path) {
+            for name in inhalt where !name.hasPrefix(".") {
+                vergeben.insert(name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+            }
+        }
+        let frei = titles.filter { !vergeben.contains($0.lowercased()) }
+        let base: String
+        if let ungenutzt = frei.first {
+            base = ungenutzt
+        } else {
+            // Alle zehn verbraucht: aus zwei Bausteinen einen neuen Titel bilden,
+            // statt eine Nummer anzuhängen.
+            let anfaenge = ["Was", "Wer", "Wie", "Bevor", "Solange", "Niemand", "Keiner"]
+            let enden = ["du mir verschwiegen hast", "wir nie ausgesprochen haben",
+                         "im Nebel zurückblieb", "am Ende übrig war",
+                         "hinter der letzten Tür lag", "sie nie zugeben würde"]
+            let a = anfaenge[abs(index) % anfaenge.count]
+            let e = enden[abs(index / anfaenge.count) % enden.count]
+            base = "\(a) \(e)"
+        }
         let premise = premises[abs(index) % premises.count]
-        return ParsedIdea(title: title, genre: genre, premise: premise)
+        return ParsedIdea(title: base, genre: genre, premise: premise)
     }
 
     /// Sammelt alle Schauplätze aus den Szenenplänen und legt sie (einmalig)
