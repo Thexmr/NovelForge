@@ -264,11 +264,36 @@ final class PipelineOrchestrator: ObservableObject {
 
     /// Prüft und reserviert einen Buchtitel zentral – bei parallelen Workern
     /// über den Haupt-Orchestrator, damit keine doppelten Titel entstehen.
+    /// Schlüssel des dauerhaften Titel-Verzeichnisses.
+    ///
+    /// Es reicht NICHT, vergebene Titel nur im Arbeitsspeicher oder in der
+    /// Projektdatenbank zu führen: Der Speicher ist nach einem Neustart leer, und
+    /// ausgelieferte Bücher werden aus der Datenbank entfernt. Auch der Abgleich mit
+    /// dem Ausgabeordner trägt nicht – der lässt sich umstellen, und die älteren
+    /// Bücher liegen dann woanders. Genau daran ist es gescheitert: dieselben
+    /// Ersatztitel wurden immer wieder vergeben.
+    static let usedTitlesDefaultsKey = "novelforge.usedTitles"
+
+    /// Alle jemals vergebenen Titel, klein geschrieben.
+    private func persistedUsedTitles() -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: Self.usedTitlesDefaultsKey) ?? [])
+    }
+
+    private func persistUsedTitle(_ key: String) {
+        var alle = persistedUsedTitles()
+        guard !alle.contains(key) else { return }
+        alle.insert(key)
+        // Nach oben begrenzt, damit die Liste nicht unbegrenzt wächst.
+        let liste = Array(alle.suffix(5000))
+        UserDefaults.standard.set(liste, forKey: Self.usedTitlesDefaultsKey)
+    }
+
     private func claimTitle(_ title: String) -> Bool {
         if let parent = parentOrchestrator { return parent.claimTitle(title) }
-        let key = title.lowercased()
-        guard !usedTitles.contains(key) else { return false }
+        let key = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !usedTitles.contains(key), !persistedUsedTitles().contains(key) else { return false }
         usedTitles.insert(key)
+        persistUsedTitle(key)
         return true
     }
 
@@ -2760,13 +2785,17 @@ final class PipelineOrchestrator: ObservableObject {
         // dort stehen bereits ausgelieferte Bücher oft nicht mehr, im Ordner aber schon.
         // Genau deshalb entstand ein zweites „Honig auf der Klinge", obwohl das Buch
         // längst auf der Platte lag.
-        var vergeben = Set(existingProjects().map {
-            $0.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        })
+        var vergeben = persistedUsedTitles()
+        for p in existingProjects() {
+            vergeben.insert(p.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+        }
+        // Zusätzlich der eingestellte Ausgabeordner – er zeigt, was tatsächlich schon
+        // ausgeliefert wurde. Steht dort nichts (frisch umgestellt), schadet es nicht.
         if let wurzel = try? ExportEngine.exportRootDirectory(),
            let inhalt = try? FileManager.default.contentsOfDirectory(atPath: wurzel.path) {
             for name in inhalt where !name.hasPrefix(".") {
-                vergeben.insert(name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+                let ohneEndung = (name as NSString).deletingPathExtension
+                vergeben.insert(ohneEndung.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
             }
         }
         let frei = titles.filter { !vergeben.contains($0.lowercased()) }
