@@ -173,7 +173,30 @@ enum CoverArtService {
         }
         let dir = try ExportEngine.exportDirectory(for: project)
         let url = dir.appendingPathComponent("cover_ebook.jpg")
-        try jpeg.write(to: url, options: .atomic)
+
+        // TITEL UND AUTORNAME AUFLEGEN.
+        // Hier stand vorher nur `try jpeg.write(...)` – das nackte Motiv wurde direkt
+        // als fertiges eBook-Cover gespeichert. Der CoverComposer, der Titel und
+        // Autornamen setzt, wurde von zwei UI-Stellen aufgerufen, aber NICHT von dieser
+        // Funktion. Wer den Knopf „Cover erzeugen" auf der Veröffentlichungsseite
+        // benutzte, bekam ein Cover ganz ohne Beschriftung – gemessen an
+        // „Das letzte Streichholz": ein Straßenmotiv ohne ein einziges Wort darauf.
+        //
+        // Der Autorname kommt dabei aus dem Projekt, nie aus einer Erfindung des
+        // Bildmodells: composedPNGData bekommt project.authorName übergeben.
+        let beschriftet: Data = {
+            guard let artwork = NSImage(data: jpeg),
+                  let png = CoverComposer.composedPNGData(artwork: artwork,
+                                                          title: project.title,
+                                                          author: project.authorName,
+                                                          genre: project.genre),
+                  let rep = NSBitmapImageRep(data: png),
+                  let out = rep.representation(using: .jpeg,
+                                               properties: [.compressionFactor: 0.92])
+            else { return jpeg }   // Im Zweifel lieber ein Cover ohne Typo als gar keines.
+            return out
+        }()
+        try beschriftet.write(to: url, options: .atomic)
         // Das ROHE, textfreie Motiv separat sichern. Das Druckcover braucht genau dieses
         // Bild – nimmt man das fertige eBook-Cover, ist dessen Titel schon eingebrannt und
         // erscheint auf dem Wrap ein zweites Mal quer über Rück- und Vorderseite.
