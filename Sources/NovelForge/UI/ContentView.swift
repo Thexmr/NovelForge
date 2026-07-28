@@ -624,10 +624,16 @@ struct UnlimitedProductionSheet: View {
     @State private var selectedGenres: Set<String> = ["Thriller"]
     @State private var visibleContentType = BookContentType.fiction
     @State private var style = UnlimitedSettings.randomToken
-    @State private var pageCount = 150
-    @State private var maxBooks = 0
-    @State private var parallelBooks = 1
-    @State private var resumeInterruptedBooks = true
+    // Diese vier Angaben werden DAUERHAFT gemerkt.
+    //
+    // Vorher waren sie reine @State-Werte: Bei jedem Öffnen des Dialogs standen wieder
+    // 150 Seiten und „Unfertige zuerst fortsetzen" an – wer 500 Seiten wollte, musste es
+    // jedes Mal neu eintippen, und wer ein NEUES Buch wollte, bekam ungewollt das alte
+    // fortgesetzt. Genau daran ist ein kompletter Produktionsstart gescheitert.
+    @AppStorage("novelforge.unlimited.pageCount") private var pageCount = 150
+    @AppStorage("novelforge.unlimited.maxBooks") private var maxBooks = 0
+    @AppStorage("novelforge.unlimited.parallelBooks") private var parallelBooks = 1
+    @AppStorage("novelforge.unlimited.resumeInterrupted") private var resumeInterruptedBooks = true
     @State private var imprint = ""
     @State private var authorBio = ""
     @State private var epubFormat = true
@@ -728,17 +734,29 @@ struct UnlimitedProductionSheet: View {
                             ForEach(UnlimitedSettings.genrePool.filter {
                                 BookContentType.infer(from: $0) == visibleContentType
                             }, id: \.self) { item in
-                                Toggle(item, isOn: Binding(
-                                    get: { selectedGenres.contains(item) },
-                                    set: { isOn in
-                                        if isOn {
-                                            selectedGenres.insert(item)
-                                        } else {
-                                            selectedGenres.remove(item)
-                                        }
+                                // Bewusst ein Button statt eines Toggles: Beim Scrollen
+                                // durch die lange Genre-Liste sprangen Häkchen um, weil
+                                // das Rollen über einem Kontrollkästchen als Umschalten
+                                // ankam. Ein Button reagiert nur auf einen echten Klick.
+                                Button {
+                                    if selectedGenres.contains(item) {
+                                        selectedGenres.remove(item)
+                                    } else {
+                                        selectedGenres.insert(item)
                                     }
-                                ))
-                                .toggleStyle(.checkbox)
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: selectedGenres.contains(item)
+                                              ? "checkmark.square.fill" : "square")
+                                            .foregroundStyle(selectedGenres.contains(item) ? Color.accentColor : .secondary)
+                                        Text(item)
+                                            .foregroundStyle(.primary)
+                                        Spacer(minLength: 0)
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityAddTraits(selectedGenres.contains(item) ? .isSelected : [])
                             }
                         }
                         Text(selectedGenres.isEmpty

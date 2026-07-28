@@ -2055,7 +2055,56 @@ enum StructureParser {
                 conflict: parts.count > 2 ? parts[2] : ""
             ))
         }
-        return result
+        return entdoppelteTitel(result)
+    }
+
+    /// Macht fast gleiche Kapitelüberschriften auseinander.
+    ///
+    /// An zwei echten Büchern beobachtet: „Das Knirschen unter den Schuhen" / „Das
+    /// Knirschen unter ihren Schuhen" und „Mira, die im Spiegel schrie" / „Mira, die im
+    /// Spiegel wartete". Im Inhaltsverzeichnis fällt so etwas jedem Leser sofort auf.
+    /// Der Wiederholungsschutz prüfte bisher nur den Fließtext, nie die Überschriften.
+    ///
+    /// Wird eine Überschrift als Dublette erkannt, tritt das Kapitelziel an ihre Stelle –
+    /// ein Kapitel ohne eigene Überschrift wäre schlimmer als eine schlichte.
+    static func entdoppelteTitel(_ kapitel: [PlannedChapter]) -> [PlannedChapter] {
+        /// Inhaltstragende Wörter einer Überschrift, klein und ohne Füllwörter.
+        func kern(_ titel: String) -> Set<String> {
+            let stopp: Set<String> = ["der", "die", "das", "ein", "eine", "einer", "und", "oder",
+                                      "von", "dem", "den", "des", "im", "in", "auf", "mit", "für",
+                                      "ihr", "ihre", "ihren", "sein", "seine", "seinen", "nicht"]
+            return Set(titel.lowercased()
+                .components(separatedBy: CharacterSet.letters.inverted)
+                .filter { $0.count >= 3 && !stopp.contains($0) })
+        }
+
+        var ergebnis: [PlannedChapter] = []
+        var gesehen: [Set<String>] = []
+        for k in kapitel {
+            let jetzt = kern(k.title)
+            // Überschneidung von 60 % oder mehr gilt als Dublette – so wurden beide
+            // beobachteten Fälle erkannt, ohne echte Motivketten zu zerstören.
+            let dublette = !jetzt.isEmpty && gesehen.contains { alt in
+                guard !alt.isEmpty else { return false }
+                let gemeinsam = Double(alt.intersection(jetzt).count)
+                return gemeinsam / Double(max(alt.count, jetzt.count)) >= 0.6
+            }
+            if dublette {
+                // Aus dem Kapitelziel eine eigene Überschrift bilden (erste sinnvolle
+                // Wortgruppe), sonst die Nummer – Hauptsache nicht zweimal dasselbe.
+                let ausZiel = k.goal
+                    .components(separatedBy: CharacterSet(charactersIn: ".,;–-"))
+                    .first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let ersatz = ausZiel.count >= 8 ? String(ausZiel.prefix(48)) : "Kapitel \(k.number)"
+                ergebnis.append(PlannedChapter(number: k.number, title: ersatz,
+                                               goal: k.goal, conflict: k.conflict))
+                gesehen.append(kern(ersatz))
+            } else {
+                ergebnis.append(k)
+                gesehen.append(jetzt)
+            }
+        }
+        return ergebnis
     }
 
     static func parseScenes(_ text: String) -> [PlannedScene] {
