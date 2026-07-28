@@ -1033,13 +1033,14 @@ final class PipelineOrchestrator: ObservableObject {
                 lastError = aiError?.errorDescription ?? error.localizedDescription
 
                 if Self.isReadinessShortfall(error), let project = currentProject,
-                   qualityRepairRounds < Self.maxQualityRepairRounds {
+                   qualityRepairRounds < Self.maxQualityRepairRounds,
+                   !repairLaeuftZuLange {
                     qualityRepairRounds += 1
                     readinessRepairAuditDone = false
                     project.status = .export
                     interruptedProject = project
                     isRetryingCurrentBook = true
-                    lastError = "Qualitäts-Endabnahme noch offen. Die Reparatur läuft automatisch weiter."
+                    lastError = "Qualitäts-Endabnahme noch offen (\(Self.offenePunkteText(error))). Die Reparatur läuft automatisch weiter."
                     currentAgent = "Qualitätsreparatur Runde \(qualityRepairRounds) – dasselbe Buch bleibt aktiv"
                     modelContext?.saveOrLog()
                     do {
@@ -1310,11 +1311,12 @@ final class PipelineOrchestrator: ObservableObject {
                 let message = (error as? AIError)?.errorDescription ?? error.localizedDescription
 
                 if Self.isReadinessShortfall(error), let project,
-                   qualityRepairRounds < Self.maxQualityRepairRounds {
+                   qualityRepairRounds < Self.maxQualityRepairRounds,
+                   !repairLaeuftZuLange {
                     qualityRepairRounds += 1
                     readinessRepairAuditDone = false
                     project.status = .export
-                    lastError = "Qualitäts-Endabnahme noch offen. Die Reparatur läuft automatisch weiter."
+                    lastError = "Qualitäts-Endabnahme noch offen (\(Self.offenePunkteText(error))). Die Reparatur läuft automatisch weiter."
                     currentAgent = "Qualitätsreparatur Runde \(qualityRepairRounds) – dasselbe Buch bleibt aktiv"
                     publishWorkerStatus()
                     modelContext?.saveOrLog()
@@ -5000,11 +5002,42 @@ final class PipelineOrchestrator: ObservableObject {
     /// stochastisch, ein zunächst gescheiterter Versuch gelingt oft im nächsten Anlauf.
     private static let maxReadinessPasses = 10
 
+    /// Erkennungsmarke für „an dieser Beanstandung kann die Reparatur nichts ändern".
+    /// Anders als `readinessShortfallMarker` löst sie KEINE Wiederholung aus.
+    static let readinessUnfixableMarker = "Endabnahme offen, aber durch Reparatur nicht behebbar"
+
+    /// Die Endabnahme-Reparaturen können genau drei Arten von Beanstandungen beheben.
+    /// Bleibt etwas anderes übrig (fehlende Metadaten, leere Kapitel, offene Jobs),
+    /// ändert auch der hundertste Anlauf nichts daran.
+    ///
+    /// Warum das eine eigene Prüfung braucht: Die innere Schleife erkannte diesen Fall
+    /// bereits und brach ab – aber die äußere Runde startete sie 15 Sekunden später
+    /// erneut. Beobachtet: Runde 329, Reparatur 3 h 51 min, „0 von 1 behoben", und der
+    /// Token-Zähler stand seit dreieinhalb Stunden still. Also kein KI-Aufruf mehr,
+    /// nur noch Volltextscans über 100.000 Wörter bei 100 % CPU-Last – endlos.
+    static func hatReparierbareBeanstandung(_ issues: [String]) -> Bool {
+        issues.contains {
+            $0.contains("Offene Qualitätsbefunde")
+                || $0.contains("über Zielumfang")
+                || $0.contains("wiederholte ganze Sätze")
+        }
+    }
+
     private func runFinalReadinessRepairs(project: Project,
                                           config: ProviderConfiguration) async throws {
         // Nichts zu reparieren → keine Reparaturzeit anzeigen.
         let startingIssues = PublicationReadiness.completionBlockingIssues(project: project)
         if startingIssues.isEmpty { return }
+        // Nichts davon ist durch Reparatur behebbar → gar nicht erst anfangen.
+        // Sonst dreht die äußere Runde diese Prüfung endlos im Kreis.
+        if !Self.hatReparierbareBeanstandung(startingIssues) {
+            repairStartedAt = nil
+            repairIssuesRemaining = startingIssues.count
+            updateProductionTiming()
+            throw AIError.systemError(
+                "\(Self.readinessUnfixableMarker): \(startingIssues.joined(separator: " "))"
+            )
+        }
         // Reparaturzeit ab jetzt sichtbar mitzählen – über automatische
         // Selbstkorrektur-Runden hinweg (nur beim ersten Eintritt starten).
         if repairStartedAt == nil {
@@ -5019,10 +5052,15 @@ final class PipelineOrchestrator: ObservableObject {
 
         var bestCount = Int.max
         var stalledPasses = 0
+        // Der Prüflauf normalisiert das GESAMTE Manuskript (hier 100.000 Wörter durch
+        // mehrere String-Durchgänge je Kapitel). Er wurde bisher viermal pro Durchlauf
+        // neu berechnet, obwohl sich zwischen zwei der vier Aufrufe nichts am Text
+        // ändert. Das eben ermittelte Ergebnis wird deshalb weitergereicht.
+        var offen = startingIssues
 
         for pass in 1...Self.maxReadinessPasses {
             try Task.checkCancellation()
-            let issues = PublicationReadiness.completionBlockingIssues(project: project)
+            let issues = offen
             if issues.isEmpty { repairIssuesRemaining = 0; repairStartedAt = nil; updateProductionTiming(); return }
 
             currentAgent = "Finale Qualitätsreparatur \(pass) – \(issues.count) offene Punkte"
@@ -5047,6 +5085,7 @@ final class PipelineOrchestrator: ObservableObject {
             modelContext?.saveOrLog()
 
             let refreshed = PublicationReadiness.completionBlockingIssues(project: project)
+            offen = refreshed
             // Fortschritt aktualisieren (offene Punkte + Restzeit-Schätzung).
             repairIssuesTotal = max(repairIssuesTotal, refreshed.count)
             repairIssuesRemaining = refreshed.count
@@ -5062,20 +5101,23 @@ final class PipelineOrchestrator: ObservableObject {
 
             // Bleiben ausschließlich Punkte übrig, die diese Reparaturen NICHT beheben
             // können (z.B. fehlende Metadaten/Impressum), bringt Weiterlaufen nichts.
-            let hasRepairableIssue = refreshed.contains {
-                $0.contains("Offene Qualitätsbefunde")
-                    || $0.contains("über Zielumfang")
-                    || $0.contains("wiederholte ganze Sätze")
-            }
-            if !hasRepairableIssue { break }
+            if !Self.hatReparierbareBeanstandung(refreshed) { break }
             // Kein Fortschritt über mehrere Durchläufe → dieser Lauf ist ausgereizt;
             // der übergeordnete Loop setzt (begrenzt) automatisch fort statt zu verwerfen.
             if stalledPasses >= 3 { break }
         }
 
-        let remaining = PublicationReadiness.completionBlockingIssues(project: project)
+        let remaining = offen
         guard !remaining.isEmpty else { repairIssuesRemaining = 0; repairStartedAt = nil; updateProductionTiming(); return }
         repairIssuesRemaining = remaining.count
+        // Was die Reparatur nicht anfassen kann, wird durch Wiederholen nicht besser.
+        if !Self.hatReparierbareBeanstandung(remaining) {
+            repairStartedAt = nil
+            updateProductionTiming()
+            throw AIError.systemError(
+                "\(Self.readinessUnfixableMarker): \(remaining.joined(separator: " "))"
+            )
+        }
         // Nicht bestanden: Reparaturuhr WEITERLAUFEN lassen – die Selbstkorrektur
         // setzt automatisch fort, die angezeigte Reparaturzeit umfasst alle Runden.
         throw AIError.systemError(
@@ -5091,6 +5133,20 @@ final class PipelineOrchestrator: ObservableObject {
     /// Kurze Pause zwischen zwei automatischen Reparaturläufen (schont den Provider,
     /// hält die Selbstkorrektur aber zügig).
     static let readinessRetryDelaySeconds: Double = 15
+
+    /// Harte Zeitgrenze für die gesamte Endabnahme-Reparatur EINES Buches.
+    ///
+    /// Zweite Sicherung neben der Rundenzahl: Sie greift auch dann, wenn eine einzelne
+    /// Runde selbst hängt oder eine künftige Änderung einen neuen Kreislauf einführt.
+    /// Die Reparatur ist Nachbearbeitung an einem fertig geschriebenen Buch – braucht
+    /// sie länger als eine Dreiviertelstunde, wird sie nicht mehr fertig.
+    static let maxRepairDurationSeconds: Double = 45 * 60
+
+    /// Läuft die Reparaturuhr über die Zeitgrenze?
+    var repairLaeuftZuLange: Bool {
+        guard let start = repairStartedAt else { return false }
+        return Date().timeIntervalSince(start) > Self.maxRepairDurationSeconds
+    }
     
     /// Höchstzahl der Qualitäts-Reparaturrunden für EIN Buch.
     ///
@@ -5103,6 +5159,20 @@ final class PipelineOrchestrator: ObservableObject {
 
     /// Ist der Fehler „Buch fertig, aber Qualitäts-Endabnahme noch offen"? Nur dann
     /// wird selbstkorrigierend weitergearbeitet statt zu verwerfen.
+    /// Schält die konkreten offenen Punkte aus der Fehlermeldung heraus.
+    /// Ohne das zeigte das Dashboard über Stunden nur "0 von 1 behoben" – man konnte
+    /// nicht erkennen, woran die Abnahme überhaupt scheiterte.
+    static func offenePunkteText(_ error: Error) -> String {
+        let text = (error as? AIError)?.errorDescription ?? error.localizedDescription
+        let punkte = text
+            .replacingOccurrences(of: "\(Self.readinessShortfallMarker): ", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !punkte.isEmpty, punkte != text || !text.contains(Self.readinessShortfallMarker) else {
+            return "Grund unbekannt"
+        }
+        return punkte.count > 160 ? String(punkte.prefix(157)) + "…" : punkte
+    }
+
     static func isReadinessShortfall(_ error: Error) -> Bool {
         guard let aiError = error as? AIError else { return false }
         let text = aiError.errorDescription ?? "\(aiError)"
