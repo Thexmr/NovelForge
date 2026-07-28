@@ -80,6 +80,35 @@ final class ReadinessLoopTests: XCTestCase {
         XCTAssertTrue(text.hasSuffix("…"))
     }
 
+    func testAbnahmeUndReparaturBeurteilenSatzdopplerGleich() {
+        // Der teuerste Fehler des Ganzen: Die Abnahme blockierte nach einer eigenen
+        // Filterregel, die Reparatur räumte nach blockingRepeatedSentences auf. Die
+        // Reparatur verschont bewusst Wiederholungen INNERHALB eines Kapitels und kurze
+        // Sätze in BENACHBARTEN Kapiteln – die Abnahme kannte diese Ausnahmen nicht.
+        // Sie fand also Punkte, die kein Reparaturschritt je anfassen würde: ein Patt,
+        // das sich nicht auflösen kann. Genau das ergab 329 Runden ohne einen einzigen
+        // Modellaufruf.
+        //
+        // Zwei Kapitel, dieselbe kurze Zeile nebeneinander – ein Leitmotiv, kein Fehler.
+        let leitmotiv = "Lena blieb stehen, die Hand an der Klinke."
+        let kapitel = [
+            "Der Flur roch nach kaltem Rauch. \(leitmotiv) Dahinter war es still.",
+            "Sie kam am Abend zurück. \(leitmotiv) Diesmal drückte sie sie herunter.",
+        ]
+        XCTAssertTrue(AutonomousContentQuality.blockingRepeatedSentences(inChapters: kapitel).isEmpty,
+                      "Kurzes Leitmotiv in Nachbarkapiteln darf die Freigabe nicht blockieren")
+    }
+
+    func testWeitAuseinanderliegendeLangeDopplerBlockierenWeiterhin() {
+        // Die Lockerung darf keine echten Copy-Paste-Doppler durchlassen.
+        let lang = "Der Regen schlug seit Stunden gegen die Scheiben des alten Bahnhofsgebäudes."
+        var kapitel = Array(repeating: "Ein unauffälliger Absatz ohne Wiederholungen.", count: 9)
+        kapitel[0] = "Sie wartete. \(lang) Niemand kam."
+        kapitel[8] = "Jahre später. \(lang) Wieder kam niemand."
+        XCTAssertFalse(AutonomousContentQuality.blockingRepeatedSentences(inChapters: kapitel).isEmpty,
+                       "Langer wortgleicher Satz über acht Kapitel Abstand muss blockieren")
+    }
+
     func testZeitgrenzeIstGesetztUndBegrenztDenBeobachtetenFall() {
         // Der beobachtete Lauf hatte nach 3 h 51 min noch immer nicht aufgehört.
         XCTAssertLessThan(PipelineOrchestrator.maxRepairDurationSeconds, 3 * 3600,
@@ -87,6 +116,7 @@ final class ReadinessLoopTests: XCTestCase {
         XCTAssertGreaterThan(PipelineOrchestrator.maxRepairDurationSeconds, 10 * 60,
                              "Zu knapp – echte Reparaturen brauchen Zeit")
         // Und die Rundenzahl darf nicht wieder ins Unbegrenzte wachsen.
-        XCTAssertLessThanOrEqual(PipelineOrchestrator.maxQualityRepairRounds, 10)
+        XCTAssertLessThanOrEqual(PipelineOrchestrator.maxQualityRepairRounds, 3,
+                                 "Gemessen wurde in 329 Runden null behobene Punkte – mehr als drei Anläufe sind belegbar sinnlos")
     }
 }

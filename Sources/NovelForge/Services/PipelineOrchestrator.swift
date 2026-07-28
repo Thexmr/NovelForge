@@ -1728,16 +1728,26 @@ final class PipelineOrchestrator: ObservableObject {
                 if let job = currentJob, job.status == .running { failJob(job, error: error) }
 
                 // Buch ist fertig geschrieben, erfüllt aber die Qualitäts-Endabnahme noch
-                // nicht: weiter reparieren, bis die Freigabe besteht oder der Benutzer stoppt.
-                if Self.isReadinessShortfall(error) {
+                // nicht: begrenzt weiter reparieren.
+                //
+                // Diese Schleife hatte als einzige der drei KEINE Obergrenze – der
+                // Kommentar sagte "bis die Freigabe besteht oder der Benutzer stoppt".
+                // Besteht die Freigabe nie, stoppt eben nie jemand: Sie ist der Weg, auf
+                // dem der Einzelbuch-Lauf endlos drehte. Jetzt gelten dieselben zwei
+                // Grenzen wie überall sonst – Rundenzahl und Reparaturuhr.
+                if Self.isReadinessShortfall(error),
+                   readinessRetries < Self.maxQualityRepairRounds,
+                   !repairLaeuftZuLange {
                     readinessRetries += 1
                     let remaining = (error as? AIError)?.errorDescription ?? error.localizedDescription
                     ProductionIncidentStore.record(remaining)
                     // Pro Selbstkorrektur-Runde darf das Repair-Audit einmal neu ran.
                     readinessRepairAuditDone = false
                     project.status = .export
-                    lastError = "Qualität noch nicht freigegeben – automatische Korrektur läuft weiter (Runde \(readinessRetries))."
-                    currentAgent = "Selbstkorrektur Runde \(readinessRetries) läuft weiter …"
+                    // Den konkret offenen Punkt mit anzeigen: Die Oberfläche nannte über
+                    // Stunden nur eine Rundennummer, nie den Grund.
+                    lastError = "Qualität noch nicht freigegeben – Korrektur läuft weiter (Runde \(readinessRetries)/\(Self.maxQualityRepairRounds)): \(Self.offenePunkteText(error))"
+                    currentAgent = "Selbstkorrektur Runde \(readinessRetries) von \(Self.maxQualityRepairRounds) …"
                     modelContext?.saveOrLog()
                     do {
                         try await Task.sleep(
@@ -5150,12 +5160,17 @@ final class PipelineOrchestrator: ObservableObject {
     
     /// Höchstzahl der Qualitäts-Reparaturrunden für EIN Buch.
     ///
-    /// Vorher lief diese Schleife unbegrenzt: An einem fertigen Buch wurden 224 Runden
-    /// über 2 Stunden 37 Minuten gezählt, Ergebnis "0 von 1 behoben" – 1,46 Millionen
-    /// Tokens für null Verbesserung. Wenn eine Beanstandung nach einigen Anläufen nicht
-    /// behoben ist, behebt sie auch der zwanzigste nicht; dann ist Weiterlaufen reine
+    /// Vorher lief diese Schleife unbegrenzt: An einem fertigen Buch wurden 329 Runden
+    /// über 3 Stunden 51 Minuten gezählt, Ergebnis durchgehend "0 von 1 behoben" –
+    /// 1,46 Millionen Tokens für null Verbesserung.
+    ///
+    /// Warum ausgerechnet 3: In diesen 329 Runden wurde KEIN EINZIGER Punkt behoben.
+    /// Die Trefferquote weiterer Anläufe ist damit gemessen null, und jede Runde
+    /// enthält innen bereits bis zu `maxReadinessPasses` Durchläufe – drei äußere
+    /// Runden sind also schon bis zu 30 Reparaturversuche. Wenn eine Beanstandung nach
+    /// einigen Anläufen nicht behoben ist, behebt sie auch der zwanzigste nicht; dann ist Weiterlaufen reine
     /// Verschwendung und das Buch bleibt für immer im Export hängen.
-    static let maxQualityRepairRounds = 8
+    static let maxQualityRepairRounds = 3
 
     /// Ist der Fehler „Buch fertig, aber Qualitäts-Endabnahme noch offen"? Nur dann
     /// wird selbstkorrigierend weitergearbeitet statt zu verwerfen.

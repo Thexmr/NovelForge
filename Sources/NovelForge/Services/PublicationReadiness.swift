@@ -128,17 +128,25 @@ enum PublicationReadiness {
             issues.append("Buchtitel ist ein Platzhalter, Genre-Label oder bekanntes Schablonenmuster.")
         }
 
-        // Professioneller, aber erreichbarer Maßstab: Ein Roman darf ein paar kurze,
-        // wiederkehrende Beats enthalten (menschlich normal). Blockierend sind nur
         // Längere Sätze dürfen im fertigen Manuskript nicht wortgleich erneut auftauchen.
         // Kurze Dialog- und Alltagsbeats bleiben erlaubt, solange sie nicht gehämmert werden.
-        let repeatStats = AutonomousContentQuality.repeatedSentenceStats(
-            inChapters: texts,
-            minimumOccurrences: 2
-        )
-        let seriousRepeats = repeatStats.filter {
-            ($0.words >= 7 && $0.occurrences >= 2) || $0.occurrences >= 5
-        }
+        //
+        // ES MUSS DIESELBE FUNKTION SEIN, DIE AUCH DIE REPARATUR VERWENDET.
+        // Vorher stand hier eine eigene Filterzeile (words >= 7 && occurrences >= 2).
+        // Der Reparaturschritt räumt aber nach `blockingRepeatedSentences` auf, und die
+        // Funktion verschont bewusst zwei Fälle: denselben Satz zweimal INNERHALB eines
+        // Kapitels (Stilmittel) und kurze Sätze in BENACHBARTEN Kapiteln (Leitmotiv).
+        // Diese Prüfung kannte die Ausnahmen nicht und blockierte trotzdem.
+        //
+        // Ergebnis war ein Patt, das sich nicht auflösen kann: Die Reparatur fand nichts
+        // zu tun und kehrte sofort zurück, die Abnahme blieb rot. Gemessen an einem
+        // fertigen Buch: 329 Runden, 3 h 51 min, kein einziger Modellaufruf, "0 von 1
+        // behoben". Die 9 beanstandeten Sätze lagen fast alle in genau diesen Ausnahmen
+        // (Kapitel 1↔1, 22↔23, 24↔25, 25↔26) – Sätze wie "Lena blieb stehen, die Hand
+        // an der Klinke", je zweimal in 100.000 Wörtern.
+        //
+        // Was die Abnahme blockiert, muss die Reparatur auch beheben können.
+        let seriousRepeats = AutonomousContentQuality.blockingRepeatedSentences(inChapters: texts)
         if !seriousRepeats.isEmpty {
             issues.append("Mehrfach wiederholte ganze Sätze gefunden (\(seriousRepeats.count)); Revision erforderlich.")
         }
