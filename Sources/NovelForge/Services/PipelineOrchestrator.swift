@@ -1032,7 +1032,8 @@ final class PipelineOrchestrator: ObservableObject {
                 let aiError = error as? AIError
                 lastError = aiError?.errorDescription ?? error.localizedDescription
 
-                if Self.isReadinessShortfall(error), let project = currentProject {
+                if Self.isReadinessShortfall(error), let project = currentProject,
+                   qualityRepairRounds < Self.maxQualityRepairRounds {
                     qualityRepairRounds += 1
                     readinessRepairAuditDone = false
                     project.status = .export
@@ -1308,7 +1309,8 @@ final class PipelineOrchestrator: ObservableObject {
                 }
                 let message = (error as? AIError)?.errorDescription ?? error.localizedDescription
 
-                if Self.isReadinessShortfall(error), let project {
+                if Self.isReadinessShortfall(error), let project,
+                   qualityRepairRounds < Self.maxQualityRepairRounds {
                     qualityRepairRounds += 1
                     readinessRepairAuditDone = false
                     project.status = .export
@@ -2763,11 +2765,28 @@ final class PipelineOrchestrator: ObservableObject {
             let item = topics[abs(index) % topics.count]
             return ParsedIdea(title: item.0, genre: genre, premise: item.1)
         }
+        // Notfall-Titel, wenn das Modell keine brauchbare Idee liefert.
+        //
+        // Die frühere Liste bestand aus poetischen Bildern ("Honig auf der Klinge",
+        // "Das letzte Streichholz", "Der Geruch von Übermorgen"). Solche Titel klingen
+        // literarisch, sagen dem Leser in der Trefferliste aber NICHTS und lösen kein
+        // Gefühl aus – genau die Sorte, über die sich der Nutzer beschwert hat.
+        //
+        // Diese Liste folgt stattdessen den Bauarten, die auf BookTok tatsächlich
+        // funktionieren: eine direkte Anrede, eine Anschuldigung, ein Geständnis oder
+        // ein Versprechen mit Einsatz. Man kann jeden dieser Sätze aussprechen und
+        // weitersagen – das ist der eigentliche Treiber, nicht die Sprachschönheit.
         let titles = [
-            "Honig auf der Klinge", "Drei Winter, die es nie gab", "Was du im Dunkeln versprochen hast",
-            "Sie log beim Frühstück", "Das letzte Streichholz", "Ich habe dich erfunden",
-            "Zähl die Narben, nicht die Jahre", "Der Geruch von Übermorgen", "Wer hat das Licht gelöscht?",
-            "Das Summen, das er mir verschwieg"
+            "Sag es niemandem, hörst du",
+            "Ich hätte dich gehen lassen sollen",
+            "Du wusstest, dass ich lüge",
+            "Sie kommt zurück, wenn du schläfst",
+            "Er hat mir alles genommen, nur nicht das",
+            "Was in dieser Nacht geschah, bleibt hier",
+            "Ich habe deine Tochter zuletzt gesehen",
+            "Du schuldest mir ein Leben",
+            "Niemand hat nach ihr gefragt",
+            "Frag mich nicht, wo ich war"
         ]
         let premises = [
             "Eine Frau kehrt nach Jahren in ihre Heimatstadt zurück und stößt auf ein Geheimnis, das ihre Familie lange verschwiegen hat, und muss entscheiden, ob die Wahrheit alles zerstört, was sie noch hat.",
@@ -5072,6 +5091,15 @@ final class PipelineOrchestrator: ObservableObject {
     /// Kurze Pause zwischen zwei automatischen Reparaturläufen (schont den Provider,
     /// hält die Selbstkorrektur aber zügig).
     static let readinessRetryDelaySeconds: Double = 15
+    
+    /// Höchstzahl der Qualitäts-Reparaturrunden für EIN Buch.
+    ///
+    /// Vorher lief diese Schleife unbegrenzt: An einem fertigen Buch wurden 224 Runden
+    /// über 2 Stunden 37 Minuten gezählt, Ergebnis "0 von 1 behoben" – 1,46 Millionen
+    /// Tokens für null Verbesserung. Wenn eine Beanstandung nach einigen Anläufen nicht
+    /// behoben ist, behebt sie auch der zwanzigste nicht; dann ist Weiterlaufen reine
+    /// Verschwendung und das Buch bleibt für immer im Export hängen.
+    static let maxQualityRepairRounds = 8
 
     /// Ist der Fehler „Buch fertig, aber Qualitäts-Endabnahme noch offen"? Nur dann
     /// wird selbstkorrigierend weitergearbeitet statt zu verwerfen.
