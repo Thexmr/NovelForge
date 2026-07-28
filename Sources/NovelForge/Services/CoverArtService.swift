@@ -55,20 +55,85 @@ enum CoverArtService {
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
-    /// Baut den Bild-Prompt aus den generierten Cover-Prompts + Titel/Autor.
+    /// Kunstrichtung je Genre – abgeleitet aus den Gestaltungskonventionen, an denen
+    /// Leser ein Genre im Regal und im Thumbnail sofort erkennen.
+    ///
+    /// Bewusst OHNE Menschen und OHNE Schrift im Motiv: Gesichter und Hände sind die
+    /// stärksten KI-Verräter, und Bildmodelle können keine lesbaren Buchstaben setzen.
+    /// Titel und Autor kommen später als gestochen scharfe Typografie darüber.
+    static func artDirection(for genre: String) -> String {
+        let g = genre.lowercased()
+        if g.contains("dark romance") || g.contains("erotik") || g.contains("erotic") || g.contains("spicy") {
+            // Konvention: schwarzer Grund, ein kräftiger Kontrastton (Rot/Bordeaux),
+            // Objekt-Symbolik statt expliziter Darstellung ("discreet cover"), weiches
+            // Gegenlicht, kinoreife Stimmung.
+            return "schwarzer Hintergrund mit einem einzigen kräftigen Kontrastton in Bordeaux oder Tiefrot, "
+                + "Objekt-Symbolik in Nahaufnahme: eine seidene Krawatte über einer Stuhllehne, eine venezianische "
+                + "Maske auf dunklem Samt, eine einzelne dunkelrote Rose mit Dornen, ein geöffnetes Schloss an einer Kette; "
+                + "weiches Gegenlicht, tiefe Schatten, edler und andeutender Ton statt expliziter Darstellung"
+        }
+        if g.contains("roman") && (g.contains("liebe") || g.contains("romance")) || g.contains("liebesroman")
+            || g.contains("romantasy") || g.contains("chick") {
+            // Konvention: kräftige, klare Farben, warmes Licht, Alltagsgegenstände mit
+            // Gefühlswert; die moderne Linie geht weg von verspielten Schnörkeln.
+            return "warme, klare Farbflächen in Puderrosa, Korallrot oder Sonnengelb gegen einen ruhigen Grund, "
+                + "ein einzelnes Objekt mit Gefühlswert in Nahaufnahme: zwei Kaffeetassen auf einem Fensterbrett, "
+                + "ein zerknitterter Brief mit Kaffeerand, verschlungene Kirschzweige, ein Paar Schuhe am Bahnsteig; "
+                + "weiches Tageslicht, viel Luft im Bild, moderne und aufgeräumte Anmutung"
+        }
+        if g.contains("horror") || g.contains("grusel") || g.contains("gothic") {
+            // Konvention: dunkler Grund, gotische Strenge, Symmetrie, ein einziger
+            // Lichtakzent; das Unheimliche entsteht aus der Leere, nicht aus Blut.
+            return "sehr dunkler, fast schwarzer Grund mit einem einzigen kalten Lichtakzent, streng symmetrische "
+                + "Komposition, gotische Motive in Nahaufnahme: ein schmiedeeisernes Tor im Nebel, eine "
+                + "heruntergebrannte Kerze auf verwittertem Holz, eine leere Kirchenbank, ein Vogelschädel auf Stein; "
+                + "körniger Nebel, klamme Feuchtigkeit, das Unheimliche entsteht aus Leere und Stille"
+        }
+        if g.contains("fantasy") || g.contains("mythol") || g.contains("saga") {
+            // Konvention: botanische Ornamentik, Dornen, Karten- und Reliefanmutung,
+            // erdige Töne mit einem metallischen Akzent.
+            return "erdige Farbwelt aus Moosgrün, Tiefblau und Anthrazit mit einem metallischen Akzent in Gold oder Kupfer, "
+                + "botanische und ornamentale Motive: dornige Ranken um einen alten Schlüssel, ein verwittertes "
+                + "Steinrelief, eine Landkarte auf Pergament, ein Schwertknauf im Farn; feine Ziselierung, "
+                + "handwerkliche Tiefe, Anmutung eines aufwendig gestalteten Schutzumschlags"
+        }
+        if g.contains("thriller") || g.contains("krimi") || g.contains("suspense") || g.contains("noir")
+            || g.contains("viral") {
+            return "kalte blaugraue Farbwelt mit einem einzigen warmen Lichtpunkt, ein Objekt aus dem Tatgeschehen "
+                + "in Nahaufnahme: eine Messing-Patronenhülse auf nassem Asphalt, ein zerbrochenes Zifferblatt ohne "
+                + "Ziffern, ein Schlüsselbund im Türschloss, ein Autoschlüssel im Regenwasser; hartes Seitenlicht "
+                + "einer Straßenlaterne, Regentropfen, unruhige Schärfentiefe"
+        }
+        return "ein einzelnes charakteristisches Objekt auf strukturierter Oberfläche, gerichtetes Seitenlicht, "
+            + "gedämpfte, abgestimmte Farben, ruhige und hochwertige Komposition"
+    }
+
+    /// Baut den Bild-Prompt für das MOTIV.
+    ///
+    /// WICHTIG: Der Prompt verlangt ausdrücklich KEINE Schrift im Bild. Vorher stand hier
+    /// „Titel groß und gut lesbar: … Autor dezent unten: …" – das Bildmodell malte also
+    /// verkrüppelte Buchstaben ins Motiv, über die anschließend die echte Typografie
+    /// gelegt wurde. Doppelter Text und der typische KI-Look waren die Folge.
+    /// Titel und Autorname setzt `CoverComposer` als scharfe Typografie darüber, und
+    /// der Autorname stammt IMMER aus den Angaben im Programm.
     static func buildPrompt(for project: Project) -> String {
         let profilePrompt = project.bookProfile?.coverPrompts
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let premise = project.bookProfile?.premise
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let scene = profilePrompt.isEmpty
-            ? "stimmungsvolles, hochwertiges Motiv passend zu Genre und Prämisse: \(premise.prefix(300))"
-            : String(profilePrompt.prefix(900))
+            ? String(premise.prefix(200))
+            : String(profilePrompt.prefix(400))
+        let bezug = scene.isEmpty ? "" : " Greife einen konkreten Gegenstand aus dieser Geschichte auf: \(scene)."
         return """
-        Professionelles Buchcover für einen deutschen \(project.genre), Hochformat, Bestseller-Look. \
-        Motiv: \(scene). Titel groß und gut lesbar: „\(project.title)". Autor dezent unten: \(project.authorName). \
-        Klare Fokusfläche hinter dem Titel, kräftige Lichtstimmung, keine Wasserzeichen, keine Rahmen, keine Logos, \
-        auch als kleines Thumbnail lesbar.
+        Buchcover-Motiv für einen deutschen \(project.genre), Hochformat 2:3, Bestseller-Anmutung. \
+        \(artDirection(for: project.genre)).\(bezug) \
+        Analoge Kleinbildfotografie mit feinem Filmkorn, cineastische Farbabstufung, natürliches unperfektes Licht, \
+        geringe Schärfentiefe, sichtbare Materialtextur. \
+        Ruhige, dunkle Fläche im oberen Drittel und im unteren Viertel als Platz für die Typografie. \
+        Reines Bildmotiv ohne jede Schrift, ohne Buchstaben, ohne Zahlen, ohne Zifferblätter, ohne Wasserzeichen, \
+        ohne Rahmen, ohne Logos, ohne Menschen, ohne Gesichter, ohne Hände. \
+        Auch als kleines Thumbnail sofort erkennbar.
         """
     }
 

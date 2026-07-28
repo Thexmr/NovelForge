@@ -198,6 +198,25 @@ enum PromptFactory {
     /// Bewusst getrennt von `genreCraft` (das die Prosa beim Schreiben steuert).
     static func genreViralAngle(_ genre: String) -> String {
         let g = genre.lowercased()
+        // VIRAL HIT ist kein Genre, sondern eine Arbeitsweise: das Konzept wird gezielt
+        // auf die Mechanik gebaut, die Bücher auf BookTok groß macht. Recherchierte
+        // Treiber: eine starke Gefühlsreaktion (weinen, mitfiebern, empört sein), ein
+        // Titel, der sich selbst verkauft, und ein Haken, den man in einem Satz
+        // weitererzählen kann. Genre-Etikett wählt das Modell passend zur Idee.
+        if g.contains("viral") {
+            return """
+            VIRALES THEMA (Viral Hit): Das Buch ist auf WEITERERZÄHLBARKEIT gebaut. Prüfe jede Idee an drei Fragen:
+            1) Löst sie eine starke Gefühlsreaktion aus, über die Leser reden – Tränen, Wut, Fassungslosigkeit, Sehnsucht?
+            2) Lässt sich die Prämisse in EINEM Satz erzählen, den jemand seiner Freundin weitersagt?
+            3) Gibt es einen Moment, den man zitiert oder markiert – eine Wendung, ein Geständnis, einen letzten Satz?
+            Wähle selbst das passende Genre-Etikett (Dark Romance, Psychothriller, Romantasy, Domestic Suspense …)
+            und liefere es im Feld GENRE mit. Setze auf ein aktuelles, aufgeladenes Thema mit klarer Zielgruppe:
+            verbotene Nähe, Rache mit Preis, ein Geheimnis zwischen zwei Menschen, eine Schuld, die zurückkommt.
+            TITEL-KLANG: ein Satz, den man aussprechen und weitersagen will – Anrede, Versprechen oder Anschuldigung.
+            Beispiele für die Stoßrichtung (nicht übernehmen):
+            "Ich hätte dich gehen lassen sollen" · "Sag es niemandem, Anna" · "Du schuldest mir ein Leben" · "Er wusste, dass ich lüge".
+            """
+        }
         if g.contains("thriller") || g.contains("krimi") {
             return """
             VIRALES THEMA (Thriller/Krimi): Ein "Was wäre, wenn"-Albtraum mitten im Alltag, eine tickende Uhr,

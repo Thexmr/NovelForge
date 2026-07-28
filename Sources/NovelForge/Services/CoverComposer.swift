@@ -113,13 +113,30 @@ enum CoverComposer {
         }
     }
 
+    /// Schriftwahl nach Genre-Konvention.
+    ///
+    /// Die Zuordnung folgt dem, woran Leser ein Genre im Regal erkennen:
+    /// – Liebesroman/Romance: moderne Serifenschrift (die verspielten Schreibschriften
+    ///   sind bei aktuellen Titeln der klaren Serife gewichen)
+    /// – Horror/Gothic/Fantasy: Serife mit Gewicht, ernst und altertümlich
+    /// – Dark Romance/Erotik: breite, harte Versalien – der Kontrast zum weichen Motiv
+    ///   ist genau das Genre-Signal
+    /// – Thriller/Krimi: kräftige Grotesk, gedrängt und laut
     private static func coverFont(for genre: String, size: CGFloat, bold: Bool) -> NSFont {
         let g = genre.lowercased()
-        let usesSerif = g.contains("liebes") || g.contains("romance") || g.contains("erotik")
-            || g.contains("histor")
+
+        // Dark Romance/Erotik: harte Grotesk in schwerem Schnitt.
+        if g.contains("dark romance") || g.contains("erotik") || g.contains("erotic") || g.contains("spicy") {
+            return NSFont.systemFont(ofSize: size, weight: bold ? .black : .semibold)
+        }
+        // Liebesroman, historischer Roman, Horror, Gothic, Fantasy: Serife.
+        let usesSerif = g.contains("liebes") || g.contains("romance") || g.contains("romantasy")
+            || g.contains("histor") || g.contains("horror") || g.contains("gothic")
+            || g.contains("grusel") || g.contains("fantasy") || g.contains("mythol") || g.contains("saga")
         if usesSerif, let serif = NSFont(name: bold ? "Georgia-Bold" : "Georgia", size: size) {
             return serif
         }
+        // Thriller, Krimi, Viral Hit und alles Übrige: kräftige Grotesk.
         return NSFont.systemFont(ofSize: size, weight: bold ? .heavy : .medium)
     }
 

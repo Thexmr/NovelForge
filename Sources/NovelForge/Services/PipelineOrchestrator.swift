@@ -25,6 +25,11 @@ struct UnlimitedSettings {
 
     static let randomToken = "Zufällig"
     static let genrePool = [
+        // Viral-Hit: kein klassisches Genre, sondern eine ARBEITSWEISE. Das Konzept wird
+        // gezielt auf die Mechanik gebaut, die Bücher auf BookTok groß macht – starke
+        // Gefühlsreaktion, ein Titel, der sich selbst verkauft, ein Haken, den man in
+        // einem Satz weitererzählen kann. Genre-Etikett wird dann passend gewählt.
+        "Viral Hit",
         // Spannung / Krimi
         "Thriller", "Psychothriller", "Spionagethriller", "Justizthriller", "Politthriller",
         "Wirtschaftsthriller", "Medizinthriller", "Ökothriller", "Krimi", "Regionalkrimi",
