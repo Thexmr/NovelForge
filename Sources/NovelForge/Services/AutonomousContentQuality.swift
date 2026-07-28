@@ -743,6 +743,44 @@ enum AutonomousContentQuality {
     /// SATZGENAU, damit auch ein mitten im Absatz eingebetteter Anweisungssatz
     /// verschwindet, ohne die umgebende Erzählung zu beschädigen. Reine Label-Zeilen
     /// (z.B. „Ort: Bäckerei") werden komplett entfernt. Das darf NIE im Buch landen.
+    /// Entfernt eine vom Modell vorangestellte ÜBERSCHRIFT aus dem Szenentext.
+    ///
+    /// Der Auftrag lautet „Schreibe diese Szene als vollständige Endfassung neu" – viele
+    /// Modelle setzen daraufhin eine Kopfzeile davor: „Kapitel 34, Szene 2 – Endfassung".
+    /// An einem fertigen Buch gemessen betraf das 39 von 184 Szenen, also über ein
+    /// Fünftel des Manuskripts. Ohne diese Reinigung stehen die Zeilen im gedruckten Buch.
+    ///
+    /// Entfernt werden nur ERSTE Zeilen, die eindeutig eine Arbeitsangabe sind – ein
+    /// echter Kapiteltitel oder ein Prosa-Anfang bleibt unangetastet.
+    static func strippingSceneHeading(_ text: String) -> String {
+        var zeilen = text.components(separatedBy: .newlines)
+        // Führende Leerzeilen weg.
+        while let erste = zeilen.first, erste.trimmingCharacters(in: .whitespaces).isEmpty {
+            zeilen.removeFirst()
+        }
+        guard let kopf = zeilen.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !kopf.isEmpty else { return text }
+
+        // Eine Arbeitsüberschrift ist kurz und nennt Kapitel/Szene oder eine Fassung.
+        let niedrig = kopf.lowercased()
+        let nenntStelle = niedrig.range(of: "^(kapitel|szene)\\s*\\d+", options: .regularExpression) != nil
+            || niedrig.range(of: "\\bszene\\s*\\d+", options: .regularExpression) != nil
+        let nenntFassung = niedrig.contains("endfassung") || niedrig.contains("überarbeitet")
+            || niedrig.contains("rohfassung") || niedrig.contains("fassung:")
+        let istKurz = kopf.count <= 80
+
+        guard istKurz, nenntStelle || nenntFassung else { return text }
+
+        zeilen.removeFirst()
+        while let erste = zeilen.first, erste.trimmingCharacters(in: .whitespaces).isEmpty {
+            zeilen.removeFirst()
+        }
+        let rest = zeilen.joined(separator: "\n")
+        // Sicherheitsnetz: Wenn danach fast nichts übrig bleibt, war es doch keine
+        // Überschrift – dann lieber den Originaltext behalten.
+        return rest.trimmingCharacters(in: .whitespacesAndNewlines).count >= 40 ? rest : text
+    }
+
     static func strippingPromptArtifacts(_ text: String) -> String {
         var keptLines: [String] = []
         for line in text.components(separatedBy: .newlines) {
