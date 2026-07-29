@@ -136,6 +136,30 @@ enum ProofService {
         checks.append(Check("Keine Formatvorlagen im Text", withLabels.isEmpty,
                             withLabels.isEmpty ? "keine gefunden" : "\(withLabels.count) Kapitel betroffen"))
 
+        // RECHTSCHREIBUNG.
+        //
+        // Diese Prüfung fehlte vollständig – die Pipeline hat nie in einem Wörterbuch
+        // nachgeschlagen. KDP meldete nach dem Upload "121 mögliche Rechtschreibfehler",
+        // darunter "KAPITZEL" statt "KAPITEL" in einer Kapitelüberschrift.
+        //
+        // Eigennamen aus der Story Bible gehen nicht als Fehler durch: Romanfiguren
+        // stehen in keinem Wörterbuch.
+        let eigennamen = Set(
+            (project.storyBible?.characters ?? []).map(\.name)
+            + (project.storyBible?.locations ?? []).map(\.name)
+            + project.title.split(separator: " ").map(String.init)
+        )
+        let rechtschreibung = SpellCheckService.pruefe(text: texts.joined(separator: "\n"),
+                                                       eigennamen: eigennamen)
+        let fehlerVorkommen = rechtschreibung.reduce(0) { $0 + $1.anzahl }
+        checks.append(Check("Rechtschreibung",
+                            rechtschreibung.isEmpty,
+                            rechtschreibung.isEmpty
+                                ? "keine Beanstandung"
+                                : "\(fehlerVorkommen) Vorkommen / \(rechtschreibung.count) Wörter: "
+                                  + SpellCheckService.beschreibe(rechtschreibung, hoechstens: 12),
+                            required: false))
+
         let short = texts.filter { wordCount($0) < 300 }
         checks.append(Check("Keine leeren Kapitel", short.isEmpty,
                             short.isEmpty ? "alle Kapitel ausreichend lang" : "\(short.count) Kapitel unter 300 Wörtern"))

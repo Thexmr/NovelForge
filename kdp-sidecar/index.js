@@ -356,6 +356,91 @@ async function warteAufUploadFertig(page, dateiPfad, timeoutMs = 240000, melde =
   return { ok: false, hinweis: 'keine Bestätigung innerhalb der Wartezeit' };
 }
 
+
+/**
+ * Klickt ein Formularelement, das über SEINEN SICHTBAREN TEXT gefunden wird.
+ *
+ * KDP vergibt für diese Abschnitte keine stabilen IDs. Über den Beschriftungstext zu
+ * gehen ist dafür der verlässlichere Weg: Der Text steht im Formular und ändert sich
+ * seltener als generierte Attribute.
+ */
+async function klickeNachBeschriftung(page, muster, nurTyp) {
+  return page.evaluate((musterQuelle, typ) => {
+    const re = new RegExp(musterQuelle, 'i');
+    const eingaben = [...document.querySelectorAll('input[type="radio"], input[type="checkbox"]')]
+      .filter((el) => !typ || el.type === typ);
+    for (const el of eingaben) {
+      // Beschriftung: verknüpftes <label>, umschließendes <label> oder Elternzeile.
+      let text = '';
+      if (el.id) {
+        const lab = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+        if (lab) text = lab.innerText || '';
+      }
+      if (!text) text = (el.closest('label') || {}).innerText || '';
+      if (!text) text = (el.parentElement || {}).innerText || '';
+      if (!re.test(text)) continue;
+      if (el.checked) return 'bereits';
+      el.click();
+      return el.checked ? 'geklickt' : 'klick-ohne-wirkung';
+    }
+    return 'nicht-gefunden';
+  }, muster instanceof RegExp ? muster.source : String(muster), nurTyp || null);
+}
+
+/**
+ * KI-Kennzeichnung ausfüllen – bei KDP ein PFLICHTFELD.
+ *
+ * Hier stand vorher nur ein Kommentar ("hier wird die Absicht protokolliert") und eine
+ * Fortschrittsmeldung: Das Feld wurde nie ausgefüllt. Am echten Titel nachgesehen waren
+ * unter "Haben Sie bei der Erstellung ... KI-Tools verwendet?" BEIDE Knöpfe leer, und
+ * "Speichern und fortfahren" ging deshalb nicht weiter. Der Upload blieb genau davor
+ * stehen ("Preise von Kindle eBooks: Nicht begonnen").
+ *
+ * Die Angabe muss der Wahrheit entsprechen: Diese Bücher entstehen mit KI, also "Ja".
+ * Danach fragt KDP, WOFÜR – Text, Bilder, Übersetzung. Text und Bilder treffen zu.
+ */
+async function setzeKiKennzeichnung(page, job) {
+  const art = String(job.aiDisclosure || 'ai-assisted');
+  const jaNein = art === 'none' ? 'Nein' : 'Ja';
+  const schritte = [];
+
+  schritte.push('Haupt:' + await klickeNachBeschriftung(page, `^\\s*${jaNein}\\s*$`, 'radio'));
+  await new Promise((r) => setTimeout(r, 1500));
+
+  if (jaNein === 'Ja') {
+    // Unterfragen erscheinen erst nach "Ja".
+    schritte.push('Text:' + await klickeNachBeschriftung(page, 'text', 'checkbox'));
+    schritte.push('Bilder:' + await klickeNachBeschriftung(page, 'bild', 'checkbox'));
+    await new Promise((r) => setTimeout(r, 1000));
+    // Umfang der KI-Beteiligung: "umfangreich bearbeitet" ist für diese Bücher korrekt.
+    schritte.push('Umfang:' + await klickeNachBeschriftung(page, 'bearbeitet|umfangreich', 'radio'));
+  }
+  return schritte;
+}
+
+/**
+ * Auf "Bereits vorhandenes Cover hochladen" umschalten.
+ *
+ * KDP steht standardmäßig auf "Buchcover mit Cover Creator erstellen" – und solange
+ * das gewählt ist, GIBT ES GAR KEIN DATEIFELD. Der Sidecar suchte trotzdem danach,
+ * fand nichts und meldete den Schritt als erledigt. Am echten Titel nachgesehen stand
+ * dort "Kein Cover hochgeladen", während die Fabrik "Cover: hochgeladen" anzeigte.
+ */
+async function waehleEigenesCover(page) {
+  const r = await klickeNachBeschriftung(page, 'vorhandenes Cover hochladen|eigenes Cover', 'radio');
+  await new Promise((res) => setTimeout(res, 2000));
+  return r;
+}
+
+/**
+ * Das Bestätigungsfeld unten auf der Inhaltsseite ankreuzen.
+ * "Durch Anklicken dieses Feldes bestätige ich, dass meine Antworten korrekt sind."
+ * Ohne dieses Häkchen speichert KDP die Seite nicht.
+ */
+async function bestaetigeAngaben(page) {
+  return klickeNachBeschriftung(page, 'bestätige ich|Antworten korrekt', 'checkbox');
+}
+
 /** Öffnet den Kategorie-Dialog, wählt Ober-/Unterkategorie und speichert. */
 async function setzeKategorie(page, job) {
   // Kategorien kommen je nach Aufrufer als Liste oder als „A > B | C > D"-Zeichenkette.
@@ -364,7 +449,12 @@ async function setzeKategorie(page, job) {
   const katListe = Array.isArray(job.categories)
     ? job.categories
     : String(job.categories || '').split('|');
-  const wunsch = String(katListe[0] || '').split('>')[0].trim();
+  // Die App liefert den vollen Pfad "Krimis & Thriller > Thriller > Psychologische
+  // Thriller". Vorher wurde davon NUR das erste Glied benutzt; Unterkategorie und
+  // Platzierung blieben leer, und angekreuzt wurde die erste beste freie Checkbox –
+  // also irgendeine. Am echten Titel war die Kategorie deshalb komplett leer.
+  const pfad = String(katListe[0] || '').split('>').map((x) => x.trim()).filter(Boolean);
+  const wunsch = pfad[0] || '';
   // KEINE Kategorie erfinden. Vorher stand hier „Krimis & Thriller" als Notnagel –
   // damit bekam ein Ratgeber oder Liebesroman stillschweigend eine falsche Kategorie.
   // Eine falsche Kategorie schadet dem Ranking mehr als eine fehlende, und der Mensch
@@ -387,10 +477,47 @@ async function setzeKategorie(page, job) {
   }, wunsch).catch(() => false);
   if (!gesetzt) return false;
   await new Promise(r => setTimeout(r, 3000));
-  await page.evaluate(() => {
-    const b = [...document.querySelectorAll('input[type="checkbox"]')].find((c) => c.offsetParent !== null && !c.checked);
-    if (b) { b.click(); b.dispatchEvent(new Event('change', { bubbles: true })); }
-  }).catch(() => {});
+  // Unterkategorie (zweites Glied) im nächsten Auswahlfeld setzen.
+  if (pfad[1]) {
+    await page.evaluate((u) => {
+      const felder = [...document.querySelectorAll('select')].filter((x) => x.offsetParent !== null);
+      for (const s of felder) {
+        const opt = [...s.options].find((o) => o.text.trim().toLowerCase() === u.toLowerCase())
+          || [...s.options].find((o) => o.text.toLowerCase().includes(u.toLowerCase()));
+        if (!opt || s.value === opt.value) continue;
+        Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set.call(s, opt.value);
+        s.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      }
+      return false;
+    }, pfad[1]).catch(() => {});
+    await new Promise(r => setTimeout(r, 3000));
+  }
+
+  // Platzierung ankreuzen – die RICHTIGE, nicht die erste freie.
+  //
+  // Die Namen der App und die von KDP decken sich nicht immer wörtlich: Die App sagt
+  // "Psychologische Thriller", im Formular steht "Psychothriller". Deshalb wird der
+  // beste Treffer über gemeinsame Wortanfänge gesucht statt über Gleichheit.
+  await page.evaluate((ziel) => {
+    const stamm = (t) => (t.toLowerCase().match(/[a-zäöüß]{4,}/g) || []).map((w) => w.slice(0, 6));
+    const zielStaemme = stamm(ziel || '');
+    const kandidaten = [...document.querySelectorAll('input[type="checkbox"]')]
+      .filter((c) => c.offsetParent !== null);
+    let bester = null, bestePunkte = 0;
+    for (const c of kandidaten) {
+      let text = '';
+      if (c.id) { const l = document.querySelector(`label[for="${CSS.escape(c.id)}"]`); if (l) text = l.innerText || ''; }
+      if (!text) text = (c.closest('label') || c.parentElement || {}).innerText || '';
+      const punkte = stamm(text).filter((w) => zielStaemme.includes(w)).length;
+      if (punkte > bestePunkte) { bestePunkte = punkte; bester = c; }
+    }
+    // Ohne erkennbaren Bezug lieber NICHTS ankreuzen als das Falsche: Eine falsche
+    // Kategorie schadet dem Ranking mehr als eine fehlende.
+    if (!bester || bestePunkte === 0) return false;
+    if (!bester.checked) { bester.click(); bester.dispatchEvent(new Event('change', { bubbles: true })); }
+    return true;
+  }, pfad[2] || pfad[1] || '').catch(() => {});
   await new Promise(r => setTimeout(r, 2000));
   const gespeichert = await page.evaluate(() => {
     const b = [...document.querySelectorAll('button')].find((e) =>
@@ -793,8 +920,12 @@ async function cmdUpload() {
 
     // KI-Offenlegung (Pflicht bei KDP): job.aiDisclosure = 'ai-generated' | 'ai-assisted' | 'none'
     report({ stage: 'ai-disclosure', progress: 0.56, message: `KI-Kennzeichnung: ${job.aiDisclosure || 'ai-assisted'}` });
-    // Die genauen Radio-/Checkbox-Selektoren dieses (neueren) KDP-Abschnitts werden
-    // beim ersten echten Login validiert; hier wird die Absicht protokolliert.
+    {
+      const schritte = await setzeKiKennzeichnung(page, job);
+      const ok = schritte.some((x) => /geklickt|bereits/.test(x));
+      (ok ? gefuellt : probleme).push('KI-Kennzeichnung: ' + schritte.join(', '));
+      report({ stage: 'ai-disclosure', progress: 0.58, message: 'KI-Kennzeichnung: ' + schritte.join(', ') });
+    }
 
     // Inhalt und Preis NUR im echten Lauf. Beide Seiten gehören zu einem BEREITS
     // angelegten Titel und sind erst über „Speichern und fortfahren" erreichbar –
@@ -843,6 +974,11 @@ async function cmdUpload() {
       // Buchrücken und Rückseite in einer Datei) – ein JPEG wird dort abgelehnt.
       const coverDatei = (job.format === 'paperback' && job.wrapPdfPath && fs.existsSync(job.wrapPdfPath))
         ? job.wrapPdfPath : job.coverPath;
+      // ZUERST auf "Bereits vorhandenes Cover hochladen" umschalten: Solange der
+      // Cover Creator gewählt ist, existiert überhaupt kein Dateifeld.
+      const coverWahl = await waehleEigenesCover(page);
+      report({ stage: 'content', progress: 0.78, message: 'Cover-Quelle: ' + coverWahl });
+      if (coverWahl === 'nicht-gefunden') probleme.push('Cover: Umschalter auf eigenes Cover nicht gefunden');
       const coverFeld = await page.$('#data-assets-cover-file-upload-AjaxInput, input[type="file"][accept*="pdf"], input[type="file"][accept*="jpeg"], input[type="file"][accept*="jpg"]');
       if (coverFeld && coverDatei && fs.existsSync(coverDatei)) {
         await coverFeld.uploadFile(coverDatei).catch(() => {});
@@ -852,6 +988,19 @@ async function cmdUpload() {
         (b.ok ? gefuellt : probleme).push('Cover: ' + b.hinweis);
       } else if (job.coverPath) {
         probleme.push('Cover: Upload-Feld nicht gefunden');
+      }
+
+      // Pflicht-Häkchen: Ohne die Bestätigung speichert KDP die Inhaltsseite nicht,
+      // und "Speichern und fortfahren" bleibt wirkungslos.
+      {
+        const b = await bestaetigeAngaben(page);
+        report({ stage: 'content', progress: 0.85, message: 'Bestätigung: ' + b });
+        if (b === 'nicht-gefunden') {
+          // Nicht immer vorhanden – KDP zeigt sie nur nach einem neuen Upload.
+          gefuellt.push('Bestätigung: nicht verlangt');
+        } else {
+          (/geklickt|bereits/.test(b) ? gefuellt : probleme).push('Bestätigung: ' + b);
+        }
       }
 
       // Weiter zur Preisseite (ebenfalls über den Ablauf, nicht per Deeplink).
