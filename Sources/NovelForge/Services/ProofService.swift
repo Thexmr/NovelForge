@@ -220,7 +220,70 @@ enum ProofService {
                             rep.pixelsWide >= 1600 && rep.pixelsHigh >= 2400,
                             "\(rep.pixelsWide)×\(rep.pixelsHigh) px"))
         checks.append(Check("Cover unter 50 MB", mb < 50, String(format: "%.2f MB", mb)))
+
+        // IST ÜBERHAUPT SCHRIFT DRAUF?
+        // Diese Prüfung fehlte – und genau deshalb ging ein Cover ganz ohne Titel und
+        // Autornamen als fertig durch. Der Baustein, der die Typografie auflegt, wurde
+        // von der Erzeugungsfunktion schlicht nicht aufgerufen; geprüft wurden nur
+        // Dateigröße und Pixelmaße, und die waren tadellos.
+        let dichte = schriftDichte(rep)
+        checks.append(Check("Titel und Autorname auf dem Cover",
+                            dichte >= minimaleSchriftDichte,
+                            String(format: "Kantendichte %.2f %% (Schwelle %.2f %%)",
+                                   dichte, minimaleSchriftDichte)))
         return checks
+    }
+
+    /// Untergrenze für die gemessene Kantendichte. An den echten Dateien von
+    /// „Das letzte Streichholz" gemessen: nacktes Motiv 0,21 %, dasselbe Motiv mit
+    /// aufgelegter Typografie 2,15 % – im oberen Band sogar 0,01 % gegen 2,15 %.
+    static let minimaleSchriftDichte = 0.80
+
+    /// Misst, wie viel harte Schriftkante in den Typografie-Zonen steckt.
+    ///
+    /// Buchstaben erzeugen dicht an dicht sehr harte Hell-Dunkel-Sprünge. Ein Foto mit
+    /// geringer Schärfentiefe – und genau das verlangt der Bild-Prompt – hat dort weiche
+    /// Übergänge. Gemessen wird auf eine feste Größe normiert, damit die Zahl nicht von
+    /// der Auflösung abhängt: Motiv und fertiges Cover unterscheiden sich darin stark.
+    ///
+    /// Betrachtet werden das obere Band (Autorname) und die Titelzone. Es zählt der
+    /// höhere der beiden Werte: Wo genau die Typografie sitzt, hängt vom Entwurf ab.
+    static func schriftDichte(_ rep: NSBitmapImageRep) -> Double {
+        let breite = 800, hoehe = 1200
+        guard let cg = rep.cgImage,
+              let ctx = CGContext(data: nil, width: breite, height: hoehe,
+                                  bitsPerComponent: 8, bytesPerRow: breite,
+                                  space: CGColorSpaceCreateDeviceGray(),
+                                  bitmapInfo: CGImageAlphaInfo.none.rawValue)
+        else { return 0 }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: breite, height: hoehe))
+        guard let puffer = ctx.data else { return 0 }
+        let pixel = puffer.bindMemory(to: UInt8.self, capacity: breite * hoehe)
+
+        func dichte(vonAnteil: Double, bisAnteil: Double) -> Double {
+            let y0 = Int(Double(hoehe) * vonAnteil), y1 = Int(Double(hoehe) * bisAnteil)
+            var hart = 0, gesamt = 0
+            var y = y0
+            while y < y1 {
+                var x = 2
+                while x < breite - 4 {
+                    let a = Int(pixel[y * breite + x])
+                    let b = Int(pixel[y * breite + x + 2])
+                    gesamt += 1
+                    if abs(a - b) > 110 { hart += 1 }
+                    x += 2
+                }
+                y += 2
+            }
+            return gesamt == 0 ? 0 : Double(hart) / Double(gesamt) * 100
+        }
+        // Der Pixelpuffer läuft zeilenweise von OBEN nach unten – die Anteile sind also
+        // von oben gerechnet. Oberes Band (Autorname) = 0,03…0,10, Titelzone = 0,15…0,40.
+        // An den echten Dateien nachgemessen:
+        //   nacktes Motiv          0,01 %  /  0,19 %
+        //   Cover mit Typografie   2,17 %  /  2,14 %
+        return max(dichte(vonAnteil: 0.03, bisAnteil: 0.10),
+                   dichte(vonAnteil: 0.15, bisAnteil: 0.40))
     }
 
     /// Prüft das Druckcover – inklusive der Frage, ob das Barcode-Feld WIRKLICH frei ist.

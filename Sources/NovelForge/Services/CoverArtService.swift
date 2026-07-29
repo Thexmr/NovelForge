@@ -108,9 +108,19 @@ enum CoverArtService {
 
         if g.contains("thriller") || g.contains("krimi") || g.contains("suspense") || g.contains("noir")
             || g.contains("viral") {
-            return "kalte blaugraue Farbwelt mit einem einzigen warmen Lichtpunkt, ein Objekt aus dem "
-                + "Tatgeschehen groß im Vordergrund, nasser Asphalt mit Spiegelungen, hartes Seitenlicht "
-                + "einer Straßenlaterne, Regen, unruhige Schärfentiefe, bedrohliche Stille"
+            // Hier stand vorher eine feste KULISSE: "nasser Asphalt mit Spiegelungen,
+            // hartes Seitenlicht einer Straßenlaterne, Regen". Damit bekam JEDER Thriller
+            // dieselbe nasse Straße bei Nacht – unabhängig davon, wovon das Buch handelt.
+            // Gemessen an "Das letzte Streichholz" (verlassenes Elternhaus, verbrannte
+            // Fotos, Asche auf dem Bett): Das Cover zeigte eine leere Straße mit Laterne.
+            //
+            // Die Art Direction beschreibt deshalb nur noch LICHT, FARBE und AUFBAU.
+            // Was zu sehen ist, kommt aus dem Buch – siehe motivAusDemBuch().
+            return "kalte blaugraue bis tiefschwarze Farbwelt mit genau EINEM warmen Lichtpunkt, "
+                + "ein einzelner Gegenstand aus der Handlung formatfüllend und überlebensgroß im "
+                + "Vordergrund, harte gerichtete Lichtkante von der Seite, tiefe Schatten, "
+                + "starker Hell-Dunkel-Kontrast, klare Silhouette, unruhige Schärfentiefe, "
+                + "bedrohliche Stille"
         }
 
         return "atmosphärische Szene mit weichem Gegenlicht, florale Elemente an den Bildrändern, "
@@ -125,15 +135,38 @@ enum CoverArtService {
     /// gelegt wurde. Doppelter Text und der typische KI-Look waren die Folge.
     /// Titel und Autorname setzt `CoverComposer` als scharfe Typografie darüber, und
     /// der Autorname stammt IMMER aus den Angaben im Programm.
+    /// Woraus das Motiv kommt – in dieser Reihenfolge:
+    ///
+    /// 1. Die eigens erzeugten Cover-Prompts (ein Agent hat dafür das fertige Buch gelesen).
+    /// 2. Die KDP-Beschreibung. Sie entsteht AUS DEM FERTIGEN TEXT und steckt voller
+    ///    konkreter Bilder – bei "Das letzte Streichholz" etwa Streichholz, Schlüssel
+    ///    Nummer 14, verbrannte Fotos, Asche auf dem Bett, ein verlassenes Elternhaus.
+    /// 3. Erst zuletzt die Prämisse aus der Planungsphase.
+    ///
+    /// Vorher wurde Stufe 2 übersprungen: Fehlten die Cover-Prompts – und sie fehlten,
+    /// solange niemand den Knopf gedrückt hatte –, ging es direkt auf die dünne
+    /// Planungs-Prämisse. Zusammen mit der damals fest verdrahteten Kulisse kam ein
+    /// austauschbares Straßenbild heraus, das mit dem Buch nichts zu tun hatte.
+    static func motivAusDemBuch(_ project: Project) -> String {
+        guard let profile = project.bookProfile else { return "" }
+        let kandidaten = [
+            profile.coverPrompts,
+            profile.kdpDescription,
+            profile.logline ?? "",
+            profile.premise,
+        ]
+        for kandidat in kandidaten {
+            let text = kandidat.trimmingCharacters(in: .whitespacesAndNewlines)
+            if text.count >= 40 { return String(text.prefix(600)) }
+        }
+        return ""
+    }
+
     static func buildPrompt(for project: Project) -> String {
-        let profilePrompt = project.bookProfile?.coverPrompts
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let premise = project.bookProfile?.premise
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let scene = profilePrompt.isEmpty
-            ? String(premise.prefix(200))
-            : String(profilePrompt.prefix(400))
-        let bezug = scene.isEmpty ? "" : " Greife einen konkreten Gegenstand aus dieser Geschichte auf: \(scene)."
+        let scene = motivAusDemBuch(project)
+        let bezug = scene.isEmpty ? "" : " Wähle GENAU EINEN greifbaren Gegenstand oder Schauplatz "
+            + "aus dieser Geschichte und zeige ausschließlich diesen – kein allgemeines Genre-Bild, "
+            + "keine austauschbare Straßenszene: \(scene)"
         return """
         Buchcover-Motiv für einen deutschen \(project.genre), Hochformat 2:3, Bestseller-Anmutung. \
         \(artDirection(for: project.genre)).\(bezug) \
