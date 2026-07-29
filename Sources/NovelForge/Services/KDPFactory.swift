@@ -116,10 +116,34 @@ final class KDPFactory: ObservableObject {
            let l = try? JSONDecoder().decode(Limits.self, from: data) { limits = l }
         if let data = UserDefaults.standard.data(forKey: Self.scheduleKey),
            let s = try? JSONDecoder().decode(Schedule.self, from: data) { schedule = s }
-        if let data = try? Data(contentsOf: Self.queueFile),
-           let q = try? JSONDecoder().decode([QueueEntry].self, from: data) { queue = q }
-        if let data = try? Data(contentsOf: Self.historyFile),
-           let h = try? JSONDecoder().decode([UploadRecord].self, from: data) { history = h }
+        queue = ladeListe([QueueEntry].self, aus: Self.queueFile, name: "Upload-Warteschlange") ?? []
+        history = ladeListe([UploadRecord].self, aus: Self.historyFile, name: "Upload-Historie") ?? []
+    }
+
+    /// Lädt eine gespeicherte Liste – und verwirft sie NICHT stillschweigend, wenn das
+    /// Format nicht passt.
+    ///
+    /// Vorher stand hier `try? JSONDecoder().decode(...)` ohne Behandlung des Fehlers.
+    /// Scheiterte das Dekodieren – etwa nach einer Formatänderung –, blieb die Liste
+    /// leer, und das nächste `persist()` überschrieb die Datei mit `[]`. Die gesamte
+    /// Upload-Warteschlange wäre damit unwiederbringlich weg gewesen, ohne dass irgendwo
+    /// eine Meldung erschien. Beim Testen genau so passiert.
+    ///
+    /// Jetzt wird die unlesbare Datei zur Seite gelegt statt überschrieben, und der
+    /// Grund landet im Fehlerprotokoll.
+    private func ladeListe<T: Decodable>(_ typ: T.Type, aus datei: URL, name: String) -> T? {
+        guard let data = try? Data(contentsOf: datei), !data.isEmpty else { return nil }
+        do {
+            return try JSONDecoder().decode(typ, from: data)
+        } catch {
+            let sicherung = datei.deletingPathExtension()
+                .appendingPathExtension("unlesbar.json")
+            try? FileManager.default.removeItem(at: sicherung)
+            try? FileManager.default.moveItem(at: datei, to: sicherung)
+            NSLog("[NovelForge] \(name) nicht lesbar (%@) – Datei gesichert unter %@",
+                  String(describing: error), sicherung.lastPathComponent)
+            return nil
+        }
     }
     private func persist() {
         if let data = try? JSONEncoder().encode(queue) { try? data.write(to: Self.queueFile, options: .atomic) }
