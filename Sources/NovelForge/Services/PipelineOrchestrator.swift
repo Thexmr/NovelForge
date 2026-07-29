@@ -5014,7 +5014,7 @@ final class PipelineOrchestrator: ObservableObject {
         project.status = .export
         project.updatedAt = Date()
         modelContext?.saveOrLog()
-        korrigiereRechtschreibung(project: project)
+        await korrigiereRechtschreibung(project: project, config: config)
         try await runFinalReadinessRepairs(project: project, config: config)
         try PublicationReadiness.validateForCompletion(project: project)
         await stelleVeroeffentlichungstexteSicher(project: project, config: config)
@@ -5083,34 +5083,83 @@ final class PipelineOrchestrator: ObservableObject {
     /// „121 mögliche Rechtschreibfehler", darunter „KAPITZEL" statt „KAPITEL" – in einer
     /// Kapitelüberschrift.
     ///
-    /// Korrigiert wird nur, was eindeutig ist (höchstens zwei Zeichen Abstand zum
-    /// Vorschlag). Fachwörter, Namen und Wortschöpfungen bleiben unangetastet; sie
-    /// erscheinen weiterhin als Hinweis im Selbstbeweis.
-    private func korrigiereRechtschreibung(project: Project) {
+    /// Entschieden wird MIT SATZ VOR AUGEN, nicht nach Zeichenabstand. Ein erster
+    /// Versuch ersetzte automatisch, was dem Wörterbuchvorschlag nahekam – von zwanzig
+    /// Ersetzungen war genau eine richtig, der Rest hätte das Buch beschädigt
+    /// („Rußspuren"→„Fußspuren" in einem Roman über einen Brand). Nur wer den Satz
+    /// versteht, kann das entscheiden.
+    private func korrigiereRechtschreibung(project: Project, config: ProviderConfiguration) async {
         let kapitel = sortedChapters(project)
         guard !kapitel.isEmpty else { return }
         let eigennamen = Set(
             (project.storyBible?.characters ?? []).map(\.name)
             + (project.storyBible?.locations ?? []).map(\.name)
         )
+
         var gesamt = 0
         var beispiele: [String] = []
         for kap in kapitel {
             guard let text = kap.bestText, !text.isEmpty else { continue }
-            let (neu, ersetzungen) = SpellCheckService.korrigiere(text: text, eigennamen: eigennamen)
-            guard !ersetzungen.isEmpty, neu != text else { continue }
-            // In dieselbe Fassung zurückschreiben, aus der der Text stammt.
-            if kap.finalText != nil { kap.finalText = neu }
-            else if kap.revisedText != nil { kap.revisedText = neu }
-            else { kap.draftText = neu }
-            gesamt += ersetzungen.reduce(0) { $0 + $1.anzahl }
-            beispiele.append(contentsOf: ersetzungen.prefix(2).map { "\($0.falsch)→\($0.richtig)" })
+            let befunde = SpellCheckService.pruefe(text: text, eigennamen: eigennamen)
+            guard !befunde.isEmpty else { continue }
+
+            let mitKontext = SpellCheckService.mitKontext(befunde, text: text)
+            let liste = mitKontext.map { befund, satz in
+                let tipp = befund.vorschlaege.first.map { " | Wörterbuch schlägt vor: \($0)" } ?? ""
+                return "- \(befund.wort)\(tipp)\n  Satz: \(satz)"
+            }.joined(separator: "\n")
+
+            let prompt = """
+            Ein Rechtschreibprüfer hat in diesem Kapitel Wörter beanstandet. Er kennt weder             Fachbegriffe noch Eigennamen noch bewusste Lautmalerei – die meisten Beanstandungen             sind deshalb KEINE Fehler.
+
+            Beurteile jede Zeile einzeln, mit dem Satz vor Augen:
+
+            \(liste)
+
+            Antworte AUSSCHLIESSLICH mit Zeilen der Form
+            FALSCH -> RICHTIG
+            und zwar NUR für echte Tippfehler. Wörter, die im Satz Sinn ergeben – Fachbegriffe,             Eigennamen, zusammengesetzte Wörter, Geräuschwörter – lässt du weg. Im Zweifel weglassen:             Eine falsche „Korrektur" beschädigt das Buch stärker als ein stehengebliebener Tippfehler.             Gibt es keinen echten Fehler, antworte mit: KEINE.
+            """
+
+            guard let antwort = try? await generate(
+                prompt: prompt,
+                system: "Du bist Korrektor für deutsche Belletristik und änderst nur, was zweifelsfrei falsch ist.",
+                maxTokens: 700, temperature: 0.1, config: config
+            ) else { continue }
+
+            var neuerText = text
+            var imKapitel = 0
+            for zeile in antwort.text.components(separatedBy: .newlines) {
+                let teile = zeile.components(separatedBy: "->")
+                guard teile.count == 2 else { continue }
+                let falsch = teile[0].trimmingCharacters(in: CharacterSet(charactersIn: " -•\t"))
+                let richtig = teile[1].trimmingCharacters(in: .whitespaces)
+                guard falsch.count >= 3, !richtig.isEmpty, falsch != richtig,
+                      befunde.contains(where: { $0.wort == falsch }) else { continue }
+                // Nur ganze Wörter ersetzen – „hüt" darf nicht in „behütet" hineinwirken.
+                let muster = "(?<![\\p{L}])" + NSRegularExpression.escapedPattern(for: falsch) + "(?![\\p{L}])"
+                guard let re = try? NSRegularExpression(pattern: muster) else { continue }
+                let bereich = NSRange(neuerText.startIndex..., in: neuerText)
+                let treffer = re.numberOfMatches(in: neuerText, range: bereich)
+                guard treffer > 0 else { continue }
+                neuerText = re.stringByReplacingMatches(
+                    in: neuerText, range: bereich,
+                    withTemplate: NSRegularExpression.escapedTemplate(for: richtig))
+                imKapitel += treffer
+                if beispiele.count < 12 { beispiele.append("\(falsch)→\(richtig)") }
+            }
+            guard imKapitel > 0, neuerText != text else { continue }
+            if kap.finalText != nil { kap.finalText = neuerText }
+            else if kap.revisedText != nil { kap.revisedText = neuerText }
+            else { kap.draftText = neuerText }
+            gesamt += imKapitel
         }
+
         guard gesamt > 0 else { return }
         modelContext?.saveOrLog()
         currentAgent = "Rechtschreibung: \(gesamt) Stellen korrigiert"
         let job = beginJob(agent: AgentName.proofreader, phase: .proofreading, project: project)
-        completeJob(job, result: "\(gesamt) Korrekturen: " + beispiele.prefix(12).joined(separator: ", "))
+        completeJob(job, result: "\(gesamt) Korrekturen: " + beispiele.joined(separator: ", "))
     }
 
     /// Sorgt dafür, dass Verkaufstexte und Cover-Prompts VOR dem Export existieren.

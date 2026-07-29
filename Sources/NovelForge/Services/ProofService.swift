@@ -152,11 +152,15 @@ enum ProofService {
         let rechtschreibung = SpellCheckService.pruefe(text: texts.joined(separator: "\n"),
                                                        eigennamen: eigennamen)
         let fehlerVorkommen = rechtschreibung.reduce(0) { $0 + $1.anzahl }
-        checks.append(Check("Rechtschreibung",
+        // Bewusst ein HINWEIS: Der Systemprüfer kennt weder Fachbegriffe noch Lautmalerei.
+        // Am Testmanuskript waren von 32 verbliebenen Kandidaten nur wenige echte Fehler
+        // – „Rußspuren", „Carport", „Thermoskanne" sind alle korrekt. Die Entscheidung
+        // trifft der Korrekturschritt mit dem Satz vor Augen, nicht diese Zählung.
+        checks.append(Check("Rechtschreibung geprüft",
                             rechtschreibung.isEmpty,
                             rechtschreibung.isEmpty
                                 ? "keine Beanstandung"
-                                : "\(fehlerVorkommen) Vorkommen / \(rechtschreibung.count) Wörter: "
+                                : "\(fehlerVorkommen) Kandidaten / \(rechtschreibung.count) Wörter (nicht zwingend Fehler): "
                                   + SpellCheckService.beschreibe(rechtschreibung, hoechstens: 12),
                             required: false))
 
