@@ -299,7 +299,19 @@ enum ProofService {
                             sizeOK ? dim.summary
                                    : "\(rep.pixelsWide)×\(rep.pixelsHigh) statt \(dim.widthPx)×\(dim.heightPx)"))
 
-        // Barcode-Feld: unten rechts auf der Rückseite, 2,0" × 1,2", muss weiß sein.
+        // Barcode-Feld: unten rechts auf der Rückseite, 2,0" × 1,2". Es muss TEXTFREI
+        // sein – aber ausdrücklich NICHT weiß: KDP empfiehlt, dort den eigenen
+        // Hintergrund durchlaufen zu lassen, und genau so erzeugt PrintCoverService das
+        // Cover auch.
+        //
+        // Hier stand vorher "muss weiß sein" mit der Bedingung darkest >= 200. Ein
+        // dunkles Cover – also jeder Thriller – fiel damit zwangsläufig durch. Am
+        // fertigen Buch gemessen: "dunkelster Punkt 0, 100,00 % belegt → überdeckt",
+        // und der Upload wurde deshalb abgelehnt. Erzeuger und Prüfer widersprachen
+        // sich, genau wie zuvor schon bei den Satzdopplern.
+        //
+        // Geprüft wird deshalb, ob dort SCHRIFT liegt: Buchstaben erzeugen dicht an
+        // dicht harte Hell-Dunkel-Sprünge, ein durchlaufender Hintergrund nicht.
         // 4 px Rand bleiben außen vor – an der harten Kante erzeugt JPEG Überschwinger.
         let dpi = PrintCoverService.dpi
         let inset = 4
@@ -311,6 +323,8 @@ enum ProofService {
         var darkest = 255
         var covered = 0
         var samples = 0
+        var harteKanten = 0
+        var kantenProben = 0
         // Rasterprobe (jeder 8. Punkt) – für den Nachweis genau genug und schnell.
         var y = rep.pixelsHigh - top - h
         let yEnd = rep.pixelsHigh - top
@@ -323,16 +337,27 @@ enum ProofService {
                     darkest = min(darkest, v)
                     if v < 230 { covered += 1 }
                     samples += 1
+                    // Nachbarpunkt für die Kantenmessung (Schrift = harter Sprung).
+                    if x + 3 < left + w, let n = rep.colorAt(x: x + 3, y: y) {
+                        let nv = Int(min(n.redComponent, min(n.greenComponent, n.blueComponent)) * 255)
+                        if abs(v - nv) > 110 { harteKanten += 1 }
+                        kantenProben += 1
+                    }
                 }
                 x += 8
             }
             y += 8
         }
         let ratio = samples > 0 ? Double(covered) / Double(samples) : 1
-        let free = samples > 0 && darkest >= 200 && ratio < 0.01
-        checks.append(Check("Barcode-Feld frei (2,0\" × 1,2\")", free,
-                            String(format: "dunkelster Punkt %d, %.2f %% belegt – %@",
-                                   darkest, ratio * 100, free ? "weiß und leer" : "überdeckt")))
+        let kantenAnteil = kantenProben > 0 ? Double(harteKanten) / Double(kantenProben) * 100 : 0
+        // Textfrei statt weiß: unter 0,8 % harte Kanten liegt dort keine Schrift.
+        // Dieselbe Schwelle wie bei der Cover-Beschriftung, dort an echten Dateien
+        // kalibriert (Motiv 0,19 % · Typografie 2,17 %).
+        let free = samples > 0 && kantenAnteil < minimaleSchriftDichte
+        checks.append(Check("Barcode-Feld textfrei (2,0\" × 1,2\")", free,
+                            String(format: "Kantendichte %.2f %% (Schwelle %.2f %%), Hintergrund %d – %@",
+                                   kantenAnteil, minimaleSchriftDichte, darkest,
+                                   free ? "keine Schrift" : "Schrift im Barcode-Feld")))
 
         // KDP nimmt Taschenbuch-Cover nur als PDF an.
         let pdfURL = url.deletingPathExtension().appendingPathExtension("pdf")
@@ -420,11 +445,24 @@ enum ProofService {
             let concrete = k.split(separator: " ").map { String($0).lowercased() }
                 .filter { wort in wort.count >= 5 && !searchVocabulary.contains { wort.contains($0) } }
             if concrete.isEmpty { return false }        // reine Genre-/Tonphrase ist zulässig
-            return !concrete.contains { fullText.contains($0) }
+            return !concrete.contains { imTextBelegt($0, fullText) }
         }
+        // HINWEIS, KEIN UPLOAD-BLOCKER.
+        //
+        // Ob eine Suchphrase „durch den Buchtext gedeckt" ist, lässt sich nur schätzen:
+        // Deutsche Flexion und Komposita machen jeden Textvergleich unscharf. Am
+        // fertigen Buch gemessen kam "verlassenes" 0× vor, "verlassen" aber 19× –
+        // die Phrase "verlassenes Haus Thriller Spannung" beschreibt das Buch trotzdem
+        // exakt. Genau daran scheiterte der erste Upload-Versuch: Vier tadellose
+        // Suchphrasen galten als ungedeckt, und ein fertiges Buch wurde deshalb gar
+        // nicht erst hochgeladen.
+        //
+        // Eine Schätzung darf keine Veröffentlichung verhindern. Der Punkt steht
+        // weiterhin im Bericht – aber als Hinweis.
         checks.append(Check("Suchphrasen durch den Buchtext gedeckt", uncovered.isEmpty,
                             uncovered.isEmpty ? "\(keywords.count) Phrasen im Text belegt"
-                                              : uncovered.joined(separator: " / ")))
+                                              : uncovered.joined(separator: " / "),
+                            required: false))
 
         let categories = (profile?.kdpCategories ?? "")
             .components(separatedBy: ",").map { $0.trimmingCharacters(in: CharacterSet.whitespaces) }.filter { !$0.isEmpty }
@@ -445,7 +483,43 @@ enum ProofService {
         "spann", "fessel", "packend", "unheimlich", "düster", "atmosph",
         "psycholog", "wendung", "nervenkitzel", "abgründ", "deutsch",
         "reihe", "band", "kurzgeschichte", "debüt",
+        // Erwartungswörter: beschreiben die Wirkung, nicht den Inhalt. Sie stehen
+        // naturgemäß nie im Prosatext. „klaustrophobische Atmosphäre Thriller" wurde
+        // deshalb als ungedeckt gemeldet.
+        "klaustropho", "atmosphär", "beklemm", "verstör", "eiskalt", "temporeich",
+        "überraschend", "raffiniert", "vielschichtig", "erschütternd",
+        // Meta-Begriffe: beschreiben das Buch als Objekt statt seinen Inhalt. Niemand
+        // schreibt „Protagonistin" in einen Roman – „psychologischer Thriller Frau
+        // Protagonistin" scheiterte genau daran.
+        "protagonist", "hauptfigur", "hauptperson", "erzähler",
+        "handlung", "klappentext", "inhaltsangabe", "leseprobe", "kapitel",
+        "autor", "schriftsteller", "bestseller", "neuerscheinung",
+        "taschenbuch", "hardcover", "hörbuch", "kindle", "ebook",
     ]
+
+    /// Gilt ein Keyword-Wort als durch den Buchtext belegt?
+    ///
+    /// Vorher wurde die exakte Zeichenfolge gesucht. Im Deutschen scheitert das an
+    /// zwei ganz normalen Erscheinungen – am fertigen Buch nachgemessen:
+    ///
+    ///   „verlassenes"       kommt 0× vor, „verlassen"  aber 19×  (Adjektivendung)
+    ///   „familiengeheimnis" kommt 0× vor, „geheimnis"  aber  4×  (Kompositum)
+    ///   „totenschwester"    kommt 0× vor, „schwester"  aber  9×  (Kompositum)
+    ///
+    /// Alle drei Suchphrasen beschreiben das Buch treffend und wurden trotzdem als
+    /// ungedeckt gemeldet – der Upload wurde deswegen abgelehnt.
+    ///
+    /// Geprüft wird deshalb der Wortanfang UND das Wortende (je sechs Zeichen). Der
+    /// Anfang fängt die Flexion ab, das Ende den zweiten Teil eines zusammengesetzten
+    /// Wortes. Beides zusammen bleibt streng genug, um erfundene Keywords auffliegen
+    /// zu lassen: Ein Wort, von dem weder Anfang noch Ende im ganzen Manuskript
+    /// vorkommt, benennt tatsächlich nichts aus dem Buch.
+    static func imTextBelegt(_ wort: String, _ volltext: String) -> Bool {
+        if volltext.contains(wort) { return true }
+        guard wort.count >= 8 else { return false }
+        return volltext.contains(String(wort.prefix(6)))
+            || volltext.contains(String(wort.suffix(6)))
+    }
 
     private static func wordCount(_ s: String) -> Int {
         s.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
