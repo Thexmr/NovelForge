@@ -196,6 +196,32 @@ final class KDPFactory: ObservableObject {
 
     func isQueued(_ projectID: UUID) -> Bool { queue.contains { $0.projectID == projectID } }
 
+    /// Standardpreis für automatisch eingereihte Bücher.
+    static let standardPreisEUR = 3.99
+
+    /// Reiht ein fertig produziertes Buch selbsttätig ein – gesteuert vom
+    /// vorhandenen Fabrik-Schalter: „Fabrik an" heißt jetzt wirklich, dass fertige
+    /// Bücher von allein hochgehen.
+    ///
+    /// Warum das nötig war: `enqueue` hatte genau EINEN Aufrufer – den Knopf
+    /// „Einreihen" in der Buchfabrik. Ein fertig produziertes Buch landete nie von
+    /// selbst in der Warteschlange; die Produktion endete bei `completed` und hörte dort
+    /// auf. Nachgeprüft an vier Büchern: kein einziger Upload-Job in der Datenbank –
+    /// obwohl die Fabrikseite genau das versprach ("Fertige Bücher werden mit Cover und
+    /// allen Texten automatisch als KDP-ENTWURF hochgeladen").
+    ///
+    /// Bewusst zurückhaltend: Es entsteht bei KDP ausschließlich ein ENTWURF. Der
+    /// Upload-Schritt veröffentlicht nichts – das bleibt ein Klick des Nutzers.
+    /// Fehlen EPUB oder Cover, erzeugt `uploadDraft` sie beim Upload selbst.
+    @discardableResult
+    func reicheFertigesBuchEin(_ project: Project) -> Bool {
+        guard enabled else { return false }
+        guard !isQueued(project.id) else { return false }
+        return enqueue(project: project,
+                       priceEUR: Self.standardPreisEUR,
+                       aiDisclosure: "ai-assisted")
+    }
+
     @discardableResult
     func enqueue(project: Project, priceEUR: Double, aiDisclosure: String) -> Bool {
         guard !isQueued(project.id) else { return false }

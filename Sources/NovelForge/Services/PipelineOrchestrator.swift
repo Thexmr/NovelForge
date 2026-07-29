@@ -1003,6 +1003,10 @@ final class PipelineOrchestrator: ObservableObject {
 
                 try PublicationReadiness.validateForCompletion(project: project)
                 project.status = .completed
+                // Fertig heißt fertig zum Hochladen. Vorher endete die Produktion hier –
+                // das Buch blieb liegen, bis jemand in der Buchfabrik von Hand auf
+                // „Einreihen" drückte. Es entsteht ausschließlich ein KDP-ENTWURF.
+                KDPFactory.shared.reicheFertigesBuchEin(project)
                 progress = 1.0
                 recordCompletedBookDuration()
                 unlimitedBooksCompleted += 1
@@ -1289,6 +1293,10 @@ final class PipelineOrchestrator: ObservableObject {
 
                 try PublicationReadiness.validateForCompletion(project: project)
                 project.status = .completed
+                // Fertig heißt fertig zum Hochladen. Vorher endete die Produktion hier –
+                // das Buch blieb liegen, bis jemand in der Buchfabrik von Hand auf
+                // „Einreihen" drückte. Es entsteht ausschließlich ein KDP-ENTWURF.
+                KDPFactory.shared.reicheFertigesBuchEin(project)
                 progress = 1.0
                 let duration = Date().timeIntervalSince(startedAt)
                 markProjectInactive(project)
@@ -1711,6 +1719,10 @@ final class PipelineOrchestrator: ObservableObject {
                 try await executeAllPhases(project: project, config: config)
                 try PublicationReadiness.validateForCompletion(project: project)
                 project.status = .completed
+                // Fertig heißt fertig zum Hochladen. Vorher endete die Produktion hier –
+                // das Buch blieb liegen, bis jemand in der Buchfabrik von Hand auf
+                // „Einreihen" drückte. Es entsteht ausschließlich ein KDP-ENTWURF.
+                KDPFactory.shared.reicheFertigesBuchEin(project)
                 progress = 1.0
                 currentAgent = "Abgeschlossen"
                 lastError = nil

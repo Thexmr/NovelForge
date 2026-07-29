@@ -24,6 +24,16 @@ struct NovelForgeApp: App {
                 .frame(minWidth: 1000, minHeight: 640)
                 .preferredColorScheme(preferredScheme)
                 .tint(accentColor)
+                .task {
+                    // Den Upload-Takt beim App-Start anwerfen.
+                    //
+                    // Vorher wurde er AUSSCHLIESSLICH beim Öffnen der Buchfabrik-Seite
+                    // gestartet. Wer diese Seite nie aufrief, bei dem lief nie ein
+                    // Upload – auch dann nicht, wenn Bücher in der Warteschlange lagen.
+                    // Zusammen mit der fehlenden automatischen Einreihung war das der
+                    // Grund, warum nie etwas bei KDP ankam.
+                    if KDPFactory.shared.enabled { KDPFactory.shared.startDispatcher() }
+                }
         }
         .modelContainer(for: [
             Project.self,
