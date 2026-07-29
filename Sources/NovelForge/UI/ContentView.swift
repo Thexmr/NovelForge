@@ -155,10 +155,22 @@ struct StudioSidebar: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Der Markenkopf bleibt FEST oben stehen.
+            //
+            // Vorher steckte er in der ScrollView. Wird das Fenster niedriger, als die
+            // Navigationsliste hoch ist, scrollt SwiftUI zum ausgewählten Eintrag – und
+            // der Kopf verschwindet nach oben aus dem Bild. Übrig blieben abgeschnittene
+            // Buchstaben hinter den Fensterknöpfen; die Seitenleiste sah schlicht kaputt
+            // aus. Der Knopf am unteren Rand war schon immer fest verankert, der Kopf
+            // nicht.
+            brandHeader
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    brandHeader
-
                     VStack(alignment: .leading, spacing: 17) {
                         ForEach(sections, id: \.0) { section in
                             VStack(alignment: .leading, spacing: 6) {
