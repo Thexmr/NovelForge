@@ -476,6 +476,34 @@ final class PipelineOrchestrator: ObservableObject {
         return lines.isEmpty ? fallback : lines.joined(separator: "\n")
     }
 
+    /// Nennt dem Verkaufstexter die Figuren, die das Buch WIRKLICH trägt – gemessen an
+    /// ihrer Häufigkeit im fertigen Manuskript.
+    ///
+    /// Warum: Der Klappentext für „Das letzte Streichholz" erwähnte ausschließlich Lena
+    /// und die tote Schwester Hanna. Im Buch nachgezählt kamen aber Mira 1073× und
+    /// Jürgen 744× vor – die zweit- und dritthäufigste Figur tauchten im Verkaufstext
+    /// mit keinem Wort auf. Der Text las sich wie ein Alleingang, tatsächlich ist es ein
+    /// Buch mit drei tragenden Figuren. Nicht erfunden, aber irreführend unvollständig.
+    ///
+    /// Gezählt wird im Text statt in der Story Bible: Dort steht, wer geplant war –
+    /// hier zählt, wer tatsächlich vorkommt.
+    private func tragendeFigurenHinweis(for project: Project) -> String {
+        let namen = (project.storyBible?.characters ?? []).map(\.name).filter { $0.count >= 3 }
+        guard !namen.isEmpty else { return "" }
+        let volltext = sortedChapters(project).compactMap { $0.bestText }.joined(separator: "\n")
+        guard !volltext.isEmpty else { return "" }
+        let gezaehlt = namen
+            .map { (name: $0, anzahl: volltext.components(separatedBy: $0).count - 1) }
+            .filter { $0.anzahl >= 20 }
+            .sorted { $0.anzahl > $1.anzahl }
+            .prefix(4)
+        guard gezaehlt.count >= 2 else { return "" }
+        let liste = gezaehlt.map { "\($0.name) (\($0.anzahl) Nennungen)" }.joined(separator: ", ")
+        return "\n\nTRAGENDE FIGUREN, nach Häufigkeit im fertigen Text: \(liste). "
+            + "Der Verkaufstext muss die wichtigsten davon erkennbar machen – ein Klappentext, "
+            + "der eine Hauptfigur verschweigt, verspricht dem Leser ein anderes Buch."
+    }
+
     private func produceKDPMetadata(project: Project, config: ProviderConfiguration) async throws {
         guard let profile = project.bookProfile else { return }
         let job = beginJob(agent: AgentName.kdpFormatter, phase: .kdpFormatting, project: project)
@@ -485,7 +513,8 @@ final class PipelineOrchestrator: ObservableObject {
                     title: project.title, author: project.authorName,
                     authorBio: project.authorBio,
                     genre: project.genre, audience: profile.targetAudience,
-                    synopsis: actualStorySynopsis(for: project, fallback: profile.synopsis ?? profile.premise),
+                    synopsis: actualStorySynopsis(for: project, fallback: profile.synopsis ?? profile.premise)
+                        + tragendeFigurenHinweis(for: project),
                     language: project.language, tropes: project.tropes,
                     spiceLevel: project.spiceLevel
                 ),
@@ -4985,8 +5014,10 @@ final class PipelineOrchestrator: ObservableObject {
         project.status = .export
         project.updatedAt = Date()
         modelContext?.saveOrLog()
+        korrigiereRechtschreibung(project: project)
         try await runFinalReadinessRepairs(project: project, config: config)
         try PublicationReadiness.validateForCompletion(project: project)
+        await stelleVeroeffentlichungstexteSicher(project: project, config: config)
         let job = beginJob(agent: AgentName.exporter, phase: .export, project: project)
 
         do {
@@ -5043,6 +5074,67 @@ final class PipelineOrchestrator: ObservableObject {
                 || $0.contains("über Zielumfang")
                 || $0.contains("wiederholte ganze Sätze")
         }
+    }
+
+    /// Rechtschreibfehler im fertigen Manuskript beheben – vor allem anderen.
+    ///
+    /// Diese Prüfung fehlte in der gesamten Pipeline: Der Proofreading-Agent formulierte
+    /// um, aber niemand schlug je in einem Wörterbuch nach. KDP meldete nach dem Upload
+    /// „121 mögliche Rechtschreibfehler", darunter „KAPITZEL" statt „KAPITEL" – in einer
+    /// Kapitelüberschrift.
+    ///
+    /// Korrigiert wird nur, was eindeutig ist (höchstens zwei Zeichen Abstand zum
+    /// Vorschlag). Fachwörter, Namen und Wortschöpfungen bleiben unangetastet; sie
+    /// erscheinen weiterhin als Hinweis im Selbstbeweis.
+    private func korrigiereRechtschreibung(project: Project) {
+        let kapitel = sortedChapters(project)
+        guard !kapitel.isEmpty else { return }
+        let eigennamen = Set(
+            (project.storyBible?.characters ?? []).map(\.name)
+            + (project.storyBible?.locations ?? []).map(\.name)
+        )
+        var gesamt = 0
+        var beispiele: [String] = []
+        for kap in kapitel {
+            guard let text = kap.bestText, !text.isEmpty else { continue }
+            let (neu, ersetzungen) = SpellCheckService.korrigiere(text: text, eigennamen: eigennamen)
+            guard !ersetzungen.isEmpty, neu != text else { continue }
+            // In dieselbe Fassung zurückschreiben, aus der der Text stammt.
+            if kap.finalText != nil { kap.finalText = neu }
+            else if kap.revisedText != nil { kap.revisedText = neu }
+            else { kap.draftText = neu }
+            gesamt += ersetzungen.reduce(0) { $0 + $1.anzahl }
+            beispiele.append(contentsOf: ersetzungen.prefix(2).map { "\($0.falsch)→\($0.richtig)" })
+        }
+        guard gesamt > 0 else { return }
+        modelContext?.saveOrLog()
+        currentAgent = "Rechtschreibung: \(gesamt) Stellen korrigiert"
+        let job = beginJob(agent: AgentName.proofreader, phase: .proofreading, project: project)
+        completeJob(job, result: "\(gesamt) Korrekturen: " + beispiele.prefix(12).joined(separator: ", "))
+    }
+
+    /// Sorgt dafür, dass Verkaufstexte und Cover-Prompts VOR dem Export existieren.
+    ///
+    /// Beide Schritte gab es nur auf Knopfdruck (Veröffentlichungsseite) oder im
+    /// „kompletten Paket" – in der normalen Produktion liefen sie nie. Folge: Die
+    /// Cover-Prompts standen dauerhaft auf „wartet", und die Cover-Erzeugung fiel auf
+    /// die dünne Prämisse aus der Planungsphase zurück. Das erklärt das austauschbare
+    /// Motiv, das mit dem fertigen Buch nichts zu tun hatte.
+    ///
+    /// Fehlschläge sind hier nicht tödlich: Ein fehlender Verkaufstext darf ein fertiges
+    /// Buch nicht aufhalten, er wird im Selbstbeweis ohnehin als offener Punkt gemeldet.
+    private func stelleVeroeffentlichungstexteSicher(project: Project,
+                                                     config: ProviderConfiguration) async {
+        let profil = project.bookProfile
+        if (profil?.kdpDescription ?? "").trimmingCharacters(in: .whitespacesAndNewlines).count < 200 {
+            currentAgent = "KDP-Verkaufstexte werden erstellt …"
+            try? await produceKDPMetadata(project: project, config: config)
+        }
+        if (profil?.coverPrompts ?? "").trimmingCharacters(in: .whitespacesAndNewlines).count < 40 {
+            currentAgent = "Cover-Prompts werden erstellt …"
+            try? await produceCoverPrompts(project: project, config: config)
+        }
+        modelContext?.saveOrLog()
     }
 
     private func runFinalReadinessRepairs(project: Project,

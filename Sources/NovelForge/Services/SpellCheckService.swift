@@ -100,6 +100,67 @@ enum SpellCheckService {
         return false
     }
 
+    /// Korrigiert die Wörter, bei denen die Korrektur eindeutig ist – und NUR diese.
+    ///
+    /// Automatisch ersetzt wird nur, was sich in höchstens zwei Zeichen vom Vorschlag
+    /// unterscheidet und dieselbe Groß-/Kleinschreibung am Wortanfang behält. Damit wird
+    /// aus „KAPITZEL" wieder „KAPITEL", während ein Fachwort oder ein Name unangetastet
+    /// bleibt: Bei denen liegt der beste Vorschlag weit entfernt, und ein beherzter
+    /// Austausch würde den Text verschlimmbessern.
+    ///
+    /// Rückgabe: der korrigierte Text und die Liste der tatsächlich vorgenommenen
+    /// Ersetzungen – damit im Bericht nachvollziehbar bleibt, was verändert wurde.
+    @MainActor
+    static func korrigiere(text: String, eigennamen: Set<String> = [])
+        -> (text: String, ersetzungen: [(falsch: String, richtig: String, anzahl: Int)]) {
+        let befunde = pruefe(text: text, eigennamen: eigennamen)
+        var ergebnis = text
+        var ersetzungen: [(String, String, Int)] = []
+
+        for befund in befunde {
+            guard let vorschlag = befund.vorschlaege.first else { continue }
+            guard istEindeutig(falsch: befund.wort, richtig: vorschlag) else { continue }
+            // Nur ganze Wörter ersetzen – „hüt" darf nicht in „behütet" hineinwirken.
+            let muster = "(?<![\\p{L}])" + NSRegularExpression.escapedPattern(for: befund.wort) + "(?![\\p{L}])"
+            guard let re = try? NSRegularExpression(pattern: muster) else { continue }
+            let bereich = NSRange(ergebnis.startIndex..., in: ergebnis)
+            let treffer = re.numberOfMatches(in: ergebnis, range: bereich)
+            guard treffer > 0 else { continue }
+            ergebnis = re.stringByReplacingMatches(
+                in: ergebnis, range: bereich,
+                withTemplate: NSRegularExpression.escapedTemplate(for: vorschlag))
+            ersetzungen.append((befund.wort, vorschlag, treffer))
+        }
+        return (ergebnis, ersetzungen)
+    }
+
+    /// Ist die Korrektur eindeutig genug, um sie ohne Rückfrage anzuwenden?
+    private static func istEindeutig(falsch: String, richtig: String) -> Bool {
+        guard falsch.lowercased() != richtig.lowercased() else { return false }
+        // Groß-/Kleinschreibung am Wortanfang muss übereinstimmen: Aus einem Substantiv
+        // darf kein Verb werden und umgekehrt.
+        guard falsch.first?.isUppercase == richtig.first?.isUppercase else { return false }
+        // Höchstens zwei Zeichen Unterschied – ein Tippfehler, keine andere Vokabel.
+        return abstand(falsch.lowercased(), richtig.lowercased()) <= 2
+    }
+
+    /// Levenshtein-Abstand, begrenzt auf kurze Wörter.
+    private static func abstand(_ a: String, _ b: String) -> Int {
+        let x = Array(a), y = Array(b)
+        if abs(x.count - y.count) > 2 { return 99 }
+        var vorige = Array(0...y.count)
+        for i in 1...max(x.count, 1) where !x.isEmpty {
+            var aktuelle = [i] + Array(repeating: 0, count: y.count)
+            for j in 1...max(y.count, 1) where !y.isEmpty {
+                aktuelle[j] = x[i-1] == y[j-1]
+                    ? vorige[j-1]
+                    : min(vorige[j-1], vorige[j], aktuelle[j-1]) + 1
+            }
+            vorige = aktuelle
+        }
+        return vorige[y.count]
+    }
+
     /// Kurzfassung für Berichte und Prompts: „KAPITZEL (1×, besser: KAPITEL)".
     static func beschreibe(_ befunde: [Befund], hoechstens: Int = 25) -> String {
         befunde.prefix(hoechstens).map { b in
