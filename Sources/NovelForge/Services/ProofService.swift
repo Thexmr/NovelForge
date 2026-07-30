@@ -519,6 +519,33 @@ enum ProofService {
                                               : uncovered.joined(separator: " / "),
                             required: false))
 
+        // RECHTSCHREIBUNG DER VERKAUFSTEXTE.
+        //
+        // Die Prüfung deckte nur das Manuskript ab – die Metadaten nicht. Genau die stehen
+        // aber auf der Amazon-Seite und werden von jedem Kaufinteressenten gelesen.
+        // Im ausgelieferten Klappentext stand: „Sie sagten, ihr Schwester hätte sich selbst
+        // getötet." Ein Grammatikfehler im ersten Satz des Verkaufstexts.
+        //
+        // Anders als beim Manuskript ist das hier eine PFLICHTPRÜFUNG: Ein Klappentext ist
+        // wenige Sätze lang, da ist jeder Fehler sichtbar und keiner unvermeidbar.
+        let verkaufstexte = [profile?.kdpTitle, profile?.kdpSubtitle, profile?.kdpDescription]
+            .compactMap { $0 }
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .joined(separator: "\n")
+        if !verkaufstexte.isEmpty {
+            let namen = Set(
+                (project.storyBible?.characters ?? []).map(\.name)
+                + (project.storyBible?.locations ?? []).map(\.name)
+                + project.title.split(separator: " ").map(String.init)
+                + [project.authorName]
+            )
+            let befunde = SpellCheckService.pruefe(text: verkaufstexte, eigennamen: namen)
+            checks.append(Check("Verkaufstexte sprachlich fehlerfrei", befunde.isEmpty,
+                                befunde.isEmpty
+                                    ? "\(verkaufstexte.split(separator: " ").count) Wörter geprüft"
+                                    : SpellCheckService.beschreibe(befunde, hoechstens: 8)))
+        }
+
         let categories = (profile?.kdpCategories ?? "")
             .components(separatedBy: ",").map { $0.trimmingCharacters(in: CharacterSet.whitespaces) }.filter { !$0.isEmpty }
         checks.append(Check("Kategorien gesetzt (1–3 Pfade)",
