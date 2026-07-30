@@ -171,13 +171,20 @@ enum ProofService {
         //
         // Eigennamen aus der Story Bible gehen nicht als Fehler durch: Romanfiguren
         // stehen in keinem Wörterbuch.
-        let eigennamen = Set(
-            (project.storyBible?.characters ?? []).map(\.name)
-            + (project.storyBible?.locations ?? []).map(\.name)
-            + project.title.split(separator: " ").map(String.init)
-        )
-        let rechtschreibung = SpellCheckService.pruefe(text: texts.joined(separator: "\n"),
-                                                       eigennamen: eigennamen)
+        // In EINEM Ausdruck zusammengesetzt („map + map + split" auf optionalen
+        // Relationen) brach der Swift-Typprüfer ab: „unable to type-check this
+        // expression in reasonable time". Lokal fiel das nicht auf, weil die Datei
+        // aus dem inkrementellen Cache kam – erst der Neubau in der CI zeigte es.
+        // Deshalb schrittweise, mit ausgeschriebenen Typen.
+        var eigennamen = Set<String>()
+        let figuren: [CharacterProfile] = project.storyBible?.characters ?? []
+        for figur in figuren { eigennamen.insert(figur.name) }
+        let orte: [LocationProfile] = project.storyBible?.locations ?? []
+        for ort in orte { eigennamen.insert(ort.name) }
+        for wort in project.title.split(separator: " ") { eigennamen.insert(String(wort)) }
+
+        let volltext: String = texts.joined(separator: "\n")
+        let rechtschreibung = SpellCheckService.pruefe(text: volltext, eigennamen: eigennamen)
         let fehlerVorkommen = rechtschreibung.reduce(0) { $0 + $1.anzahl }
         // Bewusst ein HINWEIS: Der Systemprüfer kennt weder Fachbegriffe noch Lautmalerei.
         // Am Testmanuskript waren von 32 verbliebenen Kandidaten nur wenige echte Fehler
@@ -530,17 +537,22 @@ enum ProofService {
         //
         // Anders als beim Manuskript ist das hier eine PFLICHTPRÜFUNG: Ein Klappentext ist
         // wenige Sätze lang, da ist jeder Fehler sichtbar und keiner unvermeidbar.
-        let verkaufstexte = [profile?.kdpTitle, profile?.kdpSubtitle, profile?.kdpDescription]
-            .compactMap { $0 }
-            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            .joined(separator: "\n")
+        // Auch hier schrittweise statt in einer Kette – gleicher Grund wie oben.
+        var textteile: [String] = []
+        for kandidat in [profile?.kdpTitle, profile?.kdpSubtitle, profile?.kdpDescription] {
+            guard let kandidat else { continue }
+            let sauber = kandidat.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !sauber.isEmpty { textteile.append(sauber) }
+        }
+        let verkaufstexte: String = textteile.joined(separator: "\n")
         if !verkaufstexte.isEmpty {
-            let namen = Set(
-                (project.storyBible?.characters ?? []).map(\.name)
-                + (project.storyBible?.locations ?? []).map(\.name)
-                + project.title.split(separator: " ").map(String.init)
-                + [project.authorName]
-            )
+            var namen = Set<String>()
+            let metaFiguren: [CharacterProfile] = project.storyBible?.characters ?? []
+            for figur in metaFiguren { namen.insert(figur.name) }
+            let metaOrte: [LocationProfile] = project.storyBible?.locations ?? []
+            for ort in metaOrte { namen.insert(ort.name) }
+            for wort in project.title.split(separator: " ") { namen.insert(String(wort)) }
+            namen.insert(project.authorName)
             let befunde = SpellCheckService.pruefe(text: verkaufstexte, eigennamen: namen)
             checks.append(Check("Verkaufstexte sprachlich fehlerfrei", befunde.isEmpty,
                                 befunde.isEmpty
