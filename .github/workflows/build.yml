@@ -22,6 +22,16 @@ jobs:
         run: swift --version
       - name: Build
         run: swift build
+      # HARTES GATE: Die Tests müssen mindestens KOMPILIEREN.
+      #
+      # Der Schritt darunter setzt continue-on-error (aus gutem Grund, siehe dort) –
+      # damit fiel aber auch nicht auf, wenn ein Test nicht einmal übersetzbar war.
+      # Genau das ist passiert: Zwei neue Testklassen riefen @MainActor-isolierte
+      # Methoden synchron auf, der Bau der Testziele scheiterte, und die CI meldete
+      # trotzdem Erfolg. `--build-tests` übersetzt sie, ohne sie auszuführen.
+      - name: Tests kompilieren (Gate)
+        run: swift build --build-tests
+
       - name: Tests
         # Läuft zur Sichtbarkeit, blockiert aber nicht die Paketierung: einige
         # SwiftData-In-Memory-Tests (mainContext) brechen im headless CI mit SIGTRAP ab,

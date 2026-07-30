@@ -10,6 +10,11 @@ import XCTest
 /// gehörte zu keiner der drei reparierbaren Arten, die innere Schleife brach deshalb
 /// sofort ab – und die äußere Runde startete dieselbe Prüfung 15 Sekunden später
 /// erneut. Übrig blieben Volltextscans über das ganze Manuskript bei 100 % CPU-Last.
+/// Am MainActor, weil die geprüften Typen (PipelineOrchestrator, ProofService,
+/// SpellCheckService) dort isoliert sind. Ohne das schlägt schon das Kompilieren
+/// fehl – und das fiel lange nicht auf, weil der Test-Schritt der CI
+/// `continue-on-error` setzt und dieser Mac kein XCTest hat.
+@MainActor
 final class ReadinessLoopTests: XCTestCase {
 
     func testNurDieDreiBehebbarenArtenRechtfertigenEineWiederholung() {

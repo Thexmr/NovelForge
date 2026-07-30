@@ -9,6 +9,11 @@ import XCTest
 /// Erzeugungsfunktion nie aufgerufen. Der Selbstbeweis prüfte nur Dateigröße und
 /// Pixelmaße, und die waren tadellos. So ging ein Cover ohne ein einziges Wort darauf
 /// als fertig durch.
+/// Am MainActor, weil die geprüften Typen (PipelineOrchestrator, ProofService,
+/// SpellCheckService) dort isoliert sind. Ohne das schlägt schon das Kompilieren
+/// fehl – und das fiel lange nicht auf, weil der Test-Schritt der CI
+/// `continue-on-error` setzt und dieser Mac kein XCTest hat.
+@MainActor
 final class CoverLetteringTests: XCTestCase {
 
     /// Zeichnet ein Motiv mit weichen Verläufen – so, wie es der Bild-Prompt verlangt
