@@ -752,6 +752,119 @@ enum AutonomousContentQuality {
     ///
     /// Entfernt werden nur ERSTE Zeilen, die eindeutig eine Arbeitsangabe sind – ein
     /// echter Kapiteltitel oder ein Prosa-Anfang bleibt unangetastet.
+    /// Setzt deutsche Anführungszeichen richtig und räumt Satzzeichen-Doppler auf.
+    ///
+    /// Im ausgelieferten Buch nachgezählt: 3573 Zitate wurden mit dem typografischen „
+    /// geöffnet, aber nur 2648 korrekt mit “ geschlossen – **967 endeten mit dem geraden
+    /// Schreibmaschinen-Zeichen "**. Im gedruckten Buch und im E-Book sieht man das sofort.
+    /// Dazu drei doppelte Satzpunkte („… nahm Lena das Metall des Rings wahr..").
+    ///
+    /// Die Umwandlung ist ortsabhängig: Ein gerades Zeichen VOR einem Buchstaben öffnet
+    /// (wird „), eines NACH einem Buchstaben oder Satzzeichen schließt (wird “). Genau so
+    /// setzt es ein Setzer auch.
+    static func fixingTypography(_ text: String) -> String {
+        var ergebnis = ""
+        ergebnis.reserveCapacity(text.count)
+        let zeichen = Array(text)
+        for (i, c) in zeichen.enumerated() {
+            guard c == "\"" else { ergebnis.append(c); continue }
+            // Was steht davor, was danach?
+            let davor = i > 0 ? zeichen[i - 1] : " "
+            let danach = i + 1 < zeichen.count ? zeichen[i + 1] : " "
+            let schliesst = davor.isLetter || davor.isNumber
+                || ".,!?;:…".contains(davor) || davor == "\u{201C}"
+            let oeffnet = danach.isLetter || danach.isNumber || danach == "\u{201E}"
+            if schliesst {
+                ergebnis.append("\u{201C}")           // “
+            } else if oeffnet {
+                ergebnis.append("\u{201E}")           // „
+            } else {
+                ergebnis.append("\u{201C}")           // im Zweifel schließen
+            }
+        }
+        // Doppelte Satzpunkte, die keine Auslassung sind.
+        while let r = ergebnis.range(of: "(?<![.])\\.\\.(?!\\.)", options: .regularExpression) {
+            ergebnis.replaceSubrange(r, with: ".")
+        }
+        // Leerzeichen vor Satzzeichen – aber NICHT vor Auslassungspunkten: Dort gehört
+        // im Deutschen ein Leerzeichen hin, wenn ein ganzes Wort ausgelassen ist
+        // („Drei Punkte bleiben … erhalten"). Der erste Wurf zog das zusammen.
+        ergebnis = ergebnis.replacingOccurrences(
+            of: "[ \\t]+([,;:!?])", with: "$1", options: .regularExpression)
+        ergebnis = ergebnis.replacingOccurrences(
+            of: "[ \\t]+\\.(?![.\\s])", with: ".", options: .regularExpression)
+        // Mehrfache Leerzeichen innerhalb einer Zeile.
+        ergebnis = ergebnis.replacingOccurrences(
+            of: "[ \\t]{2,}", with: " ", options: .regularExpression)
+        return ergebnis
+    }
+
+    /// Entfernt Arbeitsmarken ÜBERALL im Text – nicht nur in der ersten Zeile.
+    ///
+    /// WARUM DAS NÖTIG IST: Im ausgelieferten Buch „Das letzte Streichholz" standen
+    /// 85 Arbeitsmarken mitten in der Prosa, verteilt über 21 von 46 Kapiteln:
+    ///
+    ///     KAPITEL 10, SZENE 1, VERSUCH 2/2
+    ///     Kapitel 4, Szene 1 – Endfassung
+    ///     KAPITZEL 36, SZENE 2, VERSUCH 1/2
+    ///     ABSATZ:
+    ///
+    /// Diese Zeilen wurden mit dem EPUB zu Amazon hochgeladen. `strippingSceneHeading`
+    /// half dagegen nicht: Es sieht nur die ERSTE Zeile an, wird nur an einer von mehreren
+    /// Erzeugungsstellen aufgerufen, und sein Muster `^kapitel\s*\d+` greift beim
+    /// Tippfehler „KAPITZEL" nicht.
+    ///
+    /// Diese Funktion arbeitet zeilenweise über den ganzen Text und ist gegen genau solche
+    /// Verdreher tolerant. Sie entfernt NUR Zeilen, die als reine Arbeitsmarke erkennbar
+    /// sind – kurz, ohne Satzschluss, mit Stellen- oder Fassungsangabe. Ein Prosasatz, der
+    /// zufällig „Kapitel" enthält („Sie las das Kapitel zweimal."), bleibt stehen.
+    static func strippingProductionMarkers(_ text: String) -> String {
+        let zeilen = text.components(separatedBy: .newlines)
+        var behalten: [String] = []
+        for zeile in zeilen {
+            if istArbeitsmarke(zeile) { continue }
+            behalten.append(zeile)
+        }
+        // Durch entfernte Zeilen entstandene Dreifach-Leerzeilen wieder zusammenziehen.
+        var ergebnis = behalten.joined(separator: "\n")
+        while ergebnis.contains("\n\n\n") {
+            ergebnis = ergebnis.replacingOccurrences(of: "\n\n\n", with: "\n\n")
+        }
+        return ergebnis.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Ist diese Zeile eine reine Arbeitsmarke der Produktion?
+    static func istArbeitsmarke(_ zeile: String) -> Bool {
+        let roh = zeile.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !roh.isEmpty, roh.count <= 90 else { return false }
+        // Ohne Satzzeichen am Ende (Prosa endet auf . ! ? " ' – Marken nicht).
+        let endetWieProsa = roh.hasSuffix(".") || roh.hasSuffix("!") || roh.hasSuffix("?")
+            || roh.hasSuffix("\u{201C}") || roh.hasSuffix("\u{201D}") || roh.hasSuffix("\"")
+        let niedrig = roh.lowercased()
+
+        // „VERSUCH 2/2", „VERSUCH 1 ABSATZ:" – eindeutig, auch mit Satzzeichen.
+        if niedrig.range(of: "versuch\\s*\\d+\\s*(/\\s*\\d+)?", options: .regularExpression) != nil {
+            return true
+        }
+        if niedrig.range(of: "^absatz\\s*:", options: .regularExpression) != nil { return true }
+
+        // Stellenangabe: „kapitel 4, szene 1" – tolerant gegen Verdreher wie „kapitzel".
+        // \p{L}{0,2} lässt bis zu zwei eingeschobene Buchstaben zu.
+        let nenntStelle = niedrig.range(
+            of: "kapit\\p{L}{0,3}\\s*\\d+\\s*[,.\\-–]?\\s*szene\\s*\\d+",
+            options: .regularExpression) != nil
+        let nenntFassung = niedrig.contains("endfassung") || niedrig.contains("rohfassung")
+            || niedrig.contains("fassung:") || niedrig.contains("überarbeitet")
+        if nenntStelle || nenntFassung { return !endetWieProsa || nenntStelle }
+
+        // Alleinstehende Szenenangabe ohne Prosa-Satzschluss.
+        if !endetWieProsa,
+           niedrig.range(of: "^(kapit\\p{L}{0,3}|szene)\\s*\\d+", options: .regularExpression) != nil {
+            return true
+        }
+        return false
+    }
+
     static func strippingSceneHeading(_ text: String) -> String {
         var zeilen = text.components(separatedBy: .newlines)
         // Führende Leerzeilen weg.
@@ -1455,12 +1568,26 @@ enum AutonomousContentQuality {
     static func repeatedSentenceCollisions(candidate: String,
                                            priorTexts: [String],
                                            maxResults: Int = 12) -> [String] {
-        let priorKeys = Set(priorTexts.flatMap { significantSentenceRecords(in: $0).map(\.key) })
+        let priorRecords = priorTexts.flatMap { significantSentenceRecords(in: $0) }
+        let priorKeys = Set(priorRecords.map(\.key))
+        // Wortfolgen der bisherigen Sätze – Grundlage für die Erkennung von
+        // Fast-Wiederholungen (siehe `istFastGleich`).
+        let priorTrigramme = priorRecords.map { wortTrigramme($0.spelling) }
+
         var seenInCandidate = Set<String>()
+        var seenTrigramme: [Set<[String]>] = []
         var collisions: [String] = []
+
         for record in significantSentenceRecords(in: candidate) {
-            let duplicatesInsideCandidate = !seenInCandidate.insert(record.key).inserted
-            guard priorKeys.contains(record.key) || duplicatesInsideCandidate else { continue }
+            let exaktSchonDa = priorKeys.contains(record.key)
+            let exaktImKandidaten = !seenInCandidate.insert(record.key).inserted
+            let eigene = wortTrigramme(record.spelling)
+            // NEU: auch fast gleiche Sätze zählen, nicht nur wortgleiche.
+            let fastSchonDa = !exaktSchonDa && priorTrigramme.contains { istFastGleich(eigene, $0) }
+            let fastImKandidaten = !exaktImKandidaten && seenTrigramme.contains { istFastGleich(eigene, $0) }
+            seenTrigramme.append(eigene)
+
+            guard exaktSchonDa || exaktImKandidaten || fastSchonDa || fastImKandidaten else { continue }
             guard !collisions.contains(where: {
                 normalizedSentenceKey($0) == record.key
             }) else { continue }
@@ -1468,6 +1595,59 @@ enum AutonomousContentQuality {
             if collisions.count >= maxResults { break }
         }
         return collisions
+    }
+
+    /// Anteil, ab dem zwei Sätze als dieselbe Formulierung gelten.
+    ///
+    /// Am fertigen Buch „Das letzte Streichholz" kalibriert: Bei 0,5 werden 63 Stellen in
+    /// 31 Kapiteln getroffen, und jede einzelne davon ist eine echte Doppelung – etwa
+    /// „Die ölige Pfütze im Eingangsbereich glänzte noch immer" gegen „Die ölige Pfütze
+    /// im Flur glänzte noch immer". Niedriger angesetzt beginnt die Prüfung, normale
+    /// Prosa zu beanstanden; höher lässt sie die Hälfte der Fälle durch.
+    static let fastGleichSchwelle = 0.5
+
+    /// Sind zwei Sätze dieselbe Formulierung mit ausgetauschten Wörtern?
+    ///
+    /// WARUM DAS GEBRAUCHT WIRD: Die Prüfung verglich vorher nur auf WORTGLEICHHEIT
+    /// (normalisierter Satzschlüssel). Am fertigen Buch nachgemessen: 384 Satzpaare in
+    /// benachbarten Szenen waren einander zu mindestens 62 % ähnlich – davon aber nur
+    /// ACHT wortgleich. Die anderen 376 rutschten durch:
+    ///
+    ///     „Sie kniete sich hin, berührte die matte Oberfläche mit den Fingerspitzen."
+    ///     „Sie bückte sich, berührte die Körner mit den Fingerspitzen."
+    ///
+    ///     „Die Treppe knarrte unter ihren Stiefeln wie morsche Knochen."
+    ///     „Die Dielen knarrten unter ihren Stiefeln."
+    ///     „Die Dielen stöhnten unter ihrem Gewicht."
+    ///
+    /// Genau solche Variationen derselben Satzschablone lassen einen Text maschinell
+    /// wirken – jede Szene erzählt die vorige mit anderen Wörtern noch einmal. Der
+    /// Erzeugungs-Prompt verbietet Wiederholungen ausdrücklich („ohne das Geschehene zu
+    /// wiederholen"); das Modell hält sich nicht daran. Wirksam ist nur die Prüfung
+    /// danach.
+    ///
+    /// Verglichen werden Wort-Dreiergruppen: Sie erfassen die Satzkonstruktion, nicht
+    /// bloß den Wortschatz. Zwei Sätze über dasselbe Thema mit anderem Bau fallen nicht
+    /// auf, dieselbe Konstruktion mit getauschten Wörtern schon.
+    static func istFastGleich(_ a: Set<[String]>, _ b: Set<[String]>) -> Bool {
+        guard !a.isEmpty, !b.isEmpty else { return false }
+        let gemeinsam = a.intersection(b).count
+        return Double(gemeinsam) / Double(min(a.count, b.count)) >= fastGleichSchwelle
+    }
+
+    /// Wort-Dreiergruppen eines Satzes, normalisiert (klein, ohne Diakritika/Satzzeichen).
+    static func wortTrigramme(_ satz: String) -> Set<[String]> {
+        let worte = satz
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+        guard worte.count >= 3 else { return [] }
+        var ergebnis = Set<[String]>()
+        for i in 0...(worte.count - 3) {
+            ergebnis.insert(Array(worte[i..<(i + 3)]))
+        }
+        return ergebnis
     }
 
     private static func significantSentenceRecords(in text: String) -> [(key: String, spelling: String)] {

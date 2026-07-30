@@ -136,6 +136,33 @@ enum ProofService {
         checks.append(Check("Keine Formatvorlagen im Text", withLabels.isEmpty,
                             withLabels.isEmpty ? "keine gefunden" : "\(withLabels.count) Kapitel betroffen"))
 
+        // ARBEITSMARKEN DER PRODUKTION – PFLICHTPRÜFUNG.
+        //
+        // Das Muster oben sucht nur nach „UNTERTITEL:", „KEYWORDS:" und Ähnlichem. Die
+        // Arbeitsmarken der Szenenerzeugung sahen anders aus und gingen deshalb durch:
+        // Im ausgelieferten Buch standen 85 Zeilen wie „KAPITEL 10, SZENE 1, VERSUCH 2/2"
+        // und „Kapitel 4, Szene 1 – Endfassung" mitten in der Prosa, in 21 von 46
+        // Kapiteln. Sie wurden mit dem EPUB zu Amazon hochgeladen.
+        //
+        // Das ist ein harter Ausschlussgrund: Ein Buch mit Produktionsnotizen im Text
+        // darf nicht in den Handel.
+        var markenKapitel: [Int] = []
+        var markenBeispiele: [String] = []
+        for kapitel in (project.chapters ?? []).sorted(by: { $0.chapterNumber < $1.chapterNumber }) {
+            let text = kapitel.finalText ?? kapitel.revisedText ?? kapitel.draftText ?? ""
+            let treffer = text.components(separatedBy: .newlines)
+                .filter { AutonomousContentQuality.istArbeitsmarke($0) }
+            guard !treffer.isEmpty else { continue }
+            markenKapitel.append(kapitel.chapterNumber)
+            if markenBeispiele.count < 3 {
+                markenBeispiele.append(treffer[0].trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+        }
+        checks.append(Check("Keine Arbeitsmarken im Manuskript", markenKapitel.isEmpty,
+                            markenKapitel.isEmpty
+                                ? "\(texts.count) Kapitel geprüft, keine gefunden"
+                                : "Kapitel \(markenKapitel.map(String.init).joined(separator: ", ")) – z. B. „\(markenBeispiele.joined(separator: "“, „"))“"))
+
         // RECHTSCHREIBUNG.
         //
         // Diese Prüfung fehlte vollständig – die Pipeline hat nie in einem Wörterbuch

@@ -5014,6 +5014,7 @@ final class PipelineOrchestrator: ObservableObject {
         project.status = .export
         project.updatedAt = Date()
         modelContext?.saveOrLog()
+        entferneArbeitsmarken(project: project)
         await korrigiereRechtschreibung(project: project, config: config)
         try await runFinalReadinessRepairs(project: project, config: config)
         try PublicationReadiness.validateForCompletion(project: project)
@@ -5074,6 +5075,41 @@ final class PipelineOrchestrator: ObservableObject {
                 || $0.contains("über Zielumfang")
                 || $0.contains("wiederholte ganze Sätze")
         }
+    }
+
+    /// Säubert das fertige Manuskript: Arbeitsmarken der Produktion und Typografie.
+    ///
+    /// Im ausgelieferten Buch „Das letzte Streichholz" standen 85 solche Zeilen mitten in
+    /// der Prosa, verteilt über 21 von 46 Kapiteln – „KAPITEL 10, SZENE 1, VERSUCH 2/2",
+    /// „Kapitel 4, Szene 1 – Endfassung", „ABSATZ:". Sie wurden mit dem EPUB zu Amazon
+    /// hochgeladen. Nichts hat sie aufgehalten: `strippingSceneHeading` sieht nur die
+    /// erste Zeile eines Textes an und wurde nur an einer von mehreren Erzeugungsstellen
+    /// aufgerufen.
+    ///
+    /// Diese Reinigung läuft am Ende über ALLE Kapitel, unabhängig davon, welcher Pfad den
+    /// Text erzeugt hat. Sie ist der Sicherheitsgurt, nicht der Ersatz für die Prüfung
+    /// beim Erzeugen.
+    private func entferneArbeitsmarken(project: Project) {
+        var betroffen = 0
+        var entfernteZeilen = 0
+        for kap in sortedChapters(project) {
+            guard let text = kap.bestText, !text.isEmpty else { continue }
+            let sauber = AutonomousContentQuality.fixingTypography(
+                AutonomousContentQuality.strippingProductionMarkers(text))
+            guard sauber != text else { continue }
+            let vorher = text.components(separatedBy: .newlines).count
+            let nachher = sauber.components(separatedBy: .newlines).count
+            entfernteZeilen += max(0, vorher - nachher)
+            betroffen += 1
+            if kap.finalText != nil { kap.finalText = sauber }
+            else if kap.revisedText != nil { kap.revisedText = sauber }
+            else { kap.draftText = sauber }
+        }
+        guard betroffen > 0 else { return }
+        modelContext?.saveOrLog()
+        currentAgent = "Text gesäubert: \(betroffen) Kapitel"
+        let job = beginJob(agent: AgentName.proofreader, phase: .proofreading, project: project)
+        completeJob(job, result: "\(betroffen) Kapitel gesäubert (Arbeitsmarken, Anführungszeichen, Satzzeichen)")
     }
 
     /// Rechtschreibfehler im fertigen Manuskript beheben – vor allem anderen.
