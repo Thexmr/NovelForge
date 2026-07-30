@@ -403,15 +403,17 @@ enum ProofService {
             }
             y += 8
         }
-        let ratio = samples > 0 ? Double(covered) / Double(samples) : 1
+        // `covered` bleibt als Messwert im Bericht sichtbar, entscheidet aber nicht mehr:
+        // Ein dunkler Hintergrund im Barcode-Feld ist erlaubt, Schrift nicht.
+        let belegtAnteil = samples > 0 ? Double(covered) / Double(samples) * 100 : 0
         let kantenAnteil = kantenProben > 0 ? Double(harteKanten) / Double(kantenProben) * 100 : 0
         // Textfrei statt weiß: unter 0,8 % harte Kanten liegt dort keine Schrift.
         // Dieselbe Schwelle wie bei der Cover-Beschriftung, dort an echten Dateien
         // kalibriert (Motiv 0,19 % · Typografie 2,17 %).
         let free = samples > 0 && kantenAnteil < minimaleSchriftDichte
         checks.append(Check("Barcode-Feld textfrei (2,0\" × 1,2\")", free,
-                            String(format: "Kantendichte %.2f %% (Schwelle %.2f %%), Hintergrund %d – %@",
-                                   kantenAnteil, minimaleSchriftDichte, darkest,
+                            String(format: "Kantendichte %.2f %% (Schwelle %.2f %%), Hintergrund %d, belegt %.0f %% – %@",
+                                   kantenAnteil, minimaleSchriftDichte, darkest, belegtAnteil,
                                    free ? "keine Schrift" : "Schrift im Barcode-Feld")))
 
         // KDP nimmt Taschenbuch-Cover nur als PDF an.
