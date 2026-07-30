@@ -818,10 +818,22 @@ enum AutonomousContentQuality {
     /// Verdreher tolerant. Sie entfernt NUR Zeilen, die als reine Arbeitsmarke erkennbar
     /// sind – kurz, ohne Satzschluss, mit Stellen- oder Fassungsangabe. Ein Prosasatz, der
     /// zufällig „Kapitel" enthält („Sie las das Kapitel zweimal."), bleibt stehen.
-    static func strippingProductionMarkers(_ text: String) -> String {
+    /// - Parameter buchtitel: Steht der Buchtitel als eigene Zeile am Kapitelanfang, ist
+    ///   das ebenfalls ein Erzeugungsrest. Im ausgelieferten Buch stand „Das letzte
+    ///   Streichholz" als erste Zeile von Kapitel 1 – mitten im Prosatext, direkt vor dem
+    ///   ersten Satz. Ein Satz, der den Titel beiläufig ENTHÄLT, bleibt unangetastet;
+    ///   entfernt wird nur eine Zeile, die aus nichts anderem besteht.
+    static func strippingProductionMarkers(_ text: String, buchtitel: String = "") -> String {
         let zeilen = text.components(separatedBy: .newlines)
+        let titelNorm = buchtitel.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         var behalten: [String] = []
+        var nurLeerzeilenBisher = true
         for zeile in zeilen {
+            let roh = zeile.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Titelzeile nur am Anfang entfernen – später im Text könnte sie Absicht sein
+            // (etwa ein Buch, das im Buch vorkommt).
+            if nurLeerzeilenBisher, !titelNorm.isEmpty, roh.lowercased() == titelNorm { continue }
+            if !roh.isEmpty { nurLeerzeilenBisher = false }
             if istArbeitsmarke(zeile) { continue }
             behalten.append(zeile)
         }

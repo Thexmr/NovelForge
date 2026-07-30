@@ -4625,7 +4625,25 @@ final class PipelineOrchestrator: ObservableObject {
         project.qualityReports?.removeAll {
             $0.checkType == "KI-Nachbearbeitung" || $0.checkType == "Nachbearbeitung"
         }
-        for report in auditedReports { report.autoFixed = true }
+        // NUR das abhaken, was dieses Audit selbst erzeugt hat – nicht die Befunde, die
+        // ihm bloß als Kontext im Prompt beilagen.
+        //
+        // Hier stand `for report in auditedReports { report.autoFixed = true }`. In
+        // `auditedReports` stecken laut `repairReportsForAudit` ALLE offenen kritischen
+        // Befunde des Buches, damit das Modell sie beim Audit kennt. Sie wurden dadurch
+        // abgehakt, ohne dass irgendwer sie behoben hätte.
+        //
+        // Am fertigen Buch nachgesehen: Die Konsistenzprüfung hatte 6 KRITISCHE
+        // Widersprüche und 1 Fehler gefunden – „Kapitel 29: Lena zündet Miras Schal an /
+        // Kapitel 30: Lena stand im Kreis der Flammen", „Kapitel 4: Mira verschwand /
+        // Kapitel 14, 22, 33: Mira war nie tot". Alle standen auf autoFixed = true, und
+        // deshalb blockierte keiner die Freigabe. Im Text sind sie noch drin; ein Lektor
+        // fand sie beim Lesen sofort.
+        //
+        // Abgehakt wird ein Befund jetzt nur an einer Stelle: dort, wo ein Kapitel
+        // tatsächlich neu geschrieben und angenommen wurde. Damit ein hartnäckiger Befund
+        // die Produktion nicht endlos blockiert, greift die Rundenbegrenzung der
+        // Endabnahme (maxQualityRepairRounds).
         completeJob(auditJob, result: "\(issues.count) Reparaturbefunde", tokens: auditResponse.tokensUsed ?? 0)
 
         guard !issues.isEmpty else {
@@ -5095,7 +5113,7 @@ final class PipelineOrchestrator: ObservableObject {
         for kap in sortedChapters(project) {
             guard let text = kap.bestText, !text.isEmpty else { continue }
             let sauber = AutonomousContentQuality.fixingTypography(
-                AutonomousContentQuality.strippingProductionMarkers(text))
+                AutonomousContentQuality.strippingProductionMarkers(text, buchtitel: project.title))
             guard sauber != text else { continue }
             let vorher = text.components(separatedBy: .newlines).count
             let nachher = sauber.components(separatedBy: .newlines).count
