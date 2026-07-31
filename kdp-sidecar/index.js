@@ -607,7 +607,10 @@ async function cmdLogin() {
 
 // ---------- Befehl: check ----------
 async function cmdCheck() {
-  const browser = await launch(args.profile, args.chrome, { headless: false });
+  // Headless: Die Login-Prüfung läuft im Hintergrund (Fabrik-Ansicht, Dispatcher).
+  // Vorher öffnete jede Prüfung ein sichtbares Fenster. Das Auth-Cookie liest sich
+  // auch headless (ignoreDefaultArgs schaltet den Schlüsselbund-Störer ab).
+  const browser = await launch(args.profile, args.chrome, { headless: true });
   const page = (await browser.pages())[0] || await browser.newPage();
   await germanLocale(page);
   const ok = await isLoggedIn(page);

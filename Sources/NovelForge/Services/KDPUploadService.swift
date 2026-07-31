@@ -138,7 +138,12 @@ enum KDPUploadService {
     /// Prüft ohne Nutzeraktion, ob eine gültige KDP-Session besteht.
     static func checkLogin() async -> Bool {
         guard sidecarReady else { return false }
-        let code = (try? await runSidecar(["check", "--profile", chromeProfile.path])) ?? 2
+        // WICHTIG: dieselbe Sitzungsquelle wie der Upload. Der Upload läuft mit
+        // --use-my-chrome-copy (übernimmt die Cookies aus dem echten Chrome), die
+        // Prüfung tat das nicht - sie sah nur ins leere Arbeitsprofil und meldete
+        // deshalb "nicht eingeloggt", während der Upload gleichzeitig funktionierte.
+        let code = (try? await runSidecar(
+            ["check", "--profile", chromeProfile.path, "--use-my-chrome-copy"])) ?? 2
         return code == 0
     }
 
