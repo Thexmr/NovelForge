@@ -2825,21 +2825,24 @@ final class PipelineOrchestrator: ObservableObject {
         // literarisch, sagen dem Leser in der Trefferliste aber NICHTS und lösen kein
         // Gefühl aus – genau die Sorte, über die sich der Nutzer beschwert hat.
         //
-        // Diese Liste folgt stattdessen den Bauarten, die auf BookTok tatsächlich
-        // funktionieren: eine direkte Anrede, eine Anschuldigung, ein Geständnis oder
-        // ein Versprechen mit Einsatz. Man kann jeden dieser Sätze aussprechen und
-        // weitersagen – das ist der eigentliche Treiber, nicht die Sprachschönheit.
+        // Ein zweiter Versuch ersetzte sie durch reißerische Aussage-Sätze („Sag es
+        // niemandem, hörst du", „Du wusstest, dass ich lüge"). Die klingen nach BookTok-
+        // Masche und KI, nicht nach Verlag – der Nutzer empfand sie weiterhin als merkwürdig.
+        //
+        // Diese Liste klingt wie echte, professionell verlegte Romane: bildstark,
+        // sehnsuchtsvoll, auf den ersten Blick verständlich – Titel, die man in der
+        // Bestsellerliste einer Buchhandlung erwartet, nicht im Groschenheft.
         let titles = [
-            "Sag es niemandem, hörst du",
-            "Ich hätte dich gehen lassen sollen",
-            "Du wusstest, dass ich lüge",
-            "Sie kommt zurück, wenn du schläfst",
-            "Er hat mir alles genommen, nur nicht das",
-            "Was in dieser Nacht geschah, bleibt hier",
-            "Ich habe deine Tochter zuletzt gesehen",
-            "Du schuldest mir ein Leben",
-            "Niemand hat nach ihr gefragt",
-            "Frag mich nicht, wo ich war"
+            "Solange der Sommer uns bleibt",
+            "Was das Meer uns nahm",
+            "Als wir noch unsterblich waren",
+            "Die Stille nach dem Regen",
+            "Wo dein Name im Sand steht",
+            "Bevor die Nacht uns fand",
+            "Ein Licht am Ende des Sturms",
+            "Die Farben eines fernen Winters",
+            "Und dann kam der Herbst",
+            "Wohin die Wellen uns tragen"
         ]
         let premises = [
             "Eine Frau kehrt nach Jahren in ihre Heimatstadt zurück und stößt auf ein Geheimnis, das ihre Familie lange verschwiegen hat, und muss entscheiden, ob die Wahrheit alles zerstört, was sie noch hat.",

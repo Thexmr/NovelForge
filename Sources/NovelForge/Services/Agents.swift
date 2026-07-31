@@ -1117,18 +1117,34 @@ enum PromptFactory {
         let premiseLine = premise.trimmingCharacters(in: .whitespaces).isEmpty
             ? "" : "Worum es geht: \(premise.truncated(to: 600))\n"
         return """
-        Erfinde 8 VIRALE, klickstarke Buchtitel auf \(language), die sofort neugierig machen,
-        spannend sind und gelesen werden wollen.
+        Erfinde 8 Buchtitel auf \(language), wie sie ein renommierter Publikumsverlag
+        AUF DAS COVER setzen würde – Titel, die man in der Bestsellerliste einer Buchhandlung
+        erwartet und die sofort zum Lesen anregen.
         \(genreLine)\(premiseLine)
-        PFLICHT je Titel:
-        - EXTREM stark und viral: stoppt den Daumen beim Scrollen, macht sofort süchtig, BookTok-würdig – keine braven, schwachen Titel. ZUGLEICH wie ein echter, professionell verlegter Bestseller: idiomatisches Deutsch, beim ersten Lesen sofort verständlich (viral heißt NICHT kryptisch).
-        - POLARISIEREND: löst sofort eine emotionale Reaktion aus (Tabu, Anschuldigung, moralisches Dilemma, gefährliches Versprechen) – ein Titel, zu dem jeder eine Meinung hat. Nett und gefällig wird überscrollt.
-        - 2-6 Wörter, als Amazon-KDP-Thumbnail sofort lesbar. Nur Alltagswörter, die jeder kennt.
-        - Offene Frage / Spannung / starkes Versprechen — ein Sog, der zum Klicken zwingt, aber NIE gewollt, kryptisch oder rätselhaft.
-        - Emotional aufgeladen, konkretes und verständliches Bild; BookTok-tauglich.
-        - STRENG VERBOTEN (klingt „komisch"/künstlich): kryptische oder prätentiöse Titel, synästhetische oder paradoxe Wort-Collagen, Wörter, die zusammen keinen Sinn ergeben.
-        - KEINE Berufs-/Ort-Klischees ("Die Bäckerin von …"), keine Anführungszeichen,
+        MASSSTAB: Der Titel muss klingen wie ein echter, professionell verlegter Roman –
+        elegant, bildstark, auf den ersten Blick verständlich. Der Test: Würde ein Leser ihn
+        einem Freund empfehlen, ohne sich fremdzuschämen? Ein Titel, der nach billiger
+        Selfpublishing-KI klingt, ist DURCHGEFALLEN.
+
+        NUTZE VERSCHIEDENE BEWÄHRTE FORMEN (nicht acht Varianten derselben Masche):
+        - Bildstarke Nomen-Wendung: ein konkretes, emotionales Bild in 2–4 Wörtern
+          (Form-Beispiele, NICHT übernehmen: „Das Lied der Weite", „Wo die Nächte hell sind").
+        - Stilles Versprechen / Sehnsucht: „Solange …", „Bevor …", „Als wir …"
+          (Form-Beispiele: „Solange die Hoffnung bleibt", „Als der Sommer uns gehörte").
+        - Ein einzelnes starkes Wort, evtl. mit knapper Ergänzung.
+        - Eine kurze, offene Zeile – aber HÖCHSTENS ZWEI der acht Titel dürfen so gebaut sein.
+
+        HARTE VERBOTE:
+        - KEINE reißerischen Aussage-Sätze im Reihen-Stil („Er stirbt, wenn ich bleibe",
+          „Mein Ex heiratet meine Schwester"). Das klingt nach KI und Groschenheft, nicht
+          nach Verlag. Höchstens zwei kurze offene Zeilen insgesamt, und diese müssen elegant sein.
+        - KEINE kryptischen, prätentiösen oder paradoxen Wort-Collagen.
+        - KEINE Berufs-/Ort-Klischees („Die Bäckerin von …"), keine Anführungszeichen,
           keine Erklärungen, keine zwei austauschbaren Allerweltstitel.
+        - 2–6 Wörter, als Amazon-KDP-Thumbnail sofort lesbar, nur Alltagswörter.
+
+        Jeder Titel soll neugierig machen und ein Gefühl auslösen – aber durch BILD und
+        SEHNSUCHT, nicht durch Schock. Passe die Titel zum Inhalt oben.
 
         Gib NUR die 8 Titel aus, je einen pro Zeile, jeweils beginnend mit "TITEL: ".
         """
