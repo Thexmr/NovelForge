@@ -38,30 +38,41 @@ enum AutonomousContentQuality {
 
     static func safeFictionScene(number: Int, chapterTitle: String, chapterGoal: String,
                                  chapterConflict: String, perspective: String) -> PlannedScene {
-        let goal = chapterGoal.isEmpty ? "Die Hauptfigur verfolgt das konkrete Kapitelziel" : chapterGoal
+        let ziel = chapterGoal.isEmpty ? "das Kapitelziel" : chapterGoal
         let conflict = chapterConflict.isEmpty
             ? "Ein bereits etablierter Widerstand erschwert den nächsten Schritt"
             : chapterConflict
-        let beats = [
+
+        // WARUM DIESE BEATS SO GEBAUT SIND: Der frühere Fallback gab JEDER Szene dasselbe
+        // Kapitelziel als Szenenziel („Clara findet das Foto…"). Der Schreiber führte das
+        // Ziel dann in jeder Szene aus – im Testbuch fand die Heldin dasselbe Foto drei-
+        // bis viermal, das Telefon klingelte dreimal. Ein Plan, der dreimal dasselbe sagt,
+        // erzeugt dreimal dieselbe Szene.
+        //
+        // Jetzt beschreibt jede Szene eine ANDERE dramaturgische Funktion (Einstieg,
+        // Komplikation, Zuspitzung, Wende). Das Kapitelziel wird als Richtung genannt,
+        // aber KEINE Szene wiederholt die Handlung einer früheren – das steht ausdrücklich
+        // in jedem Beat.
+        let beats: [(String, String, String)] = [
             (
-                "\(goal). Die Perspektivfigur setzt dafür eine konkrete Handlung in Gang.",
-                "\(conflict). Die erste praktische Lösung reicht nicht aus.",
-                "Eine eigene Entscheidung bindet die Perspektivfigur an den nächsten Schritt."
+                "EINSTIEG: Die Perspektivfigur betritt die Ausgangslage und unternimmt den ERSTEN konkreten Schritt in Richtung: \(ziel). Etabliere Ort, Stimmung und den Auslöser der Handlung.",
+                "\(conflict). Der erste Versuch stößt sofort an eine Grenze.",
+                "Ein erster Handlungsimpuls ist gesetzt – die Szene endet mit einer offenen Spannung, NICHT mit dem Erreichen des Kapitelziels."
             ),
             (
-                "\(goal). Die Perspektivfigur versucht einen zweiten, aktiveren Zugang.",
-                "\(conflict). Ein konkretes praktisches Hindernis verschärft sich.",
-                "Die eigene Handlung der Perspektivfigur schafft eine neue unmittelbare Folge."
+                "KOMPLIKATION: Ausgehend vom Ende der vorigen Szene ein NEUER, anderer Vorstoß. Zeige eine Handlung, die in Szene 1 noch NICHT vorkam – keine Wiederholung von Fund, Anruf oder Entdeckung von zuvor.",
+                "\(conflict). Ein zusätzliches, konkretes Hindernis verschärft die Lage.",
+                "Die Figur trifft eine Entscheidung, die neue Folgen auslöst und die Handlung vorantreibt."
             ),
             (
-                "Die Perspektivfigur bewältigt eine praktische Folge der vorherigen Szene und verfolgt dadurch \(goal.lowercased()).",
-                "\(conflict). Die gewählte Lösung fordert sichtbaren Aufwand oder Verzicht.",
-                "Das konkrete Ergebnis erzwingt den nächsten Schritt, ohne Rätsel, Fundstück oder neue Vorgeschichte."
+                "ZUSPITZUNG: Die Folgen der vorigen Szenen zwingen die Figur zu einem Schritt mit sichtbarem Einsatz oder Verzicht. Nichts bereits Gezeigtes wird erneut aufgerollt.",
+                "\(conflict). Der Preis des Weitergehens wird deutlich.",
+                "Ein Wendepunkt verändert die Lage spürbar – die Szene hebt die Spannung, statt zum Anfang zurückzukehren."
             ),
             (
-                "\(goal). Die Perspektivfigur handelt auf Grundlage der bisherigen Szenen.",
+                "WENDE UND ÜBERGANG: Eine Entscheidung oder Enthüllung bringt das Kapitel zu seinem Höhepunkt und öffnet die Tür zum nächsten. Fasse NICHTS aus früheren Szenen noch einmal aus.",
                 "\(conflict). Die Entscheidung fordert eine unmittelbare persönliche Konsequenz.",
-                "Die Konsequenz führt kausal in das folgende Kapitel, ohne neue Vorgeschichte zu erfinden."
+                "Die Konsequenz führt kausal in das folgende Kapitel – ohne neue Vorgeschichte zu erfinden und ohne eine frühere Szene zu wiederholen."
             )
         ]
         let beat = beats[(max(1, number) - 1) % beats.count]

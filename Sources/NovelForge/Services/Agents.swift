@@ -599,6 +599,10 @@ enum PromptFactory {
         Plane mindestens \(scenesPerChapter) Szenen (bei Bedarf mehr, aber nicht weniger).
         Für 500-Seiten-Langform braucht jede Szene eine eigene dramatische Funktion:
         neues Ziel, neue Reibung, neue Information, veränderte Beziehung oder verschärfter Einsatz.
+        KEINE ZWEI SZENEN dürfen dasselbe Ereignis erzählen. Jede Szene hat ein ANDERES Ziel als
+        die vorige – wiederhole niemals denselben Fund, denselben Anruf, dieselbe Entdeckung oder
+        denselben Aufbruch. Das Kapitelziel wird über die Szenen HINWEG erreicht, nicht in jeder
+        Szene neu. Ordne die Szenen als Fortschritt: Einstieg → Komplikation → Zuspitzung → Wende.
         KANON-GRENZE: Konkretisiere ausschließlich das vorgegebene Kapitelziel. Erfinde KEINE neue
         Vorgeschichte, Verwandtschaft, Schwangerschaft, Geburt, Todesursache, Todesort, Datumsfolge,
         Besitzurkunde, geheime Abstammung oder frühere Tat. Plane keine Briefe, Fotos, Tagebücher,
@@ -831,6 +835,15 @@ enum PromptFactory {
         - Hindernis: \(sceneObstacle)
         - Wendung am Ende: \(sceneTurn)
         - Zielumfang: ca. \(targetWords) Wörter
+
+        SZENE MUSS DIE HANDLUNG VORANTREIBEN – ABSOLUTE PFLICHT:
+        Diese Szene darf KEINE Handlung, keinen Fund, keinen Anruf, keine Entdeckung und
+        keine Enthüllung wiederholen, die in „LETZTE SZENEN IM DETAIL" oder im Vorszenen-Ende
+        bereits gezeigt wurde. Was zuvor gefunden, gesagt oder entschieden wurde, gilt als
+        geschehen – setze DORT an und gehe einen Schritt WEITER. Beginne die Szene nicht
+        wieder am selben Ausgangspunkt (nicht erneut denselben Gegenstand finden, nicht
+        erneut zum selben Ort aufbrechen). Wenn das Szenenziel etwas benennt, das laut
+        Kontext schon passiert ist, überspringe es und erzähle die nächste Konsequenz.
 
         Langform-Pflicht: Schreibe die Szene aus, nicht als Zusammenfassung. Nimm den Zielumfang ernst:
         Konflikt, Wahrnehmung, Subtext, kleine Entscheidungen und Konsequenzen müssen auf der Seite stattfinden.
