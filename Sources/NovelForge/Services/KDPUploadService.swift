@@ -229,6 +229,7 @@ enum KDPUploadService {
             "description": sheet.salesDescription,
             "keywords": Array(sheet.keywordSlots.prefix(7)),
             "categories": Array(sheet.categorySlots.prefix(3)),
+            "language": project.language,
             "aiDisclosure": aiDisclosure,
             "priceEUR": priceEUR,
             "epubPath": epub.path,

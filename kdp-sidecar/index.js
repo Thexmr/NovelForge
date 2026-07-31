@@ -387,6 +387,43 @@ async function klickeNachBeschriftung(page, muster, nurTyp) {
   }, muster instanceof RegExp ? muster.source : String(muster), nurTyp || null);
 }
 
+
+/**
+ * Setzt die Sprache des Buches auf der Detailseite.
+ *
+ * Wurde bisher gar nicht behandelt: Das job-Dict enthielt keine Sprache, und der
+ * Sidecar rührte das Dropdown nie an. Für ein deutsches Buch im /de_DE/-Fluss
+ * defaultet KDP zwar meist auf Deutsch, aber verlassen sollte man sich darauf nicht -
+ * eine falsche Sprachangabe schiebt das Buch in die falschen Kategorien und
+ * Empfehlungslisten.
+ *
+ * Gesucht wird die Option über ihren Text (Deutsch/German), nicht über einen
+ * geratenen Wert - die Optionswerte sind bei KDP nicht stabil.
+ */
+async function setzeSprache(page, job) {
+  const wunsch = String(job.language || 'Deutsch').trim();
+  return page.evaluate((sprache) => {
+    const nrm = (t) => (t || '').toLowerCase();
+    const ziel = nrm(sprache);
+    const aliasse = ziel.startsWith('de') || ziel.includes('deutsch') || ziel.includes('german')
+      ? ['deutsch', 'german'] : [ziel];
+    const felder = [...document.querySelectorAll('select')].filter((s) => s.offsetParent !== null);
+    for (const sel of felder) {
+      const opt = [...sel.options].find((o) => aliasse.some((a) => nrm(o.text).includes(a)));
+      if (!opt) continue;
+      // Nur ein Sprach-Dropdown anfassen: Es muss auch eine Englisch-Option haben.
+      const sprachauswahl = [...sel.options].some((o) => /englisch|english/i.test(o.text));
+      if (!sprachauswahl) continue;
+      if (sel.value === opt.value) return 'bereits';
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
+      setter.call(sel, opt.value);
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      return 'gesetzt';
+    }
+    return 'nicht-gefunden';
+  }, wunsch);
+}
+
 /**
  * KI-Kennzeichnung ausfüllen – bei KDP ein PFLICHTFELD.
  *
@@ -893,6 +930,13 @@ async function cmdUpload() {
     // Beschreibung über den CKEditor (Instanz 'editor1' → setData; mit Fallbacks).
     const descOk = await fillDescription(page, job.description);
     (descOk ? gefuellt : probleme).push('Beschreibung: ' + (descOk ? 'gesetzt' : 'nicht gesetzt'));
+
+    // Sprache setzen (Pflichtangabe, vorher nie behandelt).
+    {
+      const spr = await setzeSprache(page, job);
+      if (spr === 'nicht-gefunden') gefuellt.push('Sprache: Dropdown nicht gefunden (KDP-Default bleibt)');
+      else gefuellt.push('Sprache: ' + spr + ' (' + (job.language || 'Deutsch') + ')');
+    }
 
     // Keywords (7 Slots) — eBook: data-keywords-0..6.
     report({ stage: 'keywords', progress: 0.4, message: 'Trage Keywords ein …' });
