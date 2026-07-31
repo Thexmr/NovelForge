@@ -2961,6 +2961,13 @@ final class PipelineOrchestrator: ObservableObject {
         // Kapitels – verhindert Wiederholungen über hunderte Seiten.
         var chapterDigests: [String] = []
         var priorProseTexts: [String] = []
+        // FAKTEN-LEDGER (research-backed „Active Enforcement"): nach jedem Kapitel werden
+        // die harten, unveränderlichen Fakten (volle Namen, Zeitangaben, wer lebt/tot,
+        // feste Orte/Gegenstände) extrahiert und in JEDEN folgenden Szenen-Prompt als
+        // verbindliche Zwänge injiziert. Verhindert, dass Kapitel 2 den Helden umbenennt
+        // oder „vierzig Jahre" zu „vierzig Tagen" macht – der Fehler entsteht gar nicht
+        // erst, statt am Ende repariert zu werden.
+        var faktenLedger = ""
 
         let charactersSummary = compactCharacterSummary(bible)
         let primaryCanon = primaryStoryCanon(project: project)
@@ -3089,6 +3096,14 @@ final class PipelineOrchestrator: ObservableObject {
                     // Hierarchischer Kontext: alle bisherigen Kapitel verdichtet
                     // + die letzten Szenen im Detail.
                     var contextParts: [String] = []
+                    // VERBINDLICHE FAKTEN zuerst und unmissverständlich – nicht als
+                    // Hintergrund, sondern als Zwang. Diese Fakten wurden aus den bereits
+                    // geschriebenen Kapiteln gezogen; ihnen zu widersprechen ist verboten.
+                    if !faktenLedger.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        contextParts.append(
+                            "VERBINDLICHE FAKTEN – NIEMALS ABWEICHEN (volle Namen, Zeitangaben, "
+                            + "Leben/Tod, Orte exakt so verwenden):\n" + faktenLedger)
+                    }
                     if !chapterDigests.isEmpty {
                         contextParts.append("BISHERIGE KAPITEL:\n" + chapterDigests.joined(separator: "\n"))
                     }
@@ -3626,6 +3641,22 @@ final class PipelineOrchestrator: ObservableObject {
                !chapterDigests.contains(where: { $0.hasPrefix("Kapitel \(chapter.chapterNumber) ") }) {
                 chapterDigests.append("Kapitel \(chapter.chapterNumber) (\(chapter.title)): \(digest)")
             }
+
+            // INKREMENTELLE KONSISTENZ (shift-left): sofort nach dem Kapitel, nicht erst
+            // am Ende. (1) Vertauschte Nachnamen deterministisch korrigieren – „Jonas
+            // Hartmann" → „Jonas Brenner" wird hier gefangen, bevor Kapitel 2 entsteht.
+            if let text = chapter.bestText, !text.isEmpty {
+                let (korrigiert, _) = AutonomousContentQuality.enforcingNameCanon(text, namen: characterNames)
+                if korrigiert != text {
+                    if chapter.finalText != nil { chapter.finalText = korrigiert }
+                    else if chapter.revisedText != nil { chapter.revisedText = korrigiert }
+                    else { chapter.draftText = korrigiert }
+                }
+            }
+            // (2) Harte Fakten dieses Kapitels in den Ledger ziehen, damit die folgenden
+            // Kapitel ihnen nicht widersprechen können.
+            faktenLedger = await aktualisiereFaktenLedger(faktenLedger, chapter: chapter, config: config)
+
             // Echten, inhaltsbezogenen Kapiteltitel sicherstellen (verhindert „Aufbruch N").
             await ensureRealChapterTitle(chapter, project: project,
                                          summary: chapter.summary ?? "", config: config)
@@ -3636,6 +3667,33 @@ final class PipelineOrchestrator: ObservableObject {
 
     /// Verdichtet die Szenen-Zusammenfassungen eines Kapitels auf 1-2 Sätze.
     /// Fehler sind nicht fatal – dann dient der gekürzte Rohtext als Ersatz.
+    /// Zieht die harten Fakten des Kapitels und führt sie in den Fakten-Ledger.
+    ///
+    /// Teil der inkrementellen Konsistenz nach dem Vorbild von DOC/„Active Enforcement":
+    /// extrahieren → in die folgenden Kapitel injizieren. Der Ledger ist gedeckelt; die
+    /// frühesten (grundlegenden) Fakten behalten Vorrang, weil sie das Fundament sind,
+    /// dem alles Spätere folgen muss.
+    private func aktualisiereFaktenLedger(_ ledger: String, chapter: Chapter,
+                                          config: ProviderConfiguration) async -> String {
+        guard let text = chapter.bestText,
+              text.split(whereSeparator: { $0.isWhitespace }).count >= 120 else { return ledger }
+        guard let antwort = try? await generate(
+            prompt: PromptFactory.extractFacts(
+                chapterNumber: chapter.chapterNumber, chapterText: text, existingLedger: ledger),
+            system: "Du extrahierst harte, unveränderliche Fakten aus einem Romankapitel – nur, was der Text eindeutig festlegt.",
+            maxTokens: 350, temperature: 0.1, config: config
+        ) else { return ledger }
+        let neu = antwort.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !neu.isEmpty, !neu.uppercased().hasPrefix("KEINE") else { return ledger }
+        let zeilen = neu.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.hasPrefix("-") }
+        guard !zeilen.isEmpty else { return ledger }
+        let zusammen = (ledger.isEmpty ? "" : ledger + "\n") + zeilen.joined(separator: "\n")
+        // Deckel: die zuerst etablierten Fakten sind das Fundament und bleiben erhalten.
+        return zusammen.count > 3000 ? String(zusammen.prefix(3000)) : zusammen
+    }
+
     private func condenseChapterSummary(_ chapter: Chapter, project: Project,
                                         config: ProviderConfiguration) async -> String {
         let joined = sortedScenes(chapter).compactMap { $0.summary }.joined(separator: " ")

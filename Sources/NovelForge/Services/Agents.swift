@@ -1002,6 +1002,36 @@ enum PromptFactory {
         """
     }
 
+    /// Extrahiert die HARTEN, unveränderlichen Fakten eines Kapitels für den Fakten-Ledger.
+    ///
+    /// Kern der research-backed „Active Enforcement": Nach jedem Kapitel werden die neuen
+    /// festen Fakten (volle Namen, Datums-/Zeitangaben, wer lebt/tot, feste Orte und
+    /// Gegenstände) gezogen und als verbindliche Zwänge in die folgenden Kapitel injiziert –
+    /// statt zu hoffen, dass das Modell sich erinnert. Genau das verhindert, dass Kapitel 2
+    /// den Helden umbenennt oder „vierzig Jahre" zu „vierzig Tage" macht.
+    static func extractFacts(chapterNumber: Int, chapterText: String, existingLedger: String) -> String {
+        return """
+        Aus diesem Romankapitel sollen die HARTEN, ab jetzt unveränderlichen Fakten
+        herausgezogen werden – damit spätere Kapitel ihnen nicht widersprechen.
+
+        BEREITS BEKANNTE FAKTEN (nicht wiederholen, nur WIRKLICH NEUE ergänzen):
+        \(existingLedger.isEmpty ? "(noch keine)" : existingLedger.truncated(to: 2500))
+
+        KAPITEL \(chapterNumber):
+        \(chapterText.truncated(to: 12000))
+
+        Nenne NUR neue, überprüfbare Fakten, je einen pro Zeile, in dieser knappen Form:
+        - Figur: <voller Name> — <eine feste Eigenschaft: Rolle/Beziehung/Status lebendig oder tot>
+        - Zeit: <feste Zeitangabe, z. B. Jahr, „vor 40 Jahren", Datum>
+        - Ort: <fester Schauplatz>
+        - Gegenstand: <wichtiger fester Gegenstand und was mit ihm ist>
+        - Ereignis: <unumkehrbares Ereignis, das geschehen ist>
+
+        Regeln: Höchstens 6 Zeilen. KEINE Vermutungen, nur was das Kapitel eindeutig festlegt.
+        Nenne Figuren immer mit vollem Namen. Wenn nichts wirklich Neues dazukommt, antworte mit: KEINE.
+        """
+    }
+
     static func consistencyCheck(bookTitle: String, summaries: String, characters: String,
                                  isNonfiction: Bool = false) -> String {
         if isNonfiction {
