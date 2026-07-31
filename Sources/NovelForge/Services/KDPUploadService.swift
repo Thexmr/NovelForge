@@ -5,7 +5,12 @@ import Foundation
 /// vor Veröffentlichen). Reine Datei-Schnittstelle: Job-JSON rein, Status-JSON raus.
 enum KDPUploadService {
 
-    struct UploadResult { let draftURL: String? }
+    struct UploadResult {
+        let draftURL: String?
+        /// Pflichtfelder, die der Sidecar NICHT setzen konnte (Cover, Kategorie, …).
+        /// Der Entwurf ist gespeichert, aber unvollständig – der Nutzer muss nachbessern.
+        let offenePunkte: [String]
+    }
 
     enum SidecarError: LocalizedError {
         case nodeMissing, sidecarMissing(String), depsMissing, notLoggedIn, failed(String)
@@ -247,16 +252,18 @@ enum KDPUploadService {
         let code = try await runSidecar(args, onLine: progress)
         // Status-Datei auswerten.
         var draftURL: String?
+        var offenePunkte: [String] = []
         if let data = try? Data(contentsOf: statusURL),
            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             draftURL = obj["draftUrl"] as? String
+            offenePunkte = (obj["probleme"] as? [String]) ?? []
             if let err = obj["error"] as? String, code != 0 {
                 if err.contains("eingeloggt") { throw SidecarError.notLoggedIn }
                 throw SidecarError.failed(err)
             }
         }
         if code != 0 { throw SidecarError.failed("Sidecar endete mit Fehlercode \(code).") }
-        return UploadResult(draftURL: draftURL)
+        return UploadResult(draftURL: draftURL, offenePunkte: offenePunkte)
     }
 
     private static func latestEPUB(for project: Project) -> URL? {

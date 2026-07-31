@@ -1037,7 +1037,7 @@ async function cmdUpload() {
     const pflichtOk = probleme.length === 0;
 
     if (dryRun) {
-      report({ stage: 'done', progress: 1, ok: pflichtOk,
+      report({ stage: 'done', progress: 1, ok: pflichtOk, probleme,
         message: 'Testlauf beendet – NICHTS gespeichert.' + bilanz });
     } else {
       // ENTWURF speichern — NICHT veröffentlichen.
@@ -1045,8 +1045,19 @@ async function cmdUpload() {
       const saveBtn = await page.$('#save-announce, button[data-action="save-draft"], #save-and-continue-announce');
       if (saveBtn) { await saveBtn.click().catch(() => {}); await new Promise(r => setTimeout(r, 4000)); }
       const draftUrl = page.url();
-      report({ stage: 'done', progress: 1, ok: true, draftUrl,
-        message: 'Entwurf in KDP gespeichert. Bitte Preis prüfen und manuell veröffentlichen.' + bilanz });
+      // EHRLICHES ERGEBNIS. Hier stand `ok: true` fest verdrahtet - egal, ob Cover,
+      // Kategorie oder KI-Kennzeichnung gesetzt werden konnten. `pflichtOk` wurde
+      // berechnet, aber nur im Testlauf benutzt. Ein Entwurf mit fehlendem Cover galt
+      // damit als voller Erfolg, und die offenen Punkte standen nur im Meldungstext -
+      // für die Swift-Seite unsichtbar.
+      //
+      // Der Entwurf IST gespeichert (deshalb kein Fehler-Exit), aber `ok` sagt jetzt
+      // die Wahrheit, und `probleme` steht maschinenlesbar in der Statusdatei.
+      report({ stage: 'done', progress: 1, ok: pflichtOk, draftUrl, probleme,
+        message: (pflichtOk
+          ? 'Entwurf vollständig in KDP gespeichert. Bitte Preis prüfen und manuell veröffentlichen.'
+          : 'Entwurf gespeichert, aber nicht alle Pflichtfelder gesetzt - vor dem Veröffentlichen prüfen.')
+          + bilanz });
     }
   } catch (e) {
     report({ stage: 'error', progress: statusObj.progress, ok: false, error: String(e.message || e),

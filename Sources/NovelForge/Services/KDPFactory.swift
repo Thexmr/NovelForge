@@ -334,7 +334,13 @@ final class KDPFactory: ObservableObject {
                 $0.attempts = 0
                 $0.lastTriedAt = Date()
                 $0.draftURL = result.draftURL
-                $0.lastMessage = "Entwurf in KDP – Preis prüfen und veröffentlichen."
+                // Offene Pflichtfelder ehrlich anzeigen statt pauschal "fertig".
+                // Vorher meldete der Sidecar hier immer Erfolg; ein Entwurf mit
+                // fehlendem Cover sah aus wie ein vollständiger.
+                $0.lastMessage = result.offenePunkte.isEmpty
+                    ? "Entwurf in KDP – Preis prüfen und veröffentlichen."
+                    : "Entwurf gespeichert, aber \(result.offenePunkte.count) Pflichtfeld(er) offen: "
+                        + result.offenePunkte.prefix(4).joined(separator: " · ")
             }
         } catch {
             update(next.id) {
