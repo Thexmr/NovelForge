@@ -5324,9 +5324,12 @@ final class PipelineOrchestrator: ObservableObject {
 
             Lege in 2 bis 4 Sätzen die EINE kanonische Wahrheit fest, an die sich ALLE
             betroffenen Kapitel halten müssen (z. B. wie und wann eine Figur stirbt, welchen
-            Namen sie trägt, wer auf wen wartet). Wähle die Version, die am besten zur
-            bisherigen Handlung und zum Namenskanon passt. Antworte NUR mit dieser Festlegung,
-            ohne Vorrede.
+            Namen sie trägt, wer auf wen wartet). Geht es um eine WIEDERHOLUNG (dasselbe
+            Ereignis mehrfach erzählt), lautet die Festlegung: Das Ereignis geschieht GENAU
+            EINMAL – in welcher Szene, und was die anderen betroffenen Szenen STATTDESSEN
+            zeigen sollen (die Konsequenzen, den nächsten Schritt). Wähle die Version, die am
+            besten zur bisherigen Handlung und zum Namenskanon passt. Antworte NUR mit dieser
+            Festlegung, ohne Vorrede.
             """
             guard let aufloesung = try? await generate(
                 prompt: aufloesungsPrompt,

@@ -1022,6 +1022,12 @@ enum PromptFactory {
         Prüfe die folgende Kapitelübersicht des Romans "\(bookTitle)" auf Widersprüche: \
         Zeitlinie, Figurenwissen, Orte, Logik der Ereignisse, offene Handlungsfäden.
 
+        PRÜFE AUSDRÜCKLICH AUCH AUF WIEDERHOLUNG: Wird innerhalb eines Kapitels DASSELBE
+        Ereignis mehrfach erzählt (z. B. dieselbe Figur findet denselben Gegenstand mehrmals
+        "zum ersten Mal", derselbe Anruf, dieselbe Entdeckung, derselbe Aufbruch in mehreren
+        Szenen)? Melde jede solche Doppelung als eigenes Problem mit Schweregrad "Fehler" und
+        nenne die betroffenen Kapitel- und Szenennummern im Bereich.
+
         FIGUREN:
         \(characters.truncated(to: 1500))
 
