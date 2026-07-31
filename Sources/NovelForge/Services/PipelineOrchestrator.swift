@@ -5252,6 +5252,188 @@ final class PipelineOrchestrator: ObservableObject {
         modelContext?.saveOrLog()
     }
 
+    /// Löst echte Handlungs-Widersprüche auf, indem die betroffenen Kapitel neu
+    /// geschrieben werden – statt sie nur zu melden.
+    ///
+    /// Der End-to-End-Testlauf deckte die Lücke auf: Die Konsistenzprüfung fand am Buch
+    /// „Sie hat mich geküsst, bevor sie starb" fünf kritische und vier Fehler-Widersprüche
+    /// (der Held hieß mal „Jonas Brenner", mal „Jonas Hartmann"; Lina starb in drei
+    /// verschiedenen Versionen). Der bestehende Reparatur-Workflow schreibt ein Kapitel nur
+    /// um, wenn ein Befund GENAU EINE Kapitelnummer trägt – die Konsistenz-Widersprüche
+    /// spannen aber mehrere Kapitel und wurden nie in kapitelbezogene Reparaturaufträge
+    /// übersetzt. Also blieben sie stehen, und das Buch fiel (zu Recht) durch.
+    ///
+    /// Vorgehen je Widerspruch:
+    /// 1. Die genannten Kapitelnummern aus dem Befundtext lesen.
+    /// 2. In EINEM Modellaufruf die verbindliche kanonische Wahrheit bestimmen – gestützt
+    ///    auf die Story Bible (Namen, Rollen sind dort festgelegt).
+    /// 3. Jedes betroffene Kapitel so umschreiben, dass es dieser Wahrheit entspricht;
+    ///    nur ändern, was widerspricht.
+    /// 4. Ein Befund gilt erst als behoben, wenn wenigstens ein betroffenes Kapitel
+    ///    nachweislich neu geschrieben und angenommen wurde.
+    ///
+    /// Bewusst gedeckelt (Kosten/Zeit): höchstens `maxWidersprueche` Widersprüche und
+    /// `maxKapitelGesamt` Kapitel-Neufassungen pro Lauf. Die Rundenbegrenzung der
+    /// Endabnahme fängt hartnäckige Fälle zusätzlich ab.
+    @discardableResult
+    private func runConsistencyRepair(project: Project, config: ProviderConfiguration) async throws -> Int {
+        let maxWidersprueche = 6
+        let maxKapitelGesamt = 10
+
+        // Nur blockierende, noch nicht behobene Konsistenz-Widersprüche.
+        let blocker = (project.qualityReports ?? []).filter {
+            $0.checkType == "Konsistenz"
+                && !$0.autoFixed
+                && ($0.severity == .critical || $0.severity == .error)
+        }.prefix(maxWidersprueche)
+        guard !blocker.isEmpty else { return 0 }
+
+        let kapitel = sortedChapters(project)
+        let namensKanon = (project.storyBible?.characters ?? [])
+            .map { "\($0.name) (\($0.role))" }.joined(separator: "; ")
+        var behoben = 0
+        var kapitelBudget = maxKapitelGesamt
+
+        for report in blocker {
+            try Task.checkCancellation()
+            guard kapitelBudget > 0 else { break }
+
+            let befund = report.result
+            let nummern = kapitelNummern(inText: befund)
+            let betroffen = kapitel.filter { nummern.contains($0.chapterNumber) }
+            guard !betroffen.isEmpty else { continue }
+
+            currentAgent = "Konsistenz-Reparatur – Kapitel \(nummern.map(String.init).joined(separator: ", "))"
+
+            // 1) Verbindliche kanonische Auflösung bestimmen.
+            let ausschnitt = betroffen.map { kap -> String in
+                let text = (kap.bestText ?? "")
+                return "== Kapitel \(kap.chapterNumber): \(kap.title) ==\n\(text.truncated(to: 1800))"
+            }.joined(separator: "\n\n")
+            let aufloesungsPrompt = """
+            In einem Roman gibt es einen Widerspruch, der aufgelöst werden muss.
+
+            WIDERSPRUCH:
+            \(befund)
+
+            VERBINDLICHER NAMENSKANON (Rollen/Namen sind festgelegt):
+            \(namensKanon.isEmpty ? "(keine Angaben)" : namensKanon)
+
+            RELEVANTE KAPITELAUSZÜGE:
+            \(ausschnitt.truncated(to: 6000))
+
+            Lege in 2 bis 4 Sätzen die EINE kanonische Wahrheit fest, an die sich ALLE
+            betroffenen Kapitel halten müssen (z. B. wie und wann eine Figur stirbt, welchen
+            Namen sie trägt, wer auf wen wartet). Wähle die Version, die am besten zur
+            bisherigen Handlung und zum Namenskanon passt. Antworte NUR mit dieser Festlegung,
+            ohne Vorrede.
+            """
+            guard let aufloesung = try? await generate(
+                prompt: aufloesungsPrompt,
+                system: "Du bist Lektor und legst die verbindliche Kontinuität eines Romans fest.",
+                maxTokens: 400, temperature: 0.2, config: config
+            ), !aufloesung.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            let kanon = aufloesung.text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // 2) Jedes betroffene Kapitel an die Auflösung angleichen.
+            var kapitelBehoben = 0
+            for kap in betroffen {
+                guard kapitelBudget > 0 else { break }
+                guard let quelle = kap.bestText, !quelle.isEmpty else { continue }
+                kapitelBudget -= 1
+
+                let issue = RepairIssue(
+                    severity: report.severity,
+                    chapterNumber: kap.chapterNumber,
+                    area: "Kontinuität",
+                    problem: "Widerspruch im Buch: \(befund)",
+                    instruction: "Schreibe dieses Kapitel so um, dass es GENAU dieser "
+                        + "verbindlichen Auflösung entspricht: \(kanon) Verwende die Figurennamen "
+                        + "exakt laut Kanon. Ändere nur, was der Auflösung widerspricht; "
+                        + "erhalte Handlung, Länge, Stil und Szenentrenner."
+                )
+                let job = beginJob(agent: AgentName.repairEditor, phase: .manuscriptRevision,
+                                   project: project, chapter: kap.chapterNumber)
+                let minimumWords = max(100, Int(Double(quelle.wordCount) * 0.6))
+                let targetCeiling = kap.targetWordCount > 0
+                    ? Int(Double(kap.targetWordCount) * PublicationReadiness.maximumChapterWordRatio)
+                    : Int.max
+                let growthCeiling = max(quelle.wordCount, targetCeiling)
+
+                var angenommen: String?
+                for versuch in 1...2 where angenommen == nil {
+                    guard let antwort = try? await generate(
+                        prompt: PromptFactory.repairChapter(
+                            language: project.language, bookTitle: project.title,
+                            chapterNumber: kap.chapterNumber, chapterTitle: kap.title,
+                            issue: issue, chapterText: quelle.truncated(to: 36_000),
+                            isNonfiction: project.isNonfiction)
+                            + "\n\nVollständigkeitsversuch \(versuch)/2: Der letzte Satz muss vollständig sein.",
+                        system: "Du bist ein chirurgisch arbeitender Romanlektor. Du stellst die Kontinuität her und gibst nur den vollständigen Kapiteltext zurück.",
+                        maxTokens: min(12_000, max(4_000, quelle.wordCount * 4)),
+                        temperature: 0.25, config: config, creative: true
+                    ) else { continue }
+                    let kandidat = AutonomousContentQuality.humanizeProse(
+                        AutonomousContentQuality.strippingInlineFormatting(
+                            AutonomousContentQuality.strippingPromptArtifacts(antwort.text)))
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if AutonomousContentQuality.isAcceptableRewrite(
+                           source: quelle, candidate: kandidat,
+                           minRatio: 0.6, maxRatio: 1.15, finishReason: antwort.finishReason),
+                       kandidat.wordCount <= growthCeiling,
+                       kandidat.wordCount >= minimumWords,
+                       !AutonomousContentQuality.containsMetaRequest(kandidat),
+                       !PublicContentGuard.disclosureViolation(in: kandidat),
+                       ContentSafetyFilter.isSafe(kandidat) {
+                        angenommen = kandidat
+                    }
+                }
+
+                if let neu = angenommen {
+                    // In die Fassung zurückschreiben, aus der der Text stammt.
+                    if kap.finalText != nil { kap.finalText = neu }
+                    else if kap.revisedText != nil { kap.revisedText = neu }
+                    else { kap.draftText = neu }
+                    kap.actualWordCount = neu.wordCount
+                    kap.updatedAt = Date()
+                    kapitelBehoben += 1
+                    completeJob(job, result: "Kapitel \(kap.chapterNumber) auf Kontinuität angeglichen")
+                } else {
+                    failJob(job, error: AIError.systemError("Kontinuitäts-Neufassung nicht angenommen"))
+                }
+            }
+
+            // 3) Befund nur abhaken, wenn wirklich ein Kapitel neu geschrieben wurde.
+            if kapitelBehoben > 0 {
+                report.autoFixed = true
+                behoben += 1
+            }
+        }
+
+        if behoben > 0 {
+            project.updatedAt = Date()
+            modelContext?.saveOrLog()
+        }
+        return behoben
+    }
+
+    /// Liest alle „Kapitel N"-Nummern aus einem Befundtext (auch „Kapitel 14, 22, 33").
+    private func kapitelNummern(inText text: String) -> Set<Int> {
+        var ergebnis = Set<Int>()
+        let ns = text as NSString
+        guard let re = try? NSRegularExpression(pattern: "[Kk]apitel\\s+((?:\\d+\\s*,\\s*)*\\d+)") else {
+            return ergebnis
+        }
+        for m in re.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            let gruppe = ns.substring(with: m.range(at: 1))
+            for teil in gruppe.split(whereSeparator: { $0 == "," || $0 == " " }) {
+                if let n = Int(teil) { ergebnis.insert(n) }
+            }
+        }
+        return ergebnis
+    }
+
+
     private func runFinalReadinessRepairs(project: Project,
                                           config: ProviderConfiguration) async throws {
         // Nichts zu reparieren → keine Reparaturzeit anzeigen.
@@ -5301,6 +5483,11 @@ final class PipelineOrchestrator: ObservableObject {
             if !readinessRepairAuditDone,
                issues.contains(where: { $0.contains("Offene Qualitätsbefunde") }) {
                 readinessRepairAuditDone = true
+                // ZUERST die echten Handlungs-Widersprüche auflösen (Kapitel neu schreiben),
+                // DANN das allgemeine Repair-Audit. Ohne den ersten Schritt blieben genau
+                // die kritischen Konsistenzbefunde stehen, an denen das Testbuch scheiterte:
+                // „Jonas heißt mal Hartmann, mal Brenner", „Lina stirbt in drei Versionen".
+                try await runConsistencyRepair(project: project, config: config)
                 _ = try await runRepairWorkflow(project: project, config: config)
             }
             if issues.contains(where: { $0.contains("über Zielumfang") }) {
