@@ -837,6 +837,9 @@ enum PromptFactory {
 
         FIGUREN (Merkmale sind KANONISCH – Alter, Beruf, Beziehungen nie verändern):
         \(charactersSummary.truncated(to: 2000))
+        NAMENSREGEL: Jede Figur behält IMMER exakt ihren vollständigen Namen aus der Liste oben.
+        Vertausche niemals Nachnamen zwischen Figuren und erfinde keine neuen Nachnamen. Nenne eine
+        Figur entweder beim vollen Namen aus der Liste oder nur beim Vornamen – nie mit einem fremden Nachnamen.
 
         BISHERIGE HANDLUNG:
         \(storySoFar.isEmpty ? "Dies ist der Anfang des Buches." : storySoFar.truncated(to: 8000))

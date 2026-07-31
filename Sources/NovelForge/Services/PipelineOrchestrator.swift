@@ -5110,10 +5110,15 @@ final class PipelineOrchestrator: ObservableObject {
     private func entferneArbeitsmarken(project: Project) {
         var betroffen = 0
         var entfernteZeilen = 0
+        // Kanonische Figurennamen für die Namenskanon-Durchsetzung.
+        let kanonNamen = (project.storyBible?.characters ?? []).map(\.name)
+        var namensKorrekturen: [String] = []
         for kap in sortedChapters(project) {
             guard let text = kap.bestText, !text.isEmpty else { continue }
+            let (mitNamen, korr) = AutonomousContentQuality.enforcingNameCanon(text, namen: kanonNamen)
+            namensKorrekturen.append(contentsOf: korr)
             let sauber = AutonomousContentQuality.fixingTypography(
-                AutonomousContentQuality.strippingProductionMarkers(text, buchtitel: project.title))
+                AutonomousContentQuality.strippingProductionMarkers(mitNamen, buchtitel: project.title))
             guard sauber != text else { continue }
             let vorher = text.components(separatedBy: .newlines).count
             let nachher = sauber.components(separatedBy: .newlines).count
@@ -5125,6 +5130,10 @@ final class PipelineOrchestrator: ObservableObject {
         }
         guard betroffen > 0 else { return }
         modelContext?.saveOrLog()
+        if !namensKorrekturen.isEmpty {
+            let job2 = beginJob(agent: AgentName.proofreader, phase: .proofreading, project: project)
+            completeJob(job2, result: "Namenskanon: " + namensKorrekturen.prefix(10).joined(separator: ", "))
+        }
         currentAgent = "Text gesäubert: \(betroffen) Kapitel"
         let job = beginJob(agent: AgentName.proofreader, phase: .proofreading, project: project)
         completeJob(job, result: "\(betroffen) Kapitel gesäubert (Arbeitsmarken, Anführungszeichen, Satzzeichen)")

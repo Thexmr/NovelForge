@@ -752,6 +752,56 @@ enum AutonomousContentQuality {
     ///
     /// Entfernt werden nur ERSTE Zeilen, die eindeutig eine Arbeitsangabe sind – ein
     /// echter Kapiteltitel oder ein Prosa-Anfang bleibt unangetastet.
+    /// Erzwingt die kanonischen Figurennamen aus der Story Bible.
+    ///
+    /// Das szenenweise erzeugte Manuskript vertauscht Nachnamen zwischen Figuren – ein
+    /// klassischer LLM-Fehler. Am frisch produzierten Buch „Sie hat mich geküsst, bevor
+    /// sie starb" nachgewiesen: Der Held heißt in der Story Bible „Jonas Brenner", im
+    /// Text stand aber 2× „Jonas Hartmann" – „Hartmann" ist der Nachname der Figur Lina.
+    /// Die Konsistenzprüfung meldete das als KRITISCH („zwei Personen oder
+    /// Namensinkonsistenz?") und das Buch fiel zu Recht durch.
+    ///
+    /// Diese Korrektur ist streng begrenzt und dadurch sicher: Ersetzt wird nur
+    /// „Vorname FremderNachname", wobei der FremderNachname NACHWEISLICH einer ANDEREN
+    /// Figur gehört. Ein Vorname mit unbekanntem Nachnamen bleibt unangetastet, ebenso
+    /// Geschwister mit gleichem Nachnamen (Clara/Mira/Niko Voss).
+    ///
+    /// - Parameter namen: kanonische vollständige Namen aus der Story Bible.
+    static func enforcingNameCanon(_ text: String, namen: [String]) -> (text: String, korrekturen: [String]) {
+        // Vorname → richtiger Nachname; Menge aller bekannten Nachnamen.
+        var vorZuNach: [String: String] = [:]
+        var nachnamen = Set<String>()
+        let anreden: Set<String> = ["herr", "frau", "dr", "dr.", "prof", "prof.", "sir", "lady", "miss", "mr", "mrs"]
+        for name in namen {
+            let teile = name.split(separator: " ").map(String.init)
+            guard teile.count >= 2 else { continue }
+            let vor = teile[0], nach = teile[teile.count - 1]
+            guard vor.count >= 3, nach.count >= 3, !anreden.contains(vor.lowercased()) else { continue }
+            vorZuNach[vor] = nach
+            nachnamen.insert(nach)
+        }
+        guard !vorZuNach.isEmpty else { return (text, []) }
+
+        var ergebnis = text
+        var korrekturen: [String] = []
+        for (vor, richtig) in vorZuNach {
+            for falsch in nachnamen where falsch != richtig {
+                // Nur echte Vertauschung: „Vorname FremderNachname" → „Vorname RichtigerNachname".
+                let muster = "\\b" + NSRegularExpression.escapedPattern(for: vor)
+                    + "\\s+" + NSRegularExpression.escapedPattern(for: falsch) + "\\b"
+                guard let re = try? NSRegularExpression(pattern: muster) else { continue }
+                let bereich = NSRange(ergebnis.startIndex..., in: ergebnis)
+                let treffer = re.numberOfMatches(in: ergebnis, range: bereich)
+                guard treffer > 0 else { continue }
+                ergebnis = re.stringByReplacingMatches(
+                    in: ergebnis, range: bereich,
+                    withTemplate: NSRegularExpression.escapedTemplate(for: "\(vor) \(richtig)"))
+                korrekturen.append("\(vor) \(falsch)→\(vor) \(richtig) (\(treffer)×)")
+            }
+        }
+        return (ergebnis, korrekturen)
+    }
+
     /// Setzt deutsche Anführungszeichen richtig und räumt Satzzeichen-Doppler auf.
     ///
     /// Im ausgelieferten Buch nachgezählt: 3573 Zitate wurden mit dem typografischen „
