@@ -1298,12 +1298,58 @@ enum AutonomousContentQuality {
         "wie ein offenes buch", "achterbahn der gefühle", "ein wirbelsturm der gefühle"
     ]
 
-    /// Zählt die Treffer aus `aiTellPhrases` im Text (Gesamtvorkommen).
+    /// Englische KI-Tells (B3): Die App schreibt wahlweise auf Englisch
+    /// (Sprachauswahl im Wizard), die gesamte Erkennung war aber deutsch-only –
+    /// ein englisches Buch passierte das KI-Gate ungeprüft. Kuratierte,
+    /// hochsignifikante Mehrwort-Phrasen, symmetrisch zur deutschen Liste.
+    /// Werden mit der deutschen Liste kombiniert ausgewertet: Deutsche Phrasen
+    /// kommen in englischen Büchern praktisch nicht vor (und umgekehrt), so
+    /// deckt EINE kombinierte Zählung beide Sprachen ab, ohne dass jeder
+    /// Aufrufort die Buchsprache kennen muss.
+    static let aiTellPhrasesEnglish: [String] = [
+        "a shiver ran down", "ran down her spine", "ran down his spine",
+        "sent shivers down", "sent a shiver down",
+        "couldn't help but", "could not help but",
+        "little did she know", "little did he know", "little did they know",
+        "didn't know she was holding", "didn't know he was holding",
+        "the air was thick with", "air thick with tension",
+        "heart hammered in her chest", "heart hammered in his chest",
+        "heart pounded in her chest", "heart pounded in his chest",
+        "washed over her", "washed over him", "a wave of relief",
+        "a mixture of", "a mix of emotions",
+        "something inside her", "something inside him",
+        "deep within her", "deep within him",
+        "in that moment", "in that instant", "for a heartbeat",
+        "time seemed to stand still", "time stood still",
+        "nothing would ever be the same",
+        "didn't reach her eyes", "didn't reach his eyes", "failed to reach her eyes",
+        "their eyes met", "eyes locked",
+        "tension between them was palpable", "palpable tension",
+        "butterflies in her stomach", "butterflies in his stomach",
+        "a knot in her stomach", "a knot in his stomach",
+        "a lump in her throat", "a lump in his throat",
+        "every fiber of her being", "every fiber of his being",
+        "she swallowed hard", "he swallowed hard",
+        "welled up in her eyes", "welled up in his eyes", "tears welled",
+        "a sense of dread", "dread settled",
+        "a testament to", "tapestry of", "delve into", "delved into",
+        "deafening silence", "danced in the moonlight",
+        "a flicker of doubt", "uncharted territory",
+        "her breath hitched", "his breath hitched",
+        "breath caught in her throat", "breath caught in his throat",
+        "more than words could"
+    ]
+
+    /// Deutsch + Englisch kombiniert (einmalig aufgebaut).
+    private static let aiTellPhrasesAll: [String] = aiTellPhrases + aiTellPhrasesEnglish
+
+    /// Zählt die Treffer aus `aiTellPhrases` + `aiTellPhrasesEnglish` im Text
+    /// (Gesamtvorkommen, beide Sprachen kombiniert – s. B3-Kommentar oben).
     static func aiTellCount(_ text: String) -> Int {
         let lower = text.lowercased()
         guard !lower.isEmpty else { return 0 }
         var count = 0
-        for phrase in aiTellPhrases {
+        for phrase in aiTellPhrasesAll {
             var range = lower.startIndex..<lower.endIndex
             while let hit = lower.range(of: phrase, range: range) {
                 count += 1
@@ -1316,7 +1362,7 @@ enum AutonomousContentQuality {
     static func aiTellMatches(in text: String, maxResults: Int = 20) -> [String] {
         let lower = text.lowercased()
         var matches: [String] = []
-        for phrase in aiTellPhrases where lower.contains(phrase) {
+        for phrase in aiTellPhrasesAll where lower.contains(phrase) {
             guard !matches.contains(phrase) else { continue }
             matches.append(phrase)
             if matches.count >= maxResults { break }
