@@ -2024,6 +2024,69 @@ enum AutonomousContentQuality {
         return relevant.prefix(maxLines).joined(separator: "\n")
     }
 
+    // MARK: - Thematisches Retrieval (C3)
+
+    /// Findet die 2–3 thematisch ÄHNLICHSTEN früheren Szenen zur aktuellen Szene.
+    ///
+    /// WARUM: Der Schreibkontext enthält bisher nur das chronologische Fenster
+    /// („LETZTE SZENEN IM DETAIL": die 6 jüngsten) plus verdichtete Kapitel-
+    /// Digests. Ruft eine Szene in Kapitel 30 ein Ereignis aus Kapitel 4 zurück
+    /// (derselbe Ort, dieselbe Figur, dasselbe Versprechen), fehlen dem Modell
+    /// die konkreten Details – es erfindet sie neu und widerspricht damit dem
+    /// früheren Kapitel, ODER es erzählt das Ereignis versehentlich noch einmal
+    /// als „neu". Dieses Retrieval holt die inhaltlich passenden alten Szenen-
+    /// Summaries gezielt in den Prompt: Das Modell kann daran anknüpfen, statt
+    /// zu raten.
+    ///
+    /// Ähnlichkeit = Anzahl geteilter bedeutender Wörter (≥4 Buchstaben, ohne
+    /// hochfrequente Funktionswörter). Die letzten `ausschlussLetzte` Einträge
+    /// werden übersprungen (sie stehen schon im Detailfenster). Mindestens
+    /// `mindestTreffer` geteilte Wörter, damit kein Rauschen in den Prompt kommt.
+    static func thematischAehnlicheSzenen(sceneSummaries: [String], kontext: String,
+                                          ausschlussLetzte: Int = 6,
+                                          maxErgebnisse: Int = 3,
+                                          mindestTreffer: Int = 2) -> [String] {
+        // Hochfrequente Wörter, die in fast jeder Summary vorkommen und sonst
+        // Schein-Ähnlichkeit erzeugen würden.
+        let funktionswoerter: Set<String> = [
+            "dass", "aber", "oder", "wenn", "dann", "noch", "schon", "wieder",
+            "immer", "sagt", "geht", "kommt", "sieht", "steht", "macht", "gibt",
+            "wird", "wurde", "haben", "seine", "seiner", "seinen", "ihre",
+            "ihrer", "ihren", "einer", "einem", "einen", "nach", "sich",
+            "nicht", "auch", "mehr", "beim", "über", "unter", "zwischen",
+            "weil", "als", "mit", "von", "und", "der", "die", "das", "ein",
+            "eine", "ist", "sind", "war", "waren", "hat", "hatte", "kann",
+            "muss", "soll", "will", "lässt", "bleibt", "findet", "nimmt",
+            "zwei", "erste", "letzte", "ganz", "sehr", "viel", "alle", "alles"
+        ]
+        func woerter(_ text: String) -> Set<String> {
+            Set(
+                text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                    .lowercased()
+                    .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                    .filter { $0.count >= 4 && !funktionswoerter.contains($0) }
+            )
+        }
+        let kontextWoerter = woerter(kontext)
+        guard !kontextWoerter.isEmpty else { return [] }
+
+        let kandidaten = sceneSummaries.dropLast(ausschlussLetzte)
+        let bewertet: [(index: Int, treffer: Int, zeile: String)] = kandidaten.enumerated()
+            .compactMap { index, zeile in
+                let treffer = woerter(zeile).intersection(kontextWoerter).count
+                return treffer >= mindestTreffer ? (index, treffer, zeile) : nil
+            }
+        // Treffer entscheiden; bei Gleichstand gewinnt die JÜNGERE Szene
+        // (höhere Wahrscheinlichkeit, dass der Rückruf aktuell ist).
+        return bewertet
+            .sorted { lhs, rhs in
+                lhs.treffer != rhs.treffer ? lhs.treffer > rhs.treffer : lhs.index > rhs.index
+            }
+            .prefix(maxErgebnisse)
+            .sorted { $0.index < $1.index } // Ausgabe wieder chronologisch
+            .map(\.zeile)
+    }
+
     /// Parst die Antwort des Figurenstand-Prompts (`PromptFactory.characterStateUpdate`)
     /// in `Name → Stand`. Nur Zeilen, deren Name einer bekannten Figur entspricht,
     /// werden übernommen – so können weder Halluzinations-Figuren noch Freitext

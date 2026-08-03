@@ -3430,6 +3430,26 @@ final class PipelineOrchestrator: ObservableObject {
                     if !recentScenes.isEmpty {
                         contextParts.append("LETZTE SZENEN IM DETAIL:\n" + recentScenes.joined(separator: "\n"))
                     }
+                    // THEMATISCHES RETRIEVAL (C3): die 2–3 inhaltlich ähnlichsten
+                    // FRÜHEREN Szenen ergänzen das chronologische Fenster – damit
+                    // Rückrufe (gleicher Ort, Figur, Versprechen) auf echten Details
+                    // aufsetzen statt auf Neuerfindung, und nichts davon versehentlich
+                    // ein zweites Mal als „neu" erzählt wird.
+                    if !project.isNonfiction {
+                        let aehnlicheSzenen = AutonomousContentQuality.thematischAehnlicheSzenen(
+                            sceneSummaries: storySoFar,
+                            kontext: [chapter.goal, chapter.conflict, scene.goal,
+                                      scene.obstacle, scene.location, scene.cliffhanger]
+                                .joined(separator: "\n")
+                        )
+                        if !aehnlicheSzenen.isEmpty {
+                            contextParts.append(
+                                "THEMATISCH VERWANDTE FRÜHERE SZENEN (Kontinuität: an diese "
+                                + "konkreten Details anknüpfen, NICHTS davon noch einmal als "
+                                + "neues Ereignis erzählen):\n"
+                                + aehnlicheSzenen.joined(separator: "\n"))
+                        }
+                    }
                     let recentContext = contextParts.joined(separator: "\n\n")
                     let allowedDraftContext = [
                         chapter.goal, chapter.conflict, scene.goal, scene.obstacle,
