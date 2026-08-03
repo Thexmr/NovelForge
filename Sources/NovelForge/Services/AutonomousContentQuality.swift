@@ -2064,6 +2064,38 @@ enum AutonomousContentQuality {
         return anfuehrungen + guillemets >= 6
     }
 
+    /// Urteil eines simulierten Beta-Lesers (siehe PromptFactory.betaReaderPass).
+    struct BetaReaderVerdict {
+        let persona: String
+        let sterne: Int
+        let problem: String
+        let anweisung: String
+    }
+
+    /// Parst PERSONA-Zeilen des Beta-Leser-Passes. Nur Zeilen mit gültiger
+    /// Sternezahl (1–5) zählen; „keins"/„-"-Platzhalter werden als sauber gewertet.
+    /// Zurückgegeben werden ALLE geparsten Urteile (auch 4–5 Sterne) – die
+    /// Filterung auf handlungsbedürftige Befunde ist Aufgabe des Aufrufers.
+    static func parseBetaReaderVerdicts(_ antwort: String) -> [BetaReaderVerdict] {
+        antwort.components(separatedBy: .newlines).compactMap { rawLine in
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "-•*"))
+                .trimmingCharacters(in: .whitespaces)
+            guard line.uppercased().hasPrefix("PERSONA|") else { return nil }
+            let felder = line.components(separatedBy: "|").map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }
+            guard felder.count >= 5 else { return nil }
+            let persona = felder[1]
+            guard !persona.isEmpty,
+                  let sterne = Int(felder[2]), (1...5).contains(sterne) else { return nil }
+            return BetaReaderVerdict(persona: persona.truncated(to: 40),
+                                     sterne: sterne,
+                                     problem: felder[3].truncated(to: 240),
+                                     anweisung: felder[4].truncated(to: 240))
+        }
+    }
+
     /// Gemeinsamer Zeilenparser für Judge-Antworten im Format
     /// `TAG|Feld1|Feld2|Feld3`. Strikt beim Tag und der Feldzahl, damit
     /// Kommentarzeilen des Modells nicht als Befund durchrutschen; tolerant bei

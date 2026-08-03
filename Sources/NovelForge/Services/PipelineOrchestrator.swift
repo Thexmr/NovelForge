@@ -4170,6 +4170,64 @@ final class PipelineOrchestrator: ObservableObject {
         return neu
     }
 
+    /// BETA-LESER-PERSONAS (A5): Alle anderen Prüfungen sind Fachleute. Diese drei
+    /// simulierten Lesertypen beantworten die Verkaufsfrage: Würde ein echter Leser
+    /// weiterlesen – und was stünde in seiner Rezension? Läuft über die drei
+    /// Schlüsselstellen (Eröffnung = Kaufabbruch, Mitte = Durchhalten, Finale =
+    /// Rezension). Befunde mit ≤ 3 Sternen werden Reparaturaufträge im normalen
+    /// Nachbearbeitungs-Workflow (Severity warning – subjektive Leserurteile
+    /// blockieren die Freigabe nie hart). Fehler sind nicht fatal.
+    private func betaLeserBefunde(project: Project, chapters: [Chapter],
+                                  config: ProviderConfiguration) async -> [RepairIssue] {
+        guard !project.isNonfiction, chapters.count >= 3 else { return [] }
+        let schluesselKapitel: [(kapitel: Chapter, rolle: String)] = [
+            (chapters[0], "ERÖFFNUNG – hier entscheidet sich der Kaufabbruch"),
+            (chapters[chapters.count / 2], "MITTE – hier entscheidet sich das Durchhaltevermögen"),
+            (chapters[chapters.count - 1], "FINALE – hier entscheidet sich die Rezension"),
+        ]
+        // Alte Beta-Leser-Berichte ersetzen (bei Wiederholung keine Duplikate).
+        if let stale = project.qualityReports?.filter({ $0.checkType == "Beta-Leser" }) {
+            for report in stale { modelContext?.delete(report) }
+            project.qualityReports?.removeAll { $0.checkType == "Beta-Leser" }
+        }
+
+        var issues: [RepairIssue] = []
+        for (chapter, rolle) in schluesselKapitel {
+            guard let text = chapter.bestText, text.wordCount >= 250 else { continue }
+            guard let antwort = try? await generate(
+                prompt: PromptFactory.betaReaderPass(
+                    bookTitle: project.title, genre: project.genre,
+                    chapterNumber: chapter.chapterNumber,
+                    chapterLabel: rolle, chapterText: text),
+                system: "Du simulierst drei echte Testleser mit unterschiedlichen Erwartungen. Ehrlich, konkret, ohne Höflichkeitsbonus.",
+                maxTokens: 500, temperature: 0.3, config: config
+            ) else { continue }
+            for verdict in AutonomousContentQuality.parseBetaReaderVerdicts(antwort.text) {
+                let problemSauber = ["keins", "keines", "-", ""].contains(
+                    verdict.problem.trimmingCharacters(in: .whitespacesAndNewlines)
+                        .lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".,")))
+                let anweisungSauber = ["-", ""].contains(
+                    verdict.anweisung.trimmingCharacters(in: .whitespaces))
+                addReport(project: project,
+                          area: "Kapitel \(chapter.chapterNumber)",
+                          type: "Beta-Leser",
+                          result: "\(verdict.persona): \(verdict.sterne)/5 Sterne"
+                            + (problemSauber ? "" : " – \(verdict.problem)"),
+                          severity: verdict.sterne <= 3 ? .warning : .info,
+                          recommendation: anweisungSauber ? "" : verdict.anweisung)
+                // Nur handlungsbedürftige Befunde werden Reparaturaufträge.
+                guard verdict.sterne <= 3, !problemSauber, !anweisungSauber else { continue }
+                issues.append(RepairIssue(
+                    severity: .warning,
+                    chapterNumber: chapter.chapterNumber,
+                    area: "Beta-Leser (\(verdict.persona))",
+                    problem: "\(verdict.persona) (\(verdict.sterne)/5): \(verdict.problem)",
+                    instruction: verdict.anweisung))
+            }
+        }
+        return issues
+    }
+
     /// Fragt den Stiltick-Judge für ein fertig geschriebenes Kapitel ab.
     /// Fehler sind nicht fatal – schlimmstenfalls fehlt die Vermeidungsliste
     /// für die folgenden Kapitel. Kurze Kapitel werden übersprungen: Unter
@@ -5923,6 +5981,18 @@ final class PipelineOrchestrator: ObservableObject {
                           result: "Globaler Lektoratspass fehlgeschlagen: \(error.localizedDescription)",
                           severity: .warning,
                           recommendation: "Basis-Audit-Befunde wurden dennoch verarbeitet.")
+            }
+
+            // BETA-LESER-PERSONAS (A5): Fachleute prüfen Handwerk – diese drei
+            // simulierten Leser beantworten die Verkaufsfrage (Weiterlesen? Was
+            // stünde in der Rezension?). Befunde ≤ 3 Sterne werden Reparaturaufträge
+            // im selben Workflow wie die Lektoratsbefunde.
+            let betaIssues = await betaLeserBefunde(project: project, chapters: chapters,
+                                                    config: config)
+            for issue in betaIssues {
+                let neu = !issues.contains { $0.chapterNumber == issue.chapterNumber
+                    && $0.area == issue.area }
+                if neu { issues.append(issue) }
             }
         }
 

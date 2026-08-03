@@ -1381,6 +1381,40 @@ enum PromptFactory {
         """
     }
 
+    /// BETA-LESER (A5): Alle anderen Prüfungen sind Fachleute (Lektor, Kontinuität,
+    /// Stil). Keine davon antwortet auf die einzige Frage, die über Verkäufe
+    /// entscheidet: Würde ein echter Leser weiterlesen – und was würde er in die
+    /// Rezension schreiben? Dieser Prompt simuliert die drei Lesertypen, die über
+    /// Schicksal eines KDP-Buchs entscheiden, an den drei Schlüsselstellen
+    /// (Eröffnung = Kaufabbruch, Mitte = Durchhaltevermögen, Finale = Rezension).
+    /// Befunde mit ≤ 3 Sternen fließen als Reparaturaufträge ins Schlussaudit.
+    static func betaReaderPass(bookTitle: String, genre: String, chapterNumber: Int,
+                               chapterLabel: String, chapterText: String) -> String {
+        return """
+        Drei Testleser bewerten Kapitel \(chapterNumber) (\(chapterLabel)) des Romans \
+        "\(bookTitle)" (Genre: \(genre)). Jeder antwortet ehrlich aus seiner Lesersicht – \
+        keine Höflichkeit, keine Fachbegriffe, nur echtes Leseerlebnis:
+
+        1. GENRE-FAN – kennt und liebt \(genre), hat hundert Bücher des Genres gelesen; \
+        verzeiht keine Genre-Brüche, Klischees ohne eigenen Dreh oder fehlendes Genre-Versprechen.
+        2. REZENSENT – skeptischer Vielleser, der aktiv nach Gründen für eine 1-Stern- \
+        Rezension sucht: Logiklöcher, Kitsch, Längen, Figuren ohne Eigenleben, \
+        Stellen, die nach Maschine klingen.
+        3. GELEGENHEITSLESER – liest abends müde zur Entspannung; bricht ab, wenn es \
+        zäh wird, er den Faden verliert oder ihn nichts an den Figuren berührt.
+
+        KAPITEL \(chapterNumber):
+        \(chapterText.truncated(to: 9000))
+
+        Jeder Testleser antwortet mit GENAU einer Zeile in diesem Format:
+        PERSONA|<GENRE-FAN oder REZENSENT oder GELEGENHEITSLESER>|<Sterne 1-5>|<härtestes ehrliches Problem in einem Satz, oder „keins">|<konkrete Anweisung, was im Text anders werden muss, oder „-">
+
+        GENAU drei Zeilen, keine andere Zeile. Die Sterne ehrlich vergeben: \
+        5 = konnte nicht aufhören, 4 = gern weitergelesen, 3 = würde kurz weglegen, \
+        2 = fast abgebrochen, 1 = abgebrochen und schlecht bewertet.
+        """
+    }
+
     static func consistencyCheck(bookTitle: String, summaries: String, characters: String,
                                  isNonfiction: Bool = false) -> String {
         if isNonfiction {
