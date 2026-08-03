@@ -1225,6 +1225,46 @@ enum PromptFactory {
         """
     }
 
+    /// FIGURENSTAND (Character-State-Tracking): Der Fakten-Ledger hält harte Fakten
+    /// fest – aber Bestseller leben davon, dass Figuren nur das wissen, was sie erlebt
+    /// haben, und dass sich Gefühle/Beziehungen nachvollziehbar entwickeln. Genau das
+    /// bricht sonst bei 500+ Seiten als Erstes: Eine Figur „ahnt" plötzlich Dinge aus
+    /// Szenen, bei denen sie nicht dabei war, oder zwei Figuren sind in Kapitel 20
+    /// wieder Fremde, obwohl sie sich in Kapitel 12 versöhnt haben.
+    ///
+    /// Nach jedem Kapitel aktualisiert dieser Prompt den knappen Ist-Zustand je Figur
+    /// (Wissen, Gefühl, Beziehungsstand, zuletzt erlebtes Ereignis). Nur geänderte
+    /// Figuren werden zurückgegeben – der Aufrufer merged zeilenweise.
+    static func characterStateUpdate(bookTitle: String, chapterNumber: Int,
+                                     chapterSummaries: String, currentState: String,
+                                     charactersSummary: String) -> String {
+        return """
+        Führe das Figurenregister des Romans "\(bookTitle)" fort. Kapitel \(chapterNumber) \
+        ist gerade fertig geschrieben; aktualisiere den Stand der Figuren, die in diesem \
+        Kapitel etwas erlebt oder erfahren haben.
+
+        BISHERIGER STAND (nur ändern, was das Kapitel wirklich verändert):
+        \(currentState.isEmpty ? "(noch keiner – lege die beteiligten Figuren neu an)" : currentState.truncated(to: 2000))
+
+        FIGUREN DES BUCHS (Namen exakt so übernehmen, keine neuen Figuren):
+        \(charactersSummary.truncated(to: 1200))
+
+        KAPITEL \(chapterNumber) IN KURZE:
+        \(chapterSummaries.truncated(to: 2500))
+
+        Antworte je betroffener Figur mit GENAU einer Zeile in dieser Form:
+        Voller Name: <Stand in höchstens 25 Wörtern – was die Figur JETZT weiß, was sie fühlt, \
+        Beziehungsstand zu den wichtigsten anderen Figuren, zuletzt erlebtes Schlüsselereignis>
+
+        Regeln:
+        - Nur Figuren aufnehmen, deren Wissen, Gefühl oder Beziehung sich in DIESEM Kapitel \
+        verändert hat (oder die erstmals auftreten).
+        - Der Stand ersetzt den bisherigen Eintrag der Figur vollständig.
+        - Keine Vermutungen, keine Zukunft, keine Meta-Kommentare – nur der belegbare Ist-Zustand.
+        - Wenn sich bei keiner Figur etwas Relevantes geändert hat, antworte mit: KEINE.
+        """
+    }
+
     static func consistencyCheck(bookTitle: String, summaries: String, characters: String,
                                  isNonfiction: Bool = false) -> String {
         if isNonfiction {

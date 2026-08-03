@@ -3184,6 +3184,14 @@ final class PipelineOrchestrator: ObservableObject {
         // oder „vierzig Jahre" zu „vierzig Tagen" macht – der Fehler entsteht gar nicht
         // erst, statt am Ende repariert zu werden.
         var faktenLedger = ""
+        // FIGURENSTAND (Character-State-Tracking): Der Fakten-Ledger sichert harte
+        // Fakten; dieses Register sichert den FLIESSENDEN Zustand jeder Figur – was
+        // sie weiß, was sie fühlt, wie ihre Beziehungen stehen. Wird nach jedem
+        // Kapitel aus den Szenen-Summaries fortgeschrieben und in jede folgende
+        // Szene injiziert. Ohne es passiert der klassische Langstrecken-Fehler:
+        // Figuren „wissen" Dinge aus Szenen, bei denen sie nicht dabei waren, oder
+        // Beziehungen springen zurück, als wäre ein Kapitel nie geschehen.
+        var figurenStand: [String: String] = [:]
 
         let charactersSummary = compactCharacterSummary(bible)
         let primaryCanon = primaryStoryCanon(project: project)
@@ -3328,6 +3336,37 @@ final class PipelineOrchestrator: ObservableObject {
                         contextParts.append(
                             "VERBINDLICHE FAKTEN – NIEMALS ABWEICHEN (volle Namen, Zeitangaben, "
                             + "Leben/Tod, Orte exakt so verwenden):\n" + szenenFakten)
+                    }
+                    // FIGURENSTAND injizieren – nur für die Figuren, die in dieser
+                    // Szene überhaupt vorkommen können (Planungstext + jüngste
+                    // Handlung), damit das Register bei großen Ensembles nicht das
+                    // Kontextbudget frisst. Die Wissens-Regel steht bewusst IM Block,
+                    // direkt beim Material, das sie erklärt.
+                    if !figurenStand.isEmpty {
+                        let relevanzText = [chapter.goal, chapter.conflict, scene.goal,
+                                            scene.obstacle, scene.location,
+                                            storySoFar.suffix(3).joined(separator: "\n")]
+                            .joined(separator: "\n")
+                            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                            .lowercased()
+                        let beteiligteStaende = figurenStand
+                            .filter { name, _ in
+                                let norm = name.folding(
+                                    options: [.caseInsensitive, .diacriticInsensitive], locale: .current
+                                ).lowercased()
+                                let vorname = norm.split(separator: " ").first.map(String.init) ?? norm
+                                return relevanzText.contains(norm) || relevanzText.contains(vorname)
+                            }
+                            .sorted { $0.key < $1.key }
+                            .prefix(8)
+                        if !beteiligteStaende.isEmpty {
+                            contextParts.append(
+                                "FIGURENSTAND BIS ZU DIESER SZENE (verbindlich):\n"
+                                + beteiligteStaende.map { "- \($0.key): \($0.value)" }.joined(separator: "\n")
+                                + "\nWISSENSREGEL: Eine Figur weiß und fühlt NUR das hier Vermerkte plus das, "
+                                + "was sie in dieser Szene selbst erlebt. Sie kann NICHTS aus Szenen wissen, "
+                                + "bei denen sie nicht dabei war – höchstens erahnen, misstrauen, irren.")
+                        }
                     }
                     if !chapterDigests.isEmpty {
                         contextParts.append("BISHERIGE KAPITEL:\n" + chapterDigests.joined(separator: "\n"))
@@ -3957,6 +3996,18 @@ final class PipelineOrchestrator: ObservableObject {
             // Kapitel ihnen nicht widersprechen können.
             faktenLedger = await aktualisiereFaktenLedger(faktenLedger, chapter: chapter, config: config)
 
+            // (3) FIGURENSTAND fortschreiben: Was weiß/fühlt jede Figur jetzt, wie
+            // stehen die Beziehungen? Nur Fiktion – Sachbücher haben kein Ensemble.
+            // Läuft auch für übersprungene (bereits geschriebene) Kapitel, damit
+            // sich das Register beim Fortsetzen eines Buchs wieder aufbaut.
+            if !project.isNonfiction {
+                figurenStand = await aktualisiereFigurenStand(
+                    figurenStand, chapter: chapter, project: project,
+                    charactersSummary: charactersSummary, characterNames: characterNames,
+                    config: config
+                )
+            }
+
             // Echten, inhaltsbezogenen Kapiteltitel sicherstellen (verhindert „Aufbruch N").
             await ensureRealChapterTitle(chapter, project: project,
                                          summary: chapter.summary ?? "", config: config)
@@ -4004,6 +4055,45 @@ final class PipelineOrchestrator: ObservableObject {
         let zusammen = (ledger.isEmpty ? "" : ledger + "\n") + zeilen.joined(separator: "\n")
         // Deckel: die zuerst etablierten Fakten sind das Fundament und bleiben erhalten.
         return zusammen.count > 3000 ? String(zusammen.prefix(3000)) : zusammen
+    }
+
+    /// Schreibt das Figurenregister (Wissen/Gefühl/Beziehung je Figur) nach einem
+    /// Kapitel fort. Läuft bewusst aus den Szenen-SUMMARIES statt aus dem Volltext –
+    /// dieselbe Verdichtung, die auch das Langstrecken-Gedächtnis speist; das hält
+    /// den Aufruf klein (ein kurzer Call pro Kapitel statt pro Szene) und macht ihn
+    /// zugleich resume-tauglich: Für bereits geschriebene Kapitel liegen die
+    /// Summaries aus dem Speicher vor, der Stand baut sich beim Fortsetzen also
+    /// kapitelweise wieder auf. Fehler sind nicht fatal – schlimmstenfalls fehlt der
+    /// Block in einigen Prompts, das Buch wird dadurch nie abgebrochen.
+    private func aktualisiereFigurenStand(_ stand: [String: String], chapter: Chapter,
+                                          project: Project, charactersSummary: String,
+                                          characterNames: [String],
+                                          config: ProviderConfiguration) async -> [String: String] {
+        let kapitelSummaries = sortedScenes(chapter).compactMap { scene -> String? in
+            guard let summary = scene.summary, !summary.isEmpty else { return nil }
+            return "Szene \(scene.sceneNumber): \(summary)"
+        }.joined(separator: "\n")
+        guard !kapitelSummaries.isEmpty, !characterNames.isEmpty else { return stand }
+
+        let bisherigerStand = stand.sorted { $0.key < $1.key }
+            .map { "\($0.key): \($0.value)" }
+            .joined(separator: "\n")
+        guard let antwort = try? await generate(
+            prompt: PromptFactory.characterStateUpdate(
+                bookTitle: project.title, chapterNumber: chapter.chapterNumber,
+                chapterSummaries: kapitelSummaries, currentState: bisherigerStand,
+                charactersSummary: charactersSummary),
+            system: "Du führst das Figurenregister eines Romans präzise fort – nur belegbare Ist-Zustände, keine Vermutungen.",
+            maxTokens: 400, temperature: 0.1, config: config
+        ) else { return stand }
+        let text = antwort.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !text.uppercased().hasPrefix("KEINE") else { return stand }
+
+        let updates = AutonomousContentQuality.parseCharacterStateLines(text, knownNames: characterNames)
+        guard !updates.isEmpty else { return stand }
+        var neu = stand
+        for (name, eintrag) in updates { neu[name] = eintrag }
+        return neu
     }
 
     private func condenseChapterSummary(_ chapter: Chapter, project: Project,

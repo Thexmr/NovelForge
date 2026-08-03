@@ -1860,6 +1860,37 @@ enum AutonomousContentQuality {
         return relevant.prefix(maxLines).joined(separator: "\n")
     }
 
+    /// Parst die Antwort des Figurenstand-Prompts (`PromptFactory.characterStateUpdate`)
+    /// in `Name → Stand`. Nur Zeilen, deren Name einer bekannten Figur entspricht,
+    /// werden übernommen – so können weder Halluzinations-Figuren noch Freitext
+    /// das Register vergiften. Der Vergleich ist diakritik- und groß/klein-tolerant,
+    /// weil das Modell Namen gelegentlich leicht anders schreibt.
+    static func parseCharacterStateLines(_ antwort: String, knownNames: [String]) -> [String: String] {
+        func norm(_ s: String) -> String {
+            s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                .lowercased()
+                .trimmingCharacters(in: CharacterSet(charactersIn: " \t-•*"))
+        }
+        var ergebnis: [String: String] = [:]
+        for rawLine in antwort.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            guard let colon = line.firstIndex(of: ":") else { continue }
+            let namePart = norm(String(line[..<colon]))
+            let stand = String(line[line.index(after: colon)...])
+                .trimmingCharacters(in: .whitespaces)
+            guard !stand.isEmpty else { continue }
+            guard let kanonName = knownNames.first(where: {
+                let kanon = norm($0)
+                // Voller Name oder eindeutiger Vorname (verhindert „Jonas" vs. „Jonas Hartmann"-Duplikate).
+                return kanon == namePart || kanon.split(separator: " ").first.map(String.init) == namePart
+            }) else { continue }
+            // Zeilen hart deckeln: Der Stand wird in jeden folgenden Szenen-Prompt
+            // injiziert – ein ausufernder Eintrag fräße das Kontextbudget.
+            ergebnis[kanonName] = stand.truncated(to: 220)
+        }
+        return ergebnis
+    }
+
     /// Findet Szenenpläne, deren Beats einander inhaltlich wiederholen.
     ///
     /// WARUM: Die Wurzel der doppelt erzählten Szenen liegt im PLAN, nicht in der
