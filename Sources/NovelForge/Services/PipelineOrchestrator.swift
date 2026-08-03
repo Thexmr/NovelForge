@@ -2764,12 +2764,20 @@ final class PipelineOrchestrator: ObservableObject {
         // Ein generischer Plan besteht die Kanonprüfungen mühelos – er enthält ja
         // nichts Konkretes, das unbelegt sein könnte. Genau deshalb muss hier die
         // Vollständigkeit UND die Generik den Ausschlag geben, nicht nur der Kanon.
+        // Ein Plan kann alle Kanonprüfungen bestehen und trotzdem unbrauchbar sein:
+        // wenn zwei Szenen desselben Beat tragen, MUSS der Draft Writer dasselbe
+        // Ereignis zweimal erzählen – die Wurzel aller späteren Ereignisdopplungen.
+        // Das wird hier, vor dem ersten geschriebenen Wort, abgefangen.
+        let beatDoppler = AutonomousContentQuality.duplicatedSceneBeats(planned)
+
         if !erlaubeErsatz {
             let unvollstaendig = planned.count < expectedCount
             let generisch = AutonomousContentQuality.istGenerischerSzenenplan(planned)
-            if ablehnungsgrund != nil || unvollstaendig || generisch {
+            if ablehnungsgrund != nil || unvollstaendig || generisch || !beatDoppler.isEmpty {
                 let grund = ablehnungsgrund
-                    ?? (unvollstaendig
+                    ?? (!beatDoppler.isEmpty
+                        ? "Szenen wiederholen denselben Beat: " + beatDoppler.prefix(2).joined(separator: " · ")
+                        : unvollstaendig
                         ? "unvollständiger Plan (\(planned.count) statt \(expectedCount) Szenen)"
                         : "nur allgemeine Standard-Beats ohne konkretes Ereignis je Szene")
                 completeJob(job, result: "Szenenplan verworfen – zweiter Anlauf folgt: \(grund)",
@@ -2797,6 +2805,15 @@ final class PipelineOrchestrator: ObservableObject {
                       result: "Modell lieferte keinen verwertbaren Szenenplan – automatisch ergänzt",
                       severity: .info,
                       recommendation: "Szenen dieses Kapitels bei Bedarf im Manuskript verfeinern.")
+        } else if !beatDoppler.isEmpty {
+            // Auch der zweite Anlauf lieferte Beat-Doppler: Der Plan wird trotzdem
+            // verwendet (Produktion darf nicht blockieren), aber der Befund bleibt
+            // sichtbar – die Ereignis-Duplikat-Prüfung nach dem Drafting fängt die
+            // entstehenden Dopplungen dann gezielt ab.
+            addReport(project: project, area: "Kapitel \(chapter.chapterNumber)", type: "Szenenplan",
+                      result: "Szenenplan enthält wiederholte Beats (\(beatDoppler.count) Paar/e) – erzeugt erhöhtes Risiko doppelt erzählter Ereignisse",
+                      severity: .warning,
+                      recommendation: beatDoppler.prefix(2).joined(separator: " · "))
         }
 
         if chapter.scenes == nil { chapter.scenes = [] }
@@ -3298,10 +3315,19 @@ final class PipelineOrchestrator: ObservableObject {
                     // VERBINDLICHE FAKTEN zuerst und unmissverständlich – nicht als
                     // Hintergrund, sondern als Zwang. Diese Fakten wurden aus den bereits
                     // geschriebenen Kapiteln gezogen; ihnen zu widersprechen ist verboten.
+                    // Nur die für DIESE Szene relevanten Fakten: Ein voller Ledger aus
+                    // 40 Kapiteln begräbt die wichtigen Fakten unter Dutzenden
+                    // irrelevanten Zeilen und treibt die Tokenkosten pro Szene hoch.
                     if !faktenLedger.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        let szenenFakten = AutonomousContentQuality.relevantFacts(
+                            ledger: faktenLedger,
+                            context: [chapter.goal, chapter.conflict, scene.goal,
+                                      scene.obstacle, scene.location, scene.cliffhanger]
+                                .joined(separator: "\n")
+                        )
                         contextParts.append(
                             "VERBINDLICHE FAKTEN – NIEMALS ABWEICHEN (volle Namen, Zeitangaben, "
-                            + "Leben/Tod, Orte exakt so verwenden):\n" + faktenLedger)
+                            + "Leben/Tod, Orte exakt so verwenden):\n" + szenenFakten)
                     }
                     if !chapterDigests.isEmpty {
                         contextParts.append("BISHERIGE KAPITEL:\n" + chapterDigests.joined(separator: "\n"))
@@ -3410,7 +3436,12 @@ final class PipelineOrchestrator: ObservableObject {
                                 prompt: basePrompt + hint,
                                 system: project.isNonfiction
                                     ? "Du bist ein professioneller Sachbuchautor und Fachredakteur. Du schreibst klar, verantwortungsvoll und praktisch."
-                                    : "Du bist ein professioneller Romanautor. Du schreibst lebendige, atmosphärische Prosa mit natürlichen Dialogen.",
+                                    // Das generische Prosa-Handwerk steht im SYSTEM-Prompt:
+                                    // Es gilt für jede Szene gleich und drängt im User-Prompt
+                                    // die szenenspezifischen Sperrlisten nicht in die Mitte,
+                                    // wo Modelle Anweisungen am ehesten übersehen.
+                                    : "Du bist ein professioneller Romanautor. Du schreibst lebendige, atmosphärische Prosa mit natürlichen Dialogen."
+                                        + PromptFactory.draftingSystemCraftRules,
                                 maxTokens: maxTokens, temperature: 0.85, config: config, creative: true
                             )
                             sceneTokens += response.tokensUsed ?? 0
@@ -5107,27 +5138,49 @@ final class PipelineOrchestrator: ObservableObject {
                         lowerRatio: ChapterRevisionSizing.minimumTargetRatio,
                         upperRatio: 1.30
                     )
-                if candidateFitsTarget,
-                   AutonomousContentQuality.isAcceptableRewrite(
-                       source: draft,
-                       candidate: response.text,
-                       minRatio: allowedMinimumRatio,
-                       maxRatio: 1.15,   // Revision poliert, bläht die Länge NICHT auf
-                       finishReason: response.finishReason),
-                   withinGrowthCeiling(response.text, source: draft, chapter: chapter),
-                   !AutonomousContentQuality.containsMetaRequest(response.text),
-                   !AutonomousContentQuality.containsPromptArtifacts(response.text),
-                   !PublicContentGuard.disclosureViolation(in: response.text),
-                   AutonomousContentQuality.repeatedSentenceCollisions(
-                       candidate: response.text,
-                       priorTexts: acceptedRevisionTexts
-                   ).isEmpty,
-                   ContentSafetyFilter.isSafe(response.text) {
+                let formallyAcceptable = candidateFitsTarget
+                    && AutonomousContentQuality.isAcceptableRewrite(
+                        source: draft,
+                        candidate: response.text,
+                        minRatio: allowedMinimumRatio,
+                        maxRatio: 1.15,   // Revision poliert, bläht die Länge NICHT auf
+                        finishReason: response.finishReason)
+                    && withinGrowthCeiling(response.text, source: draft, chapter: chapter)
+                    && !AutonomousContentQuality.containsMetaRequest(response.text)
+                    && !AutonomousContentQuality.containsPromptArtifacts(response.text)
+                    && !PublicContentGuard.disclosureViolation(in: response.text)
+                    && AutonomousContentQuality.repeatedSentenceCollisions(
+                        candidate: response.text,
+                        priorTexts: acceptedRevisionTexts
+                    ).isEmpty
+                    && ContentSafetyFilter.isSafe(response.text)
+                var revisionAccepted = formallyAcceptable
+                var rejectionNote = "Revisionsantwort unvollständig/abgeschnitten – Rohfassung übernommen"
+                // A/B-ABNAHME: Formal korrekt reicht nicht – die Revision muss die
+                // Rohfassung als LESEERLEBNIS mindestens erreichen. Eine „Glättung",
+                // die Genre-Hitze abkühlt oder die Stimme verwässert, wurde bisher
+                // still übernommen, weil das nur im Prompt verboten, nie gemessen war.
+                // Scheitert der Judge selbst (Provider-Fehler), gilt fail-open: Die
+                // formal geprüfte Revision wird übernommen, statt Fortschritt zu opfern.
+                if formallyAcceptable, !project.isNonfiction {
+                    if let verdict = try? await generate(
+                        prompt: PromptFactory.revisionVerdict(
+                            language: project.language, chapterTitle: chapter.title,
+                            draft: draft, revision: response.text),
+                        system: "Du bist ein erfahrener Romanlektor. Du antwortest mit genau einem Wort.",
+                        maxTokens: 20, temperature: 0.1, config: config
+                    ), verdict.text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                        .contains("schlechter") {
+                        revisionAccepted = false
+                        rejectionNote = "Revision las sich schwächer als die Rohfassung (Lektorats-Vergleich) – Rohfassung behalten"
+                    }
+                }
+                if revisionAccepted {
                     chapter.revisedText = response.text
                 } else {
                     chapter.revisedText = draft
                     addReport(project: project, area: "Kapitel \(chapter.chapterNumber)",
-                              type: "Revision", result: "Revisionsantwort unvollständig/abgeschnitten – Rohfassung übernommen",
+                              type: "Revision", result: rejectionNote,
                               severity: .warning,
                               recommendation: "Kapitel manuell prüfen oder Revision erneut ausführen.")
                 }
@@ -5387,7 +5440,7 @@ final class PipelineOrchestrator: ObservableObject {
             failJob(auditJob, error: error)
             throw error
         }
-        let issues = RepairIssueParser.expandingGlobalChapterReferences(
+        var issues = RepairIssueParser.expandingGlobalChapterReferences(
             RepairIssueParser.parse(auditResponse.text)
         )
         guard RepairIssueParser.isConclusiveAuditResponse(auditResponse.text) else {
@@ -5396,6 +5449,34 @@ final class PipelineOrchestrator: ObservableObject {
             )
             failJob(auditJob, error: error)
             throw error
+        }
+
+        // EDITOR-IN-CHIEF-GESAMTPASS: Das kapitelweise Audit sieht Zusammenfassungen
+        // und Textauszüge – es kann Pacing, Figurenbogen und Ton-Drift über das ganze
+        // Buch strukturell nicht erkennen. Der Globalpass liest das Manuskript
+        // fensterweise im Volltext und liefert Befunde im selben Format; sie laufen
+        // durch denselben chirurgischen Reparatur-Workflow wie die Audit-Befunde.
+        // Fehlgeschlagen blockiert er die Produktion nicht (das Basis-Audit gilt).
+        if !project.isNonfiction {
+            do {
+                let globalIssues = try await runGlobalEditorPass(
+                    project: project, chapters: chapters, config: config
+                )
+                let bekannteProbleme = Set(issues.map { $0.problem.lowercased() })
+                for issue in globalIssues {
+                    // Doppler zum Basis-Audit vermeiden (gleiche Fundstelle).
+                    let neu = !bekannteProbleme.contains(issue.problem.lowercased())
+                        && !issues.contains { $0.chapterNumber == issue.chapterNumber
+                            && $0.area == issue.area }
+                    if neu { issues.append(issue) }
+                }
+            } catch {
+                addReport(project: project, area: "Gesamtmanuskript",
+                          type: "Nachbearbeitung",
+                          result: "Globaler Lektoratspass fehlgeschlagen: \(error.localizedDescription)",
+                          severity: .warning,
+                          recommendation: "Basis-Audit-Befunde wurden dennoch verarbeitet.")
+            }
         }
 
         // Erst ein vollständig lesbares neues Audit darf ältere Befunde ablösen.
@@ -5579,6 +5660,74 @@ final class PipelineOrchestrator: ObservableObject {
             message += " \(max(skippedCount, issues.count - processedCount)) Befund(e) bleiben als Report zur manuellen Prüfung."
         }
         return message
+    }
+
+    /// Editor-in-Chief-Gesamtpass: liest das fertige Manuskript fensterweise im
+    /// VOLLTEXT und findet die Probleme, die ein kapitelweises Audit auf
+    /// Zusammenfassungen strukturell nicht sehen kann – Pacing-Einbrüche,
+    /// Figurenbogen ohne Motivation, verschwundene Handlungsfäden, Ton-Drift
+    /// zwischen Kapiteln. Liefert Befunde im Repair-Format, damit sie derselbe
+    /// chirurgische Reparatur-Workflow abarbeitet.
+    private func runGlobalEditorPass(project: Project, chapters: [Chapter],
+                                     config: ProviderConfiguration) async throws -> [RepairIssue] {
+        let characters = project.storyBible.map(compactCharacterSummary) ?? ""
+        // OFFEN-Fäden aus den Szenenprotokollen: was das Buch selbst als offene
+        // Frage notiert hat, muss der Globalpass auf Auflösung prüfen können.
+        let openThreads = chapters.flatMap { sortedScenes($0) }
+            .compactMap { $0.summary }
+            .flatMap { $0.components(separatedBy: .newlines) }
+            .compactMap { line -> String? in
+                guard let range = line.range(of: "OFFEN:") else { return nil }
+                let thread = line[range.upperBound...].trimmingCharacters(in: .whitespaces)
+                return (thread.isEmpty || thread == "-" || thread == "–") ? nil : thread
+            }
+        let openThreadsText = Array(Set(openThreads)).prefix(15)
+            .map { "- \($0)" }.joined(separator: "\n")
+
+        // Fenster von je 3 Kapiteln im Volltext. Pro Kapitel gedeckelt, damit das
+        // Fenster ins Kontextbudget passt; 3 Kapitel geben genug Überlappung, um
+        // Anschluss- und Bogen-Probleme überhaupt erkennen zu können.
+        let windowSize = 3
+        var allIssues: [RepairIssue] = []
+        var windowIndex = 0
+        for start in stride(from: 0, to: chapters.count, by: windowSize) {
+            try Task.checkCancellation()
+            let window = Array(chapters[start..<min(start + windowSize, chapters.count)])
+            guard let first = window.first, let last = window.last else { continue }
+            let label = "Kapitel \(first.chapterNumber)–\(last.chapterNumber) von \(chapters.count)"
+            let chaptersText = window.map { chapter in
+                "KAPITEL \(chapter.chapterNumber) „\(chapter.title)“:\n"
+                    + (chapter.bestText ?? "").truncated(to: 12_000)
+            }.joined(separator: "\n\n---\n\n")
+            windowIndex += 1
+            currentAgent = "\(AgentName.globalEditor) – \(label)"
+            let job = beginJob(agent: AgentName.globalEditor,
+                               phase: .manuscriptRevision, project: project)
+            do {
+                let response = try await generate(
+                    prompt: PromptFactory.globalEditorAudit(
+                        bookTitle: project.title, genre: project.genre,
+                        windowLabel: label, chaptersText: chaptersText,
+                        characters: characters, openThreads: openThreadsText),
+                    system: "Du bist ein erfahrener Schlusslektor für Romane. Du bewertest Pacing, Figurenbogen und Ton über Kapitelgrenzen hinweg und meldest nur echte, reparierbare Mängel.",
+                    maxTokens: 2_000, temperature: 0.2, config: config
+                )
+                let parsed = RepairIssueParser.expandingGlobalChapterReferences(
+                    RepairIssueParser.parse(response.text)
+                )
+                allIssues.append(contentsOf: parsed)
+                completeJob(job, result: "\(parsed.count) Befunde (\(label))",
+                            tokens: response.tokensUsed ?? 0)
+            } catch {
+                failJob(job, error: error)
+                throw error
+            }
+        }
+        // Doppelte Fundstellen über Fenstergrenzen entfernen und das Reparatur-
+        // volumen begrenzen – der Pass soll schärfen, nicht die Produktion fluten.
+        var seen = Set<String>()
+        let dedupliziert = allIssues.filter { seen.insert($0.problem.lowercased()).inserted }
+        return Array(dedupliziert.prefix(12))
     }
 
     private func targetedRepairPatch(

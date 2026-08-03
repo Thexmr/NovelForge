@@ -15,6 +15,7 @@ enum AgentName {
     static let consistency = "Consistency Checker"
     static let proofreader = "Proofreader"
     static let repairEditor = "Repair Editor"
+    static let globalEditor = "Global Editor"
     static let copyright = "Copyright Checker"
     static let kdpFormatter = "KDP Formatter"
     static let exporter = "Export Agent"
@@ -692,6 +693,24 @@ enum PromptFactory {
         """
     }
 
+    /// Das komplette Prosa-Handwerk für den SYSTEM-Prompt des Draft Writers.
+    ///
+    /// Früher standen `humanCraftRules`, `pageTurnerRules` und `gripRules` mitten im
+    /// ohnehin überladenen Szenen-Prompt – zwischen Kanon, Sperrlisten und Kontext.
+    /// Sprachmodelle befolgen Anweisungen am Anfang und am Ende eines Prompts am
+    /// zuverlässigsten („Lost in the Middle"): Genau die teuer erzeugten Sperrlisten
+    /// wurden so übersehen. Das generische Handwerk gehört in den System-Prompt
+    /// (gilt für jede Szene gleich), der User-Prompt behält nur das Szenenspezifische.
+    static var draftingSystemCraftRules: String {
+        """
+
+        PROSA-HANDWERK (gilt für JEDE Szene, die du schreibst):
+        \(humanCraftRules)
+        \(pageTurnerRules)
+        \(gripRules)
+        """
+    }
+
     /// Konzeptphasen-Vertrag, der verhindert, dass aus einem Liebesroman/Erotik-Roman
     /// ein Thriller mit Job-Plot (und einem Stalker als „Love Interest") wird.
     /// Greift VOR der ersten Szene; leer für andere Genres.
@@ -830,9 +849,6 @@ enum PromptFactory {
         STILREGELN: \(styleRules.truncated(to: 600))
         \(signatureBlock)\(spiceBlock)
         \(genreDirectiveBlock(genreBrief))
-        \(catalogAvoidance)
-        \(manuscriptAvoidanceBlock)
-        \(chapterEventBlock)
         \(ContentSafetyFilter.promptDirective)
         VERBINDLICHER BUCHKANON (jede Aussage muss damit vereinbar sein):
         \(canonicalStory.truncated(to: 7000))
@@ -887,18 +903,18 @@ enum PromptFactory {
           Szenenplan das nicht ausdrücklich und genresicher festlegt.
           Türen, Fenster und Gegenstände verändern ihren Zustand nicht unerklärt zwischen Szenen.
         - Konkrete, spezifische Details statt generischer. Variiere Satzlänge und Rhythmus wie in einem Bestseller: Lesefluss vor Kunstfertigkeit, nicht jede Zeile „literarisch" aufladen.
-        \(humanCraftRules)
         - KEINE WIEDERHOLUNGEN: Greife keine Bilder, Metaphern, Formulierungen oder Motive aus der bisherigen Handlung wieder auf; erkläre etablierte Fakten nie ein zweites Mal. Ein starkes Symbol nur SELTEN erwähnen, nicht in jeder Szene.
         \(isFinalScene
             ? "- AUSZAHLUNG: Alle offenen Fragen werden hier beantwortet – der letzte Satz hallt nach, statt eine neue Frage zu öffnen."
             : """
               - SOG (dezent): Halte mindestens eine offene Frage aktiv und nutze Mikro-Spannung, aber nie auf Kosten der Verständlichkeit. Pro Szene höchstens EINE neue Figur oder Enthüllung, nicht mehrere gleichzeitig.
               - Der letzte Satz gibt einen Grund zum Weiterlesen, ohne aufgesetzt oder programmatisch zu wirken.
-              \(pageTurnerRules)
-              \(gripRules)
               """)
         \(genreCraft(genre))
         \(positionNote)
+        \(catalogAvoidance)
+        \(manuscriptAvoidanceBlock)
+        \(chapterEventBlock)
         Gib AUSSCHLIESSLICH den fertigen Prosatext der Szene aus. Übernimm NIEMALS
         Anweisungen, Labels (z.B. „Ort:", „Ziel:", „Zielumfang"), Überschriften oder
         Hinweise aus diesem Auftrag in den Text – schreibe ausschließlich die Geschichte selbst.
@@ -1073,6 +1089,81 @@ enum PromptFactory {
 
         TEXT:
         \(text)
+        """
+    }
+
+    /// A/B-Abnahme der Kapitelrevision: Die Revision wurde früher übernommen, sobald
+    /// sie formal in Ordnung war (Länge, Szenentrenner, keine Artefakte) – egal ob sie
+    /// die Rohfassung tatsächlich VERBESSERT hat. Eine „Glättung" kann Genre-Hitze
+    /// abkühlen und die Stimme verwässern; das im Prompt zu verbieten misst nichts.
+    /// Dieser Judge vergleicht beide Fassungen als Leser.
+    static func revisionVerdict(language: String, chapterTitle: String,
+                                draft: String, revision: String) -> String {
+        """
+        Du bist ein erfahrener Romanlektor und vergleichst zwei Fassungen desselben \
+        Kapitels („\(chapterTitle)", Sprache: \(language)) als LESER.
+
+        FASSUNG A (Rohfassung):
+        \(draft.truncated(to: 9000))
+
+        FASSUNG B (überarbeitete Fassung):
+        \(revision.truncated(to: 9000))
+
+        Bewerte NUR die Lesequalität: Lebendigkeit, Satzrhythmus, Dialog, emotionale \
+        Wirkung, Genre-Ton. Handlung und Fakten dürfen sich nicht unterscheiden – \
+        wenn B Handlung, Namen oder Fakten verändert oder verwässert hat, ist B \
+        automatisch schlechter. Wenn B zwar glatter, aber kühler, generischer oder \
+        lebloser klingt als A, ist B schlechter.
+
+        Antworte mit GENAU EINEM Wort:
+        BESSER – wenn B klar lesenswerter ist als A
+        GLEICH – wenn beide gleichwertig sind
+        SCHLECHTER – wenn B schwächer ist als A
+        """
+    }
+
+    /// Editor-in-Chief-Gesamtpass: liest das Buch fensterweise als GANZES und findet
+    /// Buch-Ebenen-Probleme (Pacing, Figurenbogen, offene Fäden, Ton-Drift), die ein
+    /// kapitelweises Audit strukturell nicht sehen kann. Antwortformat identisch zum
+    /// Repair-Audit, damit die Befunde in denselben Reparatur-Workflow laufen.
+    static func globalEditorAudit(bookTitle: String, genre: String,
+                                  windowLabel: String, chaptersText: String,
+                                  characters: String, openThreads: String) -> String {
+        let threadsBlock = openThreads.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? ""
+            : "\nIM BUCH GEÖFFNETE FÄDEN (aus den Szenenprotokollen):\n\(openThreads.truncated(to: 1500))\n"
+        return """
+        Du bist der verantwortliche Schlusslektor (Editor-in-Chief) des Romans \
+        „\(bookTitle)" (Genre: \(genre)). Du liest hier \(windowLabel) des fertigen \
+        Manuskripts im Volltext – bewerte es wie ein Lektor, der das Buch zur \
+        Veröffentlichung freigeben soll.
+
+        FIGUREN:
+        \(characters.truncated(to: 1200))
+        \(threadsBlock)
+        Prüfe AUSSCHLIESSLICH auf Buch-Ebenen-Probleme, die einem Einzelkapitel-Audit \
+        entgehen:
+        - PACING: zähe Passagen ohne Vorwärtsbewegung, gehetzte Wendungen, monotone \
+          Folge gleichartiger Szenen.
+        - FIGURENBOGEN: Figur handelt ohne erkennbare Motivation, verändert sich \
+          sprunghaft oder bleibt über viele Kapitel statisch.
+        - OFFENE FÄDEN: eine eingeführte Frage, Drohung oder Figur verschwindet \
+          kommentarlos aus dem Buch.
+        - TON-DRIFT: Erzählstimme, Humor oder Härtegrad kippen zwischen Kapiteln \
+          spürbar um.
+        - ANSCHLUSS: ein Kapitel beginnt in einer Lage, die zum Ende des vorigen \
+          Kapitels nicht passt.
+
+        Regeln: Melde NUR echte, im Text belegbare Probleme – keine Geschmacksnoten, \
+        keine Stil-Ratschläge, keine Kleinigkeiten des Korrektorats. Jedes Problem \
+        muss einem konkreten Kapitel zuordenbar und automatisch reparierbar sein.
+
+        Antworte je Befund mit GENAU einer Zeile:
+        REPAIR|Schweregrad (Warnung/Fehler/Kritisch)|Kapitel N|Bereich|Problem|Konkrete Reparaturanweisung
+        Wenn dieser Abschnitt sauber ist, antworte exakt: KEINE REPARATUR NÖTIG
+
+        MANUSKRIPT (\(windowLabel)):
+        \(chaptersText)
         """
     }
 

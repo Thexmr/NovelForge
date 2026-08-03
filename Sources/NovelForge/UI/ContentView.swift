@@ -96,6 +96,25 @@ struct ContentView: View {
         .onAppear {
             let orchestrator = PipelineOrchestrator.shared
             orchestrator.configure(with: modelContext)
+
+            // Die Buchfabrik muss ein fertiges Buch zu seinem Projekt auflösen können,
+            // sonst überspringt der Upload-Takt es mit „Projekt nicht gefunden".
+            //
+            // Der Auflöser wurde bisher NUR gesetzt, wenn jemand die Buchfabrik-Seite
+            // öffnete (FactoryView). Wer sie nie aufrief, bei dem lag das fertige Buch
+            // in der Warteschlange und wurde bei jedem Takt verworfen – gemessen an
+            // „Wo wir zuletzt tanzten": Status completed, EPUB exportiert, Eintrag in
+            // der Queue, Meldung „Projekt nicht gefunden – übersprungen." Der Dispatcher
+            // startet seit Kurzem beim App-Start; ohne Auflöser läuft er dennoch leer.
+            let context = modelContext
+            KDPFactory.shared.setProjectResolver { id in
+                // Ohne #Predicate: Das Macro-Plugin fehlt in der Kommandozeilen-
+                // Toolchain dieses Rechners. Bei der Handvoll Projekte ist das
+                // Nachfiltern ohnehin nicht messbar.
+                (try? context.fetch(FetchDescriptor<Project>()))?
+                    .first { $0.id == id }
+            }
+
             ProductionRecoveryService.reclassifyCompletedManuscripts(in: modelContext)
             ProductionRecoveryService.sanitizePersistedScenes(in: modelContext)
             ProductionRecoveryService.recoverInterruptedJobs(in: modelContext)

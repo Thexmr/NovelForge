@@ -1790,6 +1790,76 @@ enum AutonomousContentQuality {
         return ergebnis
     }
 
+    /// Filtert den Fakten-Ledger auf die Zeilen, die für DIESE Szene relevant sind.
+    ///
+    /// WARUM: Der Ledger wurde bisher vollständig in JEDEN Szenen-Prompt injiziert.
+    /// Bei einem 40-Kapitel-Buch sind das schnell 100+ Zeilen Fakten zu Figuren und
+    /// Orten, die in der aktuellen Szene gar nicht vorkommen – der Prompt wird
+    /// länger, die Aufmerksamkeit des Modells für die wirklich wichtigen Fakten
+    /// sinkt (und die Tokenkosten steigen). Relevanz heißt hier: Die Faktenzeile
+    /// teilt mindestens ein bedeutendes Wort (≥4 Buchstaben) mit dem Szenenkontext
+    /// (Kapitelziel, Szenenziel, Hindernis, Ort, auftretende Figuren, jüngste Handlung).
+    /// Sicherheitsnetz: Bleiben zu wenige Zeilen übrig, wird der volle Ledger
+    /// (gedeckelt) verwendet – lieber ein Fakt zu viel als einer zu wenig.
+    static func relevantFacts(ledger: String, context: String, maxLines: Int = 40) -> String {
+        let lines = ledger.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard lines.count > 8 else { return lines.joined(separator: "\n") }
+
+        let contextWords = Set(
+            context.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                .lowercased()
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { $0.count >= 4 }
+        )
+        guard !contextWords.isEmpty else {
+            return lines.prefix(maxLines).joined(separator: "\n")
+        }
+
+        let relevant = lines.filter { line in
+            line.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                .lowercased()
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .contains { $0.count >= 4 && contextWords.contains($0) }
+        }
+        // Zu aggressiv gefiltert? Dann lieber den (gedeckelten) vollen Ledger.
+        guard relevant.count >= 3 else {
+            return lines.prefix(maxLines).joined(separator: "\n")
+        }
+        return relevant.prefix(maxLines).joined(separator: "\n")
+    }
+
+    /// Findet Szenenpläne, deren Beats einander inhaltlich wiederholen.
+    ///
+    /// WARUM: Die Wurzel der doppelt erzählten Szenen liegt im PLAN, nicht in der
+    /// Prosa – bekamen zwei Szenen desselben Plan-Beat („ein neuer Vorstoß"), MUSSTE
+    /// der Draft Writer dasselbe Ereignis zweimal erzählen, und keine spätere
+    /// Reparatur konnte das beheben (gemessen: acht erfolgreiche Neufassungen, acht
+    /// Doppler). Bisher prüfte `istGenerischerSzenenplan` nur abstrakte Standard-
+    /// Formulierungen; ein Plan kann aber auch mit konkret klingenden, einander
+    /// gleichenden Beats durchkommen. Verglichen wird die kombinierte Beat-Signatur
+    /// (Ziel + Hindernis + Wendung) paarweise via Wort-Trigrammen – derselbe
+    /// Mechanismus, der sich bei der Satz-Doppler-Erkennung bewährt hat.
+    ///
+    /// Rückgabe: lesbare Beschreibungen der Doppler-Paare (für Ablehnungsgrund und
+    /// Neuplanungshinweis), leer bei einem diversen Plan.
+    static func duplicatedSceneBeats(_ planned: [PlannedScene]) -> [String] {
+        guard planned.count > 1 else { return [] }
+        let signaturen = planned.map { szene in
+            wortTrigramme("\(szene.goal) \(szene.obstacle) \(szene.turn)")
+        }
+        var doppler: [String] = []
+        for i in 0..<planned.count {
+            for j in (i + 1)..<planned.count {
+                guard istFastGleich(signaturen[i], signaturen[j]) else { continue }
+                let beschreibung = "Szene \(planned[i].number) und Szene \(planned[j].number) erzählen denselben Beat"
+                if !doppler.contains(beschreibung) { doppler.append(beschreibung) }
+            }
+        }
+        return doppler
+    }
+
     private static func significantSentenceRecords(in text: String) -> [(key: String, spelling: String)] {
         text.components(separatedBy: CharacterSet(charactersIn: ".!?…\n")).compactMap { raw in
             let sentence = raw.trimmingCharacters(in: .whitespacesAndNewlines)
