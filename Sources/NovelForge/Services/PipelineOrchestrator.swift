@@ -4056,6 +4056,24 @@ final class PipelineOrchestrator: ObservableObject {
                                   severity: .info,
                                   recommendation: tick.anweisung)
                     }
+                    // FIGURENSTIMMEN: Verwechselbare Dialogstimmen gehen in dieselbe
+                    // Vermeidungsliste – die folgenden Kapitel bekommen so die
+                    // konkrete Sprechanweisung („So spricht X, das würde X nie sagen").
+                    let stimmenBefunde = await figurenstimmenAudit(
+                        chapter: chapter, project: project,
+                        charactersSummary: charactersSummary, config: config)
+                    for befund in stimmenBefunde {
+                        let eintrag = "Stimme von \(befund.muster): \(befund.anweisung)"
+                        if !stilTickVermeidung.contains(eintrag) {
+                            stilTickVermeidung.append(eintrag)
+                        }
+                        addReport(project: project,
+                                  area: "Kapitel \(chapter.chapterNumber)",
+                                  type: "Figurenstimme",
+                                  result: "Verwechselbare Stimme: \(befund.muster)" + (befund.beleg.isEmpty ? "" : " – \(befund.beleg)"),
+                                  severity: .warning,
+                                  recommendation: befund.anweisung)
+                    }
                     // Liste deckeln: Die neuesten Befunde sind die relevantesten,
                     // eine unbegrenzte Liste fräße das Szenen-Kontextbudget.
                     if stilTickVermeidung.count > 12 {
@@ -4171,6 +4189,31 @@ final class PipelineOrchestrator: ObservableObject {
         let trimmed = antwort.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.uppercased().hasPrefix("SAUBER") else { return [] }
         return AutonomousContentQuality.parseStyleTicVerdicts(trimmed)
+    }
+
+    /// FIGURENSTIMMEN-AUDIT: Blindtest, ob die sprechenden Figuren eines Kapitels
+    /// ohne Namensnennung unterscheidbar klingen. Läuft nur bei nennenswertem
+    /// Dialoganteil (sonst keine Vergleichsbasis) und nur für Hauptfiguren mit
+    /// hinterlegtem Sprachprofil – ohne Profil gäbe es keinen Maßstab.
+    /// Fehler sind nicht fatal.
+    private func figurenstimmenAudit(chapter: Chapter, project: Project,
+                                     charactersSummary: String,
+                                     config: ProviderConfiguration) async
+        -> [AutonomousContentQuality.StyleTicVerdict] {
+        guard let text = chapter.bestText,
+              AutonomousContentQuality.hatNennenswertenDialog(text),
+              !charactersSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return [] }
+        guard let antwort = try? await generate(
+            prompt: PromptFactory.dialogueVoiceAudit(
+                bookTitle: project.title, chapterNumber: chapter.chapterNumber,
+                charactersWithSpeech: charactersSummary, chapterText: text),
+            system: "Du bist ein Dialog-Lektor mit feinem Ohr für Figurenstimmen. Du meldest nur echte Verwechselbarkeit, nie Geschmacksfragen.",
+            maxTokens: 450, temperature: 0.1, config: config
+        ) else { return [] }
+        let trimmed = antwort.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.uppercased().hasPrefix("UNTERSCHEIDBAR") else { return [] }
+        return AutonomousContentQuality.parseDialogueVoiceVerdicts(trimmed)
     }
 
     private func condenseChapterSummary(_ chapter: Chapter, project: Project,

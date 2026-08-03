@@ -2046,11 +2046,35 @@ enum AutonomousContentQuality {
     /// „|" getrennt), damit Kommentarzeilen des Modells nicht als Befund durchrutschen;
     /// tolerant bei Leerzeichen und Aufzählungszeichen am Zeilenanfang.
     static func parseStyleTicVerdicts(_ antwort: String, maxVerdicts: Int = 5) -> [StyleTicVerdict] {
+        parseVerdictLines(antwort, tag: "TICK", maxVerdicts: maxVerdicts)
+    }
+
+    /// Parst STIMME-Zeilen des Figurenstimmen-Audits (gleiches Zeilenformat wie TICK,
+    /// andere Prüffrage – siehe PromptFactory.dialogueVoiceAudit).
+    static func parseDialogueVoiceVerdicts(_ antwort: String, maxVerdicts: Int = 4) -> [StyleTicVerdict] {
+        parseVerdictLines(antwort, tag: "STIMME", maxVerdicts: maxVerdicts)
+    }
+
+    /// Hat das Kapitel genug wörtliche Rede, dass sich ein Stimmen-Audit lohnt?
+    /// Unter ~6 Rede-Einsätzen gibt es keine belastbare Vergleichsbasis – der
+    /// Audit-Call wäre Kosten ohne Aussage.
+    static func hatNennenswertenDialog(_ text: String) -> Bool {
+        let anfuehrungen = text.components(separatedBy: "„").count - 1
+        let guillemets = text.components(separatedBy: "»").count - 1
+        return anfuehrungen + guillemets >= 6
+    }
+
+    /// Gemeinsamer Zeilenparser für Judge-Antworten im Format
+    /// `TAG|Feld1|Feld2|Feld3`. Strikt beim Tag und der Feldzahl, damit
+    /// Kommentarzeilen des Modells nicht als Befund durchrutschen; tolerant bei
+    /// Leerzeichen und Aufzählungszeichen am Zeilenanfang.
+    private static func parseVerdictLines(_ antwort: String, tag: String,
+                                          maxVerdicts: Int) -> [StyleTicVerdict] {
         antwort.components(separatedBy: .newlines).compactMap { rawLine in
             let line = rawLine.trimmingCharacters(in: .whitespaces)
                 .trimmingCharacters(in: CharacterSet(charactersIn: "-•*"))
                 .trimmingCharacters(in: .whitespaces)
-            guard line.uppercased().hasPrefix("TICK|") else { return nil }
+            guard line.uppercased().hasPrefix(tag + "|") else { return nil }
             let felder = line.components(separatedBy: "|").map {
                 $0.trimmingCharacters(in: .whitespaces)
             }

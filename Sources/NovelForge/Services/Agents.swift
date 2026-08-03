@@ -1352,6 +1352,35 @@ enum PromptFactory {
         """
     }
 
+    /// FIGURENSTIMMEN-AUDIT (B4): Die Sprachprofile stehen zwar im Prompt (Sprechweise
+    /// pro Figur), aber niemand prüft, ob die Figuren im Ergebnis UNTERSCHEIDBAR
+    /// klingen – „alle Figuren reden gleich" ist der häufigste Dialog-KI-Mangel und
+    /// ein klassischer Rezensionspunkt. Dieser Prompt macht den Blindtest: Könnte
+    /// man jede wörtliche Rede ohne Namensnennung der richtigen Figur zuordnen?
+    static func dialogueVoiceAudit(bookTitle: String, chapterNumber: Int,
+                                   charactersWithSpeech: String, chapterText: String) -> String {
+        return """
+        Du bist Dialog-Lektor für den Roman "\(bookTitle)". Prüfe in Kapitel \(chapterNumber), \
+        ob die Figuren in ihren Dialogen UNTERSCHEIDBAR klingen.
+
+        SPRACHPROFILE (kanonisch – so sollen die Figuren klingen):
+        \(charactersWithSpeech.truncated(to: 1500))
+
+        KAPITEL \(chapterNumber):
+        \(chapterText.truncated(to: 9000))
+
+        Der Blindtest: Könnte man jede wörtliche Rede ohne Namensnennung der richtigen \
+        Figur zuordnen – an Satzlänge, Wortwahl, Rhythmus, Bildungston, Eigenheiten? \
+        Prüfe nur Figuren, die in diesem Kapitel tatsächlich sprechen.
+
+        Antworte für jede Figur mit spürbarer Schwäche GENAU eine Zeile:
+        STIMME|<Name>|<was an ihrer Stimme generisch oder verwechselbar ist>|<konkrete Anweisung, wie diese Figur stattdessen spricht: Satzlänge, Wortwahl, Rhythmus, was sie NIE sagen würde>
+
+        Maximal 4 Zeilen, keine andere Zeile. Wenn alle sprechenden Figuren \
+        unterscheidbar klingen, antworte: UNTERSCHEIDBAR.
+        """
+    }
+
     static func consistencyCheck(bookTitle: String, summaries: String, characters: String,
                                  isNonfiction: Bool = false) -> String {
         if isNonfiction {
