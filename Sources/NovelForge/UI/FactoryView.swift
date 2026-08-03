@@ -251,7 +251,9 @@ struct FactoryView: View {
                     }
                     Spacer()
                     Button {
-                        _ = factory.enqueue(project: p, priceEUR: defaultPrice, aiDisclosure: "ai-assisted")
+                        // Wahrheitsgemäße KDP-KI-Angabe: KI-erzeugter Inhalt =
+                        // „ai-generated" (siehe KDPFactory.reicheFertigesBuchEin).
+                        _ = factory.enqueue(project: p, priceEUR: defaultPrice, aiDisclosure: "ai-generated")
                     } label: { Label("Einreihen", systemImage: "plus.circle") }
                     .buttonStyle(.borderless)
                 }

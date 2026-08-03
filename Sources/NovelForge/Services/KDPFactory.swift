@@ -243,7 +243,13 @@ final class KDPFactory: ObservableObject {
         guard !isQueued(project.id) else { return false }
         return enqueue(project: project,
                        priceEUR: Self.standardPreisEUR,
-                       aiDisclosure: "ai-assisted")
+                       // KDP-Definition: „AI-generated" = die KI hat den Inhalt
+                       // ERZEUGT (auch bei nachträglicher Bearbeitung); „AI-assisted"
+                       // gilt nur, wenn ein Mensch den Text selbst geschrieben hat.
+                       // Diese Bücher schreibt die Pipeline – die wahrheitsgemäße
+                       // Angabe ist „ai-generated". Eine falsche, weichere Angabe ist
+                       // der klassische Sperrgrund, sobald Amazon sie entdeckt.
+                       aiDisclosure: "ai-generated")
     }
 
     @discardableResult
