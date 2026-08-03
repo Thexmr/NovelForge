@@ -3243,6 +3243,18 @@ final class PipelineOrchestrator: ObservableObject {
                 var positionParts: [String] = []
                 let percent = Int((Double(chapterIndex + 1) / Double(max(chapters.count, 1))) * 100)
                 positionParts.append("POSITION IM BUCH: Kapitel \(chapter.chapterNumber) von \(chapters.count) (ca. \(percent)%). Spannung und emotionale Einsätze müssen gegenüber früheren Kapiteln spürbar STEIGEN, nicht stagnieren.")
+                // SPANNUNGSKURVE: konkrete Einsatz-Stufe + dramaturgische Marke dieses
+                // Kapitels. Die allgemeine Steigerungs-Regel oben sagt nur „mehr als
+                // vorher" – die Kurve sagt WIE viel und WOZU (Midpoint-Wende, dunkle
+                // Nacht, Höhepunkt). Ohne sie entsteht die monotone Mitte.
+                if !project.isNonfiction {
+                    let anchor = AutonomousContentQuality.spannungsStufe(
+                        chapterIndex: chapterIndex, chapterCount: chapters.count)
+                    positionParts.append(
+                        "SPANNUNGSKURVE: Dieses Kapitel liegt bei Einsatz-Stufe \(anchor.stufe)/10"
+                        + (anchor.marke.isEmpty ? "" : " – \(anchor.marke)")
+                        + ". " + AutonomousContentQuality.dramaturgieHinweis(marke: anchor.marke))
+                }
                 // Amazon-Leseprobe = die ersten ~10% des Buches: Hier entscheidet sich der Kauf.
                 if percent <= 10 {
                     positionParts.append("LESEPROBE-BEREICH: Dieses Kapitel liegt in der Amazon-Leseprobe (Blick ins Buch) – maximaler Sog, keine Längen, keine Rückblenden, kein Welt-Erklären. Jede Seite muss zum Kauf führen.")

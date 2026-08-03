@@ -518,6 +518,10 @@ enum PromptFactory {
         Plane so, dass jedes Kapitel später in mindestens \(scenesPerChapter) eigenständige Szenen zerlegt werden kann.
         Langform-Pflicht: Der Konflikt muss groß genug für alle \(chapterCount) Kapitel sein; keine Abkürzungen,
         keine summarischen Sprünge, kein Kurzgeschichtenbogen mit künstlicher Streckung.
+
+        VERBINDLICHE SPANNUNGSKURVE (Einsatz-Stufe 1-10 je Kapitel; Tempo-Atempausen ja, fallende EINSÄTZE nie):
+        \(AutonomousContentQuality.spannungskurvenBrief(chapterCount: chapterCount))
+        MIDPOINT-WENDE: Hier ändern sich die Spielregeln (enthüllte Wahrheit, Verrat, neue Allianz oder ein Verlust, der den bisherigen Plan zerstört). DUNKLE NACHT: größter Verlust / scheinbare Niederlage kurz vor dem Finale. HÖHEPUNKT: unvermeidliche Konfrontation, alles steht auf dem Spiel. AUFLÖSUNG: keine neue Eskalation, echte Auszahlung. Die Kapitelziele und -konflikte MÜSSEN diese Eskalation tragen – ein Kapitel mit Stufe 8 darf kein ruhiges Zwischenkapitel mit Stufe-4-Einsatz sein.
         \(signatureBlock)
         \(genreDirectiveBlock(genreBrief))
         VERBINDLICHER BUCHKANON (steht über jeder kreativen Ergänzung):

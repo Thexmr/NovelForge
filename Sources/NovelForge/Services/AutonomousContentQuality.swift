@@ -1820,6 +1820,86 @@ enum AutonomousContentQuality {
         return ergebnis
     }
 
+    // MARK: - Spannungskurve (D2)
+
+    /// Ein Punkt auf der Spannungskurve: Einsatz-Stufe (1–10) und ggf. eine
+    /// dramaturgische Marke (HOOK, MIDPOINT-WENDE, DUNKLE NACHT, HÖHEPUNKT, AUFLÖSUNG).
+    struct TensionAnchor {
+        let kapitel: Int
+        let stufe: Int
+        let marke: String
+    }
+
+    /// SPANNUNGSKURVE: Der bisherige Planungs-Prompt sagte nur „Tempo variieren" –
+    /// ob die EINSÄTZE über 40 Kapitel wirklich steigen, blieb dem Modell überlassen.
+    /// Ergebnis: die klassische monotone Mitte, in der Kapitel 15 sich anfühlt wie
+    /// Kapitel 8. Diese Kurve macht die Eskalation verbindlich und messbar:
+    ///
+    /// - Start bei 2/10 (Hook muss soghaft sein, aber Luft nach oben lassen)
+    /// - leicht überlineare Steigung (pow 1.15) bis 10/10 – spätere Kapitel eskalieren
+    ///   SCHNELLER, wie es Bestseller tun
+    /// - MIDPOINT-WENDE (~50 %): Spielregeln ändern sich, Stufe springt auf ≥ 8
+    /// - DUNKLE NACHT (~78 %): größter Verlust kurz vor dem Finale
+    /// - HÖHEPUNKT (vorletztes Kapitel): 10/10, unvermeidliche Konfrontation
+    /// - AUFLÖSUNG (letztes Kapitel): Auszahlung, bewusst ruhig (3/10)
+    ///
+    /// Wichtig: Die Kurve beschreibt EINSÄTZE, nicht Tempo – ruhige, tiefe Kapitel
+    /// bleiben erlaubt, solange das, was auf dem Spiel steht, nie kleiner wird.
+    static func spannungskurve(chapterCount n: Int) -> [TensionAnchor] {
+        guard n > 0 else { return [] }
+        let midpoint = max(2, n / 2)
+        let darkNight = max(midpoint + 1, Int((Double(n) * 0.78).rounded()))
+        let climax = max(1, n - 1)
+        return (1...n).map { k in
+            let progress = Double(k - 1) / Double(max(n - 1, 1))
+            var stufe = 2 + Int((8.0 * pow(progress, 1.15)).rounded())
+            var marke = ""
+            if k == 1 { marke = "HOOK"; stufe = min(stufe, 3) }
+            if n >= 6 && k == midpoint { marke = "MIDPOINT-WENDE"; stufe = max(stufe, 8) }
+            if n >= 8 && k == darkNight && darkNight != climax { marke = "DUNKLE NACHT"; stufe = max(stufe, 8) }
+            if n >= 2 && k == climax { marke = "HÖHEPUNKT"; stufe = 10 }
+            if n >= 2 && k == n { marke = "AUFLÖSUNG"; stufe = 3 }
+            return TensionAnchor(kapitel: k, stufe: stufe, marke: marke)
+        }.reducingMonotonicity(untilChapter: climax)
+    }
+
+    /// Kompakte Textform der Kurve für Prompts („K1:2·HOOK, K2:2, …").
+    static func spannungskurvenBrief(chapterCount: Int) -> String {
+        spannungskurve(chapterCount: chapterCount).map { anchor in
+            anchor.marke.isEmpty
+                ? "K\(anchor.kapitel):\(anchor.stufe)"
+                : "K\(anchor.kapitel):\(anchor.stufe)·\(anchor.marke)"
+        }.joined(separator: ", ")
+    }
+
+    /// Stufe und Marke für ein konkretes Kapitel (0-basierter Index, wie er im
+    /// Schreibloop verwendet wird).
+    static func spannungsStufe(chapterIndex: Int, chapterCount: Int) -> TensionAnchor {
+        let kurve = spannungskurve(chapterCount: chapterCount)
+        guard chapterIndex >= 0, chapterIndex < kurve.count else {
+            return TensionAnchor(kapitel: chapterIndex + 1, stufe: 5, marke: "")
+        }
+        return kurve[chapterIndex]
+    }
+
+    /// Konkrete Schreibanweisung zur Marke – was DIESES Kapitel dramaturgisch leisten muss.
+    static func dramaturgieHinweis(marke: String) -> String {
+        switch marke {
+        case "HOOK":
+            return "Erste Seite mitten im Konflikt, kein Welt-Erklären: ein konkretes Problem, eine Figur unter Druck, eine Frage, die der Leser beantwortet haben will."
+        case "MIDPOINT-WENDE":
+            return "Hier ändern sich die SPIELREGELN: eine enthüllte Wahrheit, ein Verrat, eine neue Allianz oder ein Verlust, der den bisherigen Plan der Hauptfigur zerstört – danach ist nichts mehr wie vorher."
+        case "DUNKLE NACHT":
+            return "Der größte Verlust des Buches: scheinbare Niederlage, gebrochene Beziehung oder verlorene Hoffnung. Die Hauptfigur steht am Tiefpunkt – und genau daraus wächst die Entscheidung fürs Finale."
+        case "HÖHEPUNKT":
+            return "Die unvermeidliche Konfrontation: ALLES steht auf dem Spiel, keine Zurückhaltung, keine neuen Erklärungen – nur Entscheidung und Konsequenz."
+        case "AUFLÖSUNG":
+            return "Echte Auszahlung statt neuer Eskalation: lose Fäden schließen, emotionale Wahrheit der Veränderung zeigen, ein Bild finden, das den Anfang spiegelt."
+        default:
+            return "Die Einsätze müssen über dem Niveau der früheren Kapitel liegen – Tempo-Atempause ja, kleiner werdende Einsätze nie."
+        }
+    }
+
     /// Filtert den Fakten-Ledger auf die Zeilen, die für DIESE Szene relevant sind.
     ///
     /// WARUM: Der Ledger wurde bisher vollständig in JEDEN Szenen-Prompt injiziert.
@@ -2129,5 +2209,27 @@ enum AutonomousContentQuality {
         let candidateSeparators = candidate.components(separatedBy: "***").count - 1
         if sourceSeparators > 0, candidateSeparators < sourceSeparators { return false }
         return true
+    }
+}
+
+private extension Array where Element == AutonomousContentQuality.TensionAnchor {
+    /// Erzwingt nicht-fallende Einsatz-Stufen bis zum Höhepunkt. Die Basis-Kurve
+    /// steigt von selbst, aber erzwungene Anker-Sprünge (z. B. MIDPOINT auf ≥ 8)
+    /// ließen das Folgekapitel wieder auf den Basiswert abfallen – genau das
+    /// „Einsatz-Loch", das die Kurve verhindern soll. Nach dem Höhepunkt bleibt
+    /// die AUFLÖSUNG bewusst unberührt (sie darf fallen).
+    func reducingMonotonicity(untilChapter climax: Int) -> [Element] {
+        var ergebnis: [Element] = []
+        ergebnis.reserveCapacity(count)
+        for anchor in self {
+            if let vorher = ergebnis.last, anchor.kapitel <= climax,
+               anchor.stufe < vorher.stufe {
+                ergebnis.append(AutonomousContentQuality.TensionAnchor(
+                    kapitel: anchor.kapitel, stufe: vorher.stufe, marke: anchor.marke))
+            } else {
+                ergebnis.append(anchor)
+            }
+        }
+        return ergebnis
     }
 }
