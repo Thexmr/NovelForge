@@ -2096,6 +2096,46 @@ enum AutonomousContentQuality {
         }
     }
 
+    /// Ergebnis der Emotionsschritt-Verifikation (D3).
+    struct EmotionalStepVerdict {
+        let erfuellt: Bool
+        let problem: String
+        let anweisung: String
+    }
+
+    /// Holt den geplanten „Emotionalen Schritt" aus dem Kapitelziel. Der
+    /// Kapitelplan-Parser faltet das 4. Planfeld als „ – Emotionaler Schritt: …"
+    /// ins Ziel (siehe Agents.swift ~Zeile 2496) – diese Funktion macht die
+    /// Verpackung wieder rückgängig, ohne das eigentliche Ziel anzutasten.
+    static func plannedEmotionalStep(from chapterGoal: String) -> String {
+        guard let range = chapterGoal.range(
+            of: "Emotionaler Schritt:", options: .caseInsensitive
+        ) else { return "" }
+        return String(chapterGoal[range.upperBound...])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Parst die ERFÜLLT/FEHLT-Antwort des Emotionsschritt-Audits.
+    /// Unklare Antworten gelten als ERFÜLLT – eine verschattete Prüfung darf nie
+    /// falsche Reparaturaufträge erzeugen (im Zweifel zählt der geschriebene Text).
+    static func parseEmotionalStepVerdict(_ antwort: String) -> EmotionalStepVerdict {
+        let line = antwort.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty } ?? ""
+        guard line.uppercased().hasPrefix("FEHLT|") else {
+            return EmotionalStepVerdict(erfuellt: true, problem: "", anweisung: "")
+        }
+        let felder = line.components(separatedBy: "|").map {
+            $0.trimmingCharacters(in: .whitespaces)
+        }
+        guard felder.count >= 3, !felder[1].isEmpty else {
+            return EmotionalStepVerdict(erfuellt: true, problem: "", anweisung: "")
+        }
+        return EmotionalStepVerdict(erfuellt: false,
+                                    problem: felder[1].truncated(to: 240),
+                                    anweisung: felder[2].truncated(to: 240))
+    }
+
     /// Gemeinsamer Zeilenparser für Judge-Antworten im Format
     /// `TAG|Feld1|Feld2|Feld3`. Strikt beim Tag und der Feldzahl, damit
     /// Kommentarzeilen des Modells nicht als Befund durchrutschen; tolerant bei

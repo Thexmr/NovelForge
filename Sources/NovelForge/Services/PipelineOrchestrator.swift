@@ -4079,6 +4079,10 @@ final class PipelineOrchestrator: ObservableObject {
                     if stilTickVermeidung.count > 12 {
                         stilTickVermeidung = Array(stilTickVermeidung.suffix(12))
                     }
+                    // (5) EMOTIONSSCHRITT: Hat das Kapitel seinen geplanten
+                    // Gefühls-Schritt wirklich vollzogen? (D3)
+                    await emotionsSchrittAudit(chapter: chapter, project: project,
+                                               config: config)
                 }
             }
 
@@ -4168,6 +4172,35 @@ final class PipelineOrchestrator: ObservableObject {
         var neu = stand
         for (name, eintrag) in updates { neu[name] = eintrag }
         return neu
+    }
+
+    /// EMOTIONSSCHRITT-VERIFIKATION (D3): Der Plan legt pro Kapitel einen emotionalen
+    /// Schritt fest; der Gefühlsbogen bindet Leser stärker als jeder Plot-Twist.
+    /// Bisher wurde nie geprüft, ob der Schritt im Text auch passiert – ein Kapitel
+    /// ohne seinen Schritt ist dramaturgisch tot, selbst wenn der Plot vorankommt.
+    /// Befund = Warnung mit konkreter Anweisung (fließt über die Qualitätsberichte
+    /// ins Schlussaudit); Fehler sind nicht fatal.
+    private func emotionsSchrittAudit(chapter: Chapter, project: Project,
+                                      config: ProviderConfiguration) async {
+        let plannedStep = AutonomousContentQuality.plannedEmotionalStep(from: chapter.goal)
+        guard !plannedStep.isEmpty,
+              let text = chapter.bestText,
+              text.split(whereSeparator: { $0.isWhitespace }).count >= 250 else { return }
+        guard let antwort = try? await generate(
+            prompt: PromptFactory.emotionalStepAudit(
+                bookTitle: project.title, chapterNumber: chapter.chapterNumber,
+                plannedStep: plannedStep, chapterText: text),
+            system: "Du bist ein Lektor mit feinem Gespür für Figurenbögen. Du prüfst nur, ob der geplante emotionale Schritt konkret geschehen ist – nichts anderes.",
+            maxTokens: 250, temperature: 0.1, config: config
+        ) else { return }
+        let verdict = AutonomousContentQuality.parseEmotionalStepVerdict(antwort.text)
+        guard !verdict.erfuellt else { return }
+        addReport(project: project,
+                  area: "Kapitel \(chapter.chapterNumber)",
+                  type: "Emotionsschritt",
+                  result: "Geplanter emotionaler Schritt nicht im Text: „\(plannedStep)“ – \(verdict.problem)",
+                  severity: .warning,
+                  recommendation: verdict.anweisung)
     }
 
     /// BETA-LESER-PERSONAS (A5): Alle anderen Prüfungen sind Fachleute. Diese drei

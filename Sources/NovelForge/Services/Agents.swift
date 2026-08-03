@@ -1415,6 +1415,32 @@ enum PromptFactory {
         """
     }
 
+    /// EMOTIONSSCHRITT-VERIFIKATION (D3): Der Kapitelplan legt für jedes Kapitel einen
+    /// „Emotionalen Schritt" fest (z. B. „Misstrauen kippt in erstes Vertrauen") – der
+    /// Gefühlsbogen ist das, was Leser an Figuren bindet. Bisher landete dieser Schritt
+    /// nur im Zieltext; niemand prüfte, ob er im geschriebenen Kapitel auch PASSIERT.
+    /// Ein Kapitel ohne seinen emotionalen Schritt ist ein totes Kapitel, auch wenn
+    /// der Plot vorankommt. Dieser Prompt verifiziert den Schritt im fertigen Text.
+    static func emotionalStepAudit(bookTitle: String, chapterNumber: Int,
+                                   plannedStep: String, chapterText: String) -> String {
+        return """
+        Du bist Lektor für den Roman "\(bookTitle)". Der Kapitelplan sieht für Kapitel \
+        \(chapterNumber) diesen EMOTIONALEN SCHRITT der Hauptfigur bzw. ihrer \
+        Beziehungen vor: „\(plannedStep)"
+
+        KAPITEL \(chapterNumber):
+        \(chapterText.truncated(to: 9000))
+
+        Frage: Passiert dieser emotionale Schritt im Text konkret und nachfühlbar – \
+        in Handlung, Entscheidung, Dialog oder einem klaren inneren Umschlag? \
+        (Nicht gefragt: ob der Plot vorankommt oder das Kapitel gut geschrieben ist.)
+
+        Antworte mit GENAU einer Zeile:
+        ERFÜLLT – wenn der Schritt im Text konkret geschehen ist.
+        FEHLT|<was stattdessen (nicht) passiert>|<konkrete Anweisung, welche Szene/Wendung den Schritt herstellen würde>
+        """
+    }
+
     static func consistencyCheck(bookTitle: String, summaries: String, characters: String,
                                  isNonfiction: Bool = false) -> String {
         if isNonfiction {
