@@ -5743,6 +5743,28 @@ final class PipelineOrchestrator: ObservableObject {
         }
         modelContext?.saveOrLog()
 
+        // A3 TON-ANGLEICH: Die Revision läuft parallel und isoliert – kein Kapitel
+        // sieht, wie die Nachbarn revidiert wurden; so driftet der Ton auseinander
+        // (plötzlich halb so lange Sätze, ein Kapitel fast ohne Dialog). Der
+        // deterministische Drift-Check meldet Ausreißer gegenüber dem Buch-Median
+        // als Warnung; sie fließen über die Qualitätsberichte ins Schlussaudit.
+        // Bewusst nur messend: Eine Zwangs-Re-Revision wegen 61 % Abweichung würde
+        // bewusst anders getaktete Kapitel (Action vs. Kammerspiel) ruinieren.
+        if !project.isNonfiction {
+            let kapitelTexte = chapters.compactMap { chapter -> (number: Int, text: String)? in
+                guard let text = chapter.bestText, !text.isEmpty else { return nil }
+                return (number: chapter.chapterNumber, text: text)
+            }
+            for befund in AutonomousContentQuality.toneDriftFindings(chapters: kapitelTexte) {
+                addReport(project: project,
+                          area: "Kapitel \(befund.number)",
+                          type: "Ton-Angleich",
+                          result: "Ton-Drift gegenüber dem Buch-Median: \(befund.grund)",
+                          severity: .warning,
+                          recommendation: "Kapitel beim Gesamtlektorat an den Buchton angleichen (Satzrhythmus, Dialoganteil, Floskeldichte).")
+            }
+        }
+
         if let error = firstError { throw error }
         try Task.checkCancellation()
     }

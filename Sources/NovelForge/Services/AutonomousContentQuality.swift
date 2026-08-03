@@ -2035,7 +2035,83 @@ enum AutonomousContentQuality {
         return eval
     }
 
-    /// Ein vom Stiltick-Judge gefundenes Muster (siehe PromptFactory.styleTicJudge).
+    /// Ein Ton-Drift-Befund (A3): ein Kapitel, das stilistisch aus dem Buchton fällt.
+    struct ToneDriftFinding {
+        let number: Int
+        let grund: String
+    }
+
+    /// TON-ANGLEICH (A3): Die Kapitelrevision läuft parallel und isoliert – kein
+    /// Kapitel weiß, wie seine Nachbarn revidiert wurden. Dadurch kann der Ton
+    /// driften: Kapitel 7 plötzlich mit halb so langen Sätzen, Kapitel 12 fast
+    /// ohne Dialog, Kapitel 20 voller Floskeln. Leser merken das als „unruhiges
+    /// Lesegefühl", ohne es benennen zu können.
+    ///
+    /// Dieser Check misst drei robuste Stil-Metriken pro Kapitel (mittlere
+    /// Satzlänge, Dialogdichte, Floskeldichte) und meldet Ausreißer gegenüber dem
+    /// Buch-Median. Bewusst deterministisch und nur MELDEND (Warnung ins
+    /// Schlussaudit): Eine automatische Re-Revision wegen 61 % Abweichung würde
+    /// gute, bewusst anders getaktete Kapitel (Action vs. Kammerspiel) ruinieren.
+    static func toneDriftFindings(chapters: [(number: Int, text: String)],
+                                  minChapters: Int = 5) -> [ToneDriftFinding] {
+        struct Metrik {
+            let number: Int
+            let satzlaenge: Double     // Wörter pro Satz
+            let dialogDichte: Double   // Rede-Einsätze pro 1000 Wörter
+            let floskelDichte: Double  // KI-Tells pro 1000 Wörter
+        }
+        let metriken: [Metrik] = chapters.compactMap { (number, text) in
+            let woerter = text.split(whereSeparator: { $0.isWhitespace }).count
+            guard woerter >= 250 else { return nil }
+            let saetze = max(1, text.components(separatedBy: CharacterSet(charactersIn: ".!?…"))
+                .filter { $0.trimmingCharacters(in: .whitespaces).split(whereSeparator: { $0.isWhitespace }).count >= 3 }.count)
+            let reden = text.components(separatedBy: "„").count - 1
+                + text.components(separatedBy: "»").count - 1
+            let tells = aiTellCount(text)
+            let pro1000 = 1000.0 / Double(woerter)
+            return Metrik(number: number,
+                          satzlaenge: Double(woerter) / Double(saetze),
+                          dialogDichte: Double(reden) * pro1000,
+                          floskelDichte: Double(tells) * pro1000)
+        }
+        guard metriken.count >= minChapters else { return [] }
+
+        func median(_ werte: [Double]) -> Double {
+            let sortiert = werte.sorted()
+            return sortiert[sortiert.count / 2]
+        }
+        let medianSatz = median(metriken.map(\.satzlaenge))
+        let medianDialog = median(metriken.map(\.dialogDichte))
+        let medianFloskel = median(metriken.map(\.floskelDichte))
+
+        var befunde: [ToneDriftFinding] = []
+        for m in metriken {
+            var gruende: [String] = []
+            // 60 % Abweichung vom Buch-Median = aus dem Buchton gefallen.
+            // Dialogdichte nur prüfen, wenn das Buch überhaupt Dialog hat
+            // (Median 0 würde jeden Dialog zum „Ausreißer" machen).
+            if medianSatz > 0, abs(m.satzlaenge - medianSatz) / medianSatz > 0.6 {
+                gruende.append(String(format: "mittlere Satzlänge %.0f statt ~%.0f Wörter",
+                                      m.satzlaenge, medianSatz))
+            }
+            if medianDialog >= 2, abs(m.dialogDichte - medianDialog) / medianDialog > 0.6 {
+                gruende.append(String(format: "Dialogdichte %.0f statt ~%.0f Reden pro 1000 Wörter",
+                                      m.dialogDichte, medianDialog))
+            }
+            if medianFloskel > 0.5, abs(m.floskelDichte - medianFloskel) / medianFloskel > 0.6,
+               m.floskelDichte > medianFloskel {   // nur ZU VIELE Floskeln sind Drift
+                gruende.append(String(format: "Floskeldichte %.0f statt ~%.0f pro 1000 Wörter",
+                                      m.floskelDichte, medianFloskel))
+            }
+            if !gruende.isEmpty {
+                befunde.append(ToneDriftFinding(number: m.number,
+                                                grund: gruende.joined(separator: "; ")))
+            }
+        }
+        return befunde
+    }
+
+
     struct StyleTicVerdict {
         let muster: String
         let beleg: String
