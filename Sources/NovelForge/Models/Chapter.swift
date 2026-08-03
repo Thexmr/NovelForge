@@ -101,9 +101,10 @@ final class Chapter: NovelForgePersistentModel {
     var bestText: String? {
         let raw = rawBestText
         guard let raw, !raw.isEmpty else { return nil }
-        var cleaned = AutonomousContentQuality.humanizeProse(
-            AutonomousContentQuality.strippingInlineFormatting(
-                AutonomousContentQuality.strippingPromptArtifacts(raw)))
+        var cleaned = AutonomousContentQuality.cleaningStoredBookText(
+            raw,
+            bookTitle: project?.title ?? ""
+        )
         cleaned = AutonomousContentQuality.strippingLeadingTitleEcho(cleaned, title: title)
         return cleaned.isEmpty ? nil : cleaned
     }

@@ -158,6 +158,7 @@ enum ProjectStatus: String, Codable {
     case kdpFormatting
     case export
     case completed
+    case needsReview
     case failed
     case paused
 }

@@ -23,7 +23,7 @@ extension ModelContext {
 
 struct AppConstants {
     static let appName = "NovelForge"
-    static let appVersion = "2.1.1"
+    static let appVersion = "2.1.3"
     static let maxPageCount = 1000 // bis zu 1000 Seiten (~250.000 Wörter); Plan skaliert automatisch
     static let minPageCount = 50
     static let wordsPerPage = 250
@@ -47,6 +47,7 @@ extension ProjectStatus {
         case .kdpFormatting: return "KDP-Formatierung"
         case .export: return "Export"
         case .completed: return "Abgeschlossen"
+        case .needsReview: return "Prüfung erforderlich"
         case .failed: return "Fehlgeschlagen"
         case .paused: return "Pausiert"
         }
@@ -69,6 +70,7 @@ extension ProjectStatus {
         case .kdpFormatting: phase = .kdpFormatting
         case .export: phase = .export
         case .completed: return 1.0
+        case .needsReview: return 1.0
         case .failed, .paused: phase = nil
         }
         guard let phase else { return 0 }

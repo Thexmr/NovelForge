@@ -145,7 +145,7 @@ enum UnlimitedRecoveryPolicy {
                               provider: AIProvider) -> Bool {
         guard settings.resumeInterruptedBooks else { return false }
         switch project.status {
-        case .created, .completed:
+        case .created, .completed, .needsReview:
             return false
         default:
             break
@@ -247,6 +247,7 @@ final class PipelineOrchestrator: ObservableObject {
 
     private struct UnlimitedBookOutcome {
         var completed: Bool
+        var reviewRequired: Bool
         var cancelled: Bool
         var title: String
         var duration: TimeInterval
@@ -445,8 +446,10 @@ final class PipelineOrchestrator: ObservableObject {
             finish()
             return result
         } catch is CancellationError {
-            project.status = previousStatus
             handleStop(project: project)
+            project.status = previousStatus
+            project.updatedAt = Date()
+            modelContext?.saveOrLog()
             return "Die Nachbearbeitung wurde pausiert."
         } catch {
             if let job = currentJob, job.status == .running {
@@ -996,6 +999,7 @@ final class PipelineOrchestrator: ObservableObject {
         var interruptedProject: Project?
         var isRetryingCurrentBook = false
         var qualityRepairRounds = 0
+        var processedBooks = 0
         while !Task.isCancelled {
             if !isRetryingCurrentBook {
                 sceneTimes = []
@@ -1039,6 +1043,7 @@ final class PipelineOrchestrator: ObservableObject {
                 progress = 1.0
                 recordCompletedBookDuration()
                 unlimitedBooksCompleted += 1
+                processedBooks += 1
                 unlimitedConsecutiveFailures = 0
                 qualityRepairRounds = 0
                 interruptedProject = nil
@@ -1047,7 +1052,7 @@ final class PipelineOrchestrator: ObservableObject {
                 currentAgent = "Buch \(unlimitedBooksCompleted) abgeschlossen – nächstes Buch wird geplant …"
                 modelContext?.saveOrLog()
 
-                if settings.maxBooks > 0 && unlimitedBooksCompleted >= settings.maxBooks {
+                if settings.maxBooks > 0 && processedBooks >= settings.maxBooks {
                     break
                 }
             } catch is CancellationError {
@@ -1085,6 +1090,20 @@ final class PipelineOrchestrator: ObservableObject {
                         isUnlimitedMode = false
                         return
                     }
+                    continue
+                }
+
+                if let project = currentProject,
+                   keepCompletedManuscriptForReview(project: project, after: error) {
+                    processedBooks += 1
+                    qualityRepairRounds = 0
+                    interruptedProject = nil
+                    isRetryingCurrentBook = false
+                    unlimitedConsecutiveFailures = 0
+                    markProjectInactive(project)
+                    modelContext?.saveOrLog()
+                    currentAgent = "Buch vollständig – offene Qualitätsstellen warten auf Prüfung; nächstes Buch wird geplant …"
+                    if settings.maxBooks > 0 && processedBooks >= settings.maxBooks { break }
                     continue
                 }
 
@@ -1169,6 +1188,7 @@ final class PipelineOrchestrator: ObservableObject {
         updateProductionTiming()
 
         var launchedBooks = 0
+        var processedBooks = 0
         var activeBooks = 0
         var shouldStopLaunching = false
         var recoveryQueue = recoverableUnlimitedProjects(settings: settings, config: config)
@@ -1178,7 +1198,7 @@ final class PipelineOrchestrator: ObservableObject {
             func launchAvailableBooks() {
                 guard !shouldStopLaunching, !Task.isCancelled else { return }
                 let slots = settings.launchSlots(
-                    completedBooks: unlimitedBooksCompleted,
+                    completedBooks: processedBooks,
                     activeBooks: activeBooks
                 )
                 guard slots > 0 else { return }
@@ -1217,6 +1237,7 @@ final class PipelineOrchestrator: ObservableObject {
                 }
 
                 if outcome.completed {
+                    processedBooks += 1
                     unlimitedBooksCompleted += 1
                     unlimitedConsecutiveFailures = 0
                     if outcome.duration > 0 {
@@ -1225,6 +1246,11 @@ final class PipelineOrchestrator: ObservableObject {
                     }
                     updateProductionTiming()
                     currentAgent = "\(unlimitedBooksCompleted) Bücher fertig · \(activeBooks) parallel aktiv"
+                } else if outcome.reviewRequired {
+                    processedBooks += 1
+                    unlimitedConsecutiveFailures = 0
+                    lastError = outcome.message
+                    currentAgent = "\(outcome.title) vollständig, Prüfung erforderlich · \(activeBooks) parallel aktiv"
                 } else {
                     unlimitedConsecutiveFailures += 1
                     lastError = outcome.message
@@ -1333,6 +1359,7 @@ final class PipelineOrchestrator: ObservableObject {
                 retireWorkerStatus()
                 return UnlimitedBookOutcome(
                     completed: true,
+                    reviewRequired: false,
                     cancelled: false,
                     title: project.title,
                     duration: duration,
@@ -1367,6 +1394,22 @@ final class PipelineOrchestrator: ObservableObject {
                     continue
                 }
 
+                if let project,
+                   keepCompletedManuscriptForReview(project: project, after: error) {
+                    markProjectInactive(project)
+                    modelContext?.saveOrLog()
+                    retireWorkerStatus()
+                    return UnlimitedBookOutcome(
+                        completed: false,
+                        reviewRequired: true,
+                        cancelled: false,
+                        title: project.title,
+                        duration: Date().timeIntervalSince(startedAt),
+                        error: nil,
+                        message: lastError ?? "Qualitätsprüfung hat noch offene Stellen."
+                    )
+                }
+
                 if ProductionStabilityPolicy.shouldResumeInterruptedBook(after: error),
                    let project {
                     transientFailures += 1
@@ -1392,6 +1435,7 @@ final class PipelineOrchestrator: ObservableObject {
                 retireWorkerStatus()
                 return UnlimitedBookOutcome(
                     completed: false,
+                    reviewRequired: false,
                     cancelled: false,
                     title: project?.title ?? "",
                     duration: 0,
@@ -1413,6 +1457,7 @@ final class PipelineOrchestrator: ObservableObject {
         retireWorkerStatus()
         return UnlimitedBookOutcome(
             completed: false,
+            reviewRequired: false,
             cancelled: true,
             title: currentProject?.title ?? "",
             duration: 0,
@@ -1799,6 +1844,11 @@ final class PipelineOrchestrator: ObservableObject {
                         return
                     }
                     continue
+                }
+
+                if keepCompletedManuscriptForReview(project: project, after: error) {
+                    finish()
+                    return
                 }
 
 
@@ -2459,40 +2509,21 @@ final class PipelineOrchestrator: ObservableObject {
         let plan = productionPlan(for: project)
 
         let chapters = sortedChapters(project)
-        for chapter in chapters where !hasUsableExistingScenePlan(chapter, expectedCount: plan.scenesPerChapter) {
+        let primaryCanon = primaryStoryCanon(project: project)
+        let characterNames = (bible.characters ?? []).map(\.name)
+        for chapter in chapters where !hasUsableExistingScenePlan(
+            chapter,
+            expectedCount: plan.scenesPerChapter,
+            primaryCanon: primaryCanon,
+            characterNames: characterNames,
+            genre: project.genre,
+            project: project,
+            perspective: profile.narrativePerspective
+        ) {
             resetScenePlan(for: chapter)
         }
         let pending = chapters.filter { ($0.scenes ?? []).isEmpty } // Fortsetzen: nur ungeplante
         guard !pending.isEmpty else { return }
-        let primaryCanon = primaryStoryCanon(project: project)
-        let characterNames = (bible.characters ?? []).map(\.name)
-
-        // Der Kapitelplan enthält bereits den vollständigen dramaturgischen Bogen. Für Romane
-        // zerlegen wir ihn lokal in kausale Beats. Separate Modellaufrufe pro Kapitel führten
-        // wiederholt zu vorgezogenen Enthüllungen, erfundenen Fundstücken und Genre-Abdrift.
-        if !project.isNonfiction {
-            for (index, chapter) in pending.enumerated() {
-                let job = beginJob(agent: AgentName.scenePlanner, phase: .scenePlanning,
-                                   project: project, chapter: chapter.chapterNumber)
-                persistScenePlanResult(
-                    .failure(AIError.systemError("Lokaler kanontreuer Szenenplan")),
-                    chapter: chapter,
-                    job: job,
-                    project: project,
-                    profile: profile,
-                    expectedCount: plan.scenesPerChapter,
-                    primaryCanon: primaryCanon,
-                    characterNames: characterNames
-                )
-                currentAgent = "\(AgentName.scenePlanner) – \(index + 1)/\(pending.count) Kapitel geplant"
-                updateProgress(phase: .scenePlanning,
-                               subProgress: Double(index + 1) / Double(pending.count))
-                modelContext?.saveOrLog()
-            }
-            aggregateLocations(into: bible, chapters: chapters)
-            modelContext?.saveOrLog()
-            return
-        }
 
         var jobs: [PipelineJob] = []
         var requests: [GenerationRequest] = []
@@ -2521,8 +2552,10 @@ final class PipelineOrchestrator: ObservableObject {
         currentAgent = "\(AgentName.scenePlanner) – \(pending.count) Kapitel parallel"
 
         var answered = 0
+        // Ablehnungsgründe je Kapitel – sie gehen wörtlich in den zweiten Anlauf.
+        var ablehnungsgruende: [Int: String] = [:]
         _ = await runParallelGeneration(requests: requests, config: config) { index, result in
-            self.persistScenePlanResult(
+            if let grund = self.persistScenePlanResult(
                 result,
                 chapter: pending[index],
                 job: jobs[index],
@@ -2530,12 +2563,74 @@ final class PipelineOrchestrator: ObservableObject {
                 profile: profile,
                 expectedCount: plan.scenesPerChapter,
                 primaryCanon: primaryCanon,
-                characterNames: characterNames
-            )
+                characterNames: characterNames,
+                // Erster Durchlauf: bei Ablehnung KEINE generischen Ersatzszenen.
+                // Die machen jede spätere Reparatur unmöglich – erst den zweiten
+                // Anlauf mit konkretem Grund versuchen.
+                erlaubeErsatz: false
+            ) {
+                ablehnungsgruende[pending[index].chapterNumber] = grund
+            }
             answered += 1
             self.currentAgent = "\(AgentName.scenePlanner) – \(answered)/\(pending.count) Kapitel beantwortet"
             self.updateProgress(phase: .scenePlanning, subProgress: Double(answered) / Double(pending.count))
             self.modelContext?.saveOrLog()
+        }
+
+        // Inhaltlich verworfene Antworten erhalten genau einen gezielten zweiten Versuch.
+        // Der erste Durchlauf bleibt parallel und schnell; nur Kapitel, die auf den
+        // generischen Notfallplan gefallen sind, werden erneut konkret geplant. Ohne
+        // diesen Schritt schrieb ein Testroman vier Kapitel aus bloßen Standard-Beats
+        // und erzeugte dadurch bis zu sieben Ereignisdopplungen pro Kapitel.
+        let retryChapters = pending.filter {
+            !hasUsableExistingScenePlan(
+                $0,
+                expectedCount: plan.scenesPerChapter,
+                primaryCanon: primaryCanon,
+                characterNames: characterNames,
+                genre: project.genre,
+                project: project,
+                perspective: profile.narrativePerspective
+            )
+        }
+        for (index, chapter) in retryChapters.enumerated() {
+            resetScenePlan(for: chapter)
+            let retryJob = beginJob(agent: AgentName.scenePlanner, phase: .scenePlanning,
+                                    project: project, chapter: chapter.chapterNumber)
+            do {
+                let response = try await generate(
+                    prompt: PromptFactory.scenePlan(
+                        bookTitle: project.title,
+                        chapterNumber: chapter.chapterNumber, chapterTitle: chapter.title,
+                        chapterGoal: chapter.goal, chapterConflict: chapter.conflict,
+                        perspective: profile.narrativePerspective,
+                        plotContext: bible.plotPoints,
+                        targetWords: chapter.targetWordCount,
+                        scenesPerChapter: plan.scenesPerChapter,
+                        isFinalChapter: chapter.chapterNumber == chapters.last?.chapterNumber,
+                        canonicalStory: canonicalStoryContext(project: project)
+                    ) + neuplanungsHinweis(grund: ablehnungsgruende[chapter.chapterNumber]),
+                    system: project.isNonfiction
+                        ? "Du bist ein genauer Sachbuchredakteur. Du korrigierst einen zuvor zu allgemeinen Abschnittsplan."
+                        : "Du bist ein genauer Romanszenenplaner. Du korrigierst einen zuvor unbrauchbaren Plan, ohne neue Kanonfakten zu erfinden.",
+                    maxTokens: 1_400, temperature: 0.35, config: config
+                )
+                persistScenePlanResult(
+                    .success(response), chapter: chapter, job: retryJob,
+                    project: project, profile: profile,
+                    expectedCount: plan.scenesPerChapter,
+                    primaryCanon: primaryCanon, characterNames: characterNames
+                )
+            } catch {
+                persistScenePlanResult(
+                    .failure(error), chapter: chapter, job: retryJob,
+                    project: project, profile: profile,
+                    expectedCount: plan.scenesPerChapter,
+                    primaryCanon: primaryCanon, characterNames: characterNames
+                )
+            }
+            currentAgent = "\(AgentName.scenePlanner) – Neuplanung \(index + 1)/\(retryChapters.count)"
+            modelContext?.saveOrLog()
         }
         // Schauplätze aus den Szenenplänen in die Story Bible übernehmen.
         if !project.isNonfiction {
@@ -2546,6 +2641,51 @@ final class PipelineOrchestrator: ObservableObject {
         try Task.checkCancellation()
     }
 
+    /// Der Kontext, gegen den ein Szenenplan als „belegt" gilt.
+    ///
+    /// Muss an JEDER prüfenden Stelle identisch sein. Sonst nimmt eine Stelle einen
+    /// Plan an, den die nächste verwirft – das Kapitel wird endlos neu geplant oder
+    /// fällt auf generische Beats zurück, und genau die erzeugen die doppelt
+    /// erzählten Szenen.
+    private func szenenplanKontext(project: Project, chapter: Chapter,
+                                   primaryCanon: String, perspective: String) -> String {
+        ([primaryCanon, chapter.title, chapter.goal, chapter.conflict,
+          project.genre, perspective]
+         + sortedChapters(project)
+            .filter { $0.chapterNumber <= chapter.chapterNumber }
+            .map { "\($0.title) \($0.goal) \($0.summary ?? "")" }
+        ).joined(separator: "\n")
+    }
+
+    /// Zusatz für den zweiten Planungsanlauf.
+    ///
+    /// Wichtig ist der KONKRETE Grund: „Jeder Beat muss konkret sein" allein hat das
+    /// Modell nachweislich nicht weitergebracht – es lieferte denselben Plan erneut.
+    /// Dieselbe Rückkopplung hob die Trefferquote der Szenenreparatur von 25 % auf
+    /// über 90 %.
+    private func neuplanungsHinweis(grund: String?) -> String {
+        var text = """
+
+        NEUPLANUNG. Jede der Szenen braucht ein EIGENES, konkret benanntes Ereignis – \
+        keine allgemeinen Beats wie „ein neuer Vorstoß". Zwei Szenen dürfen niemals \
+        dasselbe Ereignis zeigen, und jede Szene braucht ein anderes Hindernis.
+        """
+        if let grund, !grund.isEmpty {
+            text += """
+
+            DEIN VORIGER PLAN WURDE ABGELEHNT – Grund: \(grund).
+            Behebe GENAU das: Verwende nur Figuren, Orte und Gegenstände, die aus \
+            Kapitelziel, Konflikt und der bisher erzählten Handlung belegt sind, und \
+            erfinde keine neuen Fundstücke oder Vorgeschichten.
+            """
+        }
+        return text
+    }
+
+    /// Übernimmt einen Szenenplan. Rückgabe: der Ablehnungsgrund, falls der Plan
+    /// verworfen wurde – dann lohnt ein zweiter Anlauf MIT diesem Grund, bevor
+    /// generische Ersatzszenen entstehen (die nachweislich Doppler erzeugen).
+    @discardableResult
     private func persistScenePlanResult(
         _ result: Result<GenerationResponse, Error>,
         chapter: Chapter,
@@ -2554,30 +2694,71 @@ final class PipelineOrchestrator: ObservableObject {
         profile: BookProfile,
         expectedCount: Int,
         primaryCanon: String,
-        characterNames: [String]
-    ) {
+        characterNames: [String],
+        erlaubeErsatz: Bool = true
+    ) -> String? {
+        var ablehnungsgrund: String?
         var planned: [PlannedScene] = []
         var tokens = 0
         if case .success(let response) = result {
+            // Der Prüfkontext war der globale Kanon ALLEIN – und das ist die Wurzel der
+            // doppelt erzählten Szenen.
+            //
+            // Gemessen an Buch 7: 16 von 48 Szenen (ein Drittel) bekamen generische
+            // Ersatzziele, weil ihr Plan hier verworfen wurde. Ein Plan für Kapitel 4
+            // baut zwangsläufig auf Kapitel 3 auf und nennt Dinge, die im globalen
+            // Kanon nicht stehen – er galt damit als „unbelegt" und flog raus. Übrig
+            // blieben für alle vier Szenen dasselbe Hindernis und Ziele wie
+            // „KOMPLIKATION: ein NEUER, anderer Vorstoß", also keinerlei konkretes
+            // Ereignis. Der Draft Writer MUSS dann dasselbe mehrfach erzählen.
+            //
+            // Diese Doppler sind durch keine Reparatur behebbar: Szene 4 von Kapitel 2
+            // wurde achtmal erfolgreich neu geschrieben und blieb jedes Mal ein
+            // Doppler, weil ihr Plan mit dem der Nachbarszene identisch war.
+            //
+            // Kapitelziel, Konflikt und die bereits erzählte Handlung gehören deshalb
+            // zum belegten Kontext. Frei Erfundenes fangen die Prüfungen weiterhin.
+            let erlaubterKontext = szenenplanKontext(
+                project: project, chapter: chapter,
+                primaryCanon: primaryCanon,
+                perspective: profile.narrativePerspective
+            )
+
             let canonClaims = AutonomousContentQuality.unsupportedCanonClaims(
-                in: response.text, canon: primaryCanon, characterNames: characterNames
+                in: response.text, canon: erlaubterKontext, characterNames: characterNames
             )
             let genreDrift = AutonomousContentQuality.hasScenePlanGenreDrift(
-                response.text, genre: project.genre, canon: primaryCanon
+                response.text, genre: project.genre, canon: erlaubterKontext
             )
-            if canonClaims.isEmpty, !genreDrift {
+            let unexpectedArtifacts = AutonomousContentQuality.unexpectedStoryArtifacts(
+                in: response.text, allowedContext: erlaubterKontext
+            )
+            if canonClaims.isEmpty, !genreDrift, unexpectedArtifacts.isEmpty {
                 planned = StructureParser.parseScenes(response.text)
             } else {
+                let grund = genreDrift
+                    ? "Genre-Abdrift (Thriller-/Horror-Motive in einem \(project.genre))"
+                    : !unexpectedArtifacts.isEmpty
+                        ? "ungeplante Elemente: " + unexpectedArtifacts.prefix(4).joined(separator: ", ")
+                        : "nicht belegte Behauptungen: " + canonClaims.prefix(3).joined(separator: " | ")
+                ablehnungsgrund = grund
                 addReport(project: project, area: "Kapitel \(chapter.chapterNumber)",
                           type: "Kanon-Kontinuität",
-                          result: genreDrift
-                            ? "Szenenplan wegen Genre-Abdrift verworfen."
-                            : "Szenenplan mit unbelegtem Kanon verworfen: "
-                                + canonClaims.prefix(2).joined(separator: " | "),
+                          result: "Szenenplan verworfen – \(grund)",
                           severity: .warning,
-                          recommendation: "Szenen wurden kanontreu automatisch ersetzt.")
+                          recommendation: "Zweiter Planungsanlauf mit konkretem Grund.")
             }
             tokens = response.tokensUsed ?? 0
+        }
+        // Verworfen? Dann hier NICHT mit generischen Beats auffüllen. Der Aufrufer
+        // startet einen zweiten Anlauf; erst wenn auch der scheitert, greift der
+        // Ersatz. Grund: Generische Ziele („KOMPLIKATION: ein NEUER Vorstoß") sind
+        // für alle Szenen eines Kapitels gleich – der Draft Writer erzählt dann
+        // zwangsläufig dasselbe Ereignis mehrfach, und keine Reparatur kann das
+        // später beheben.
+        if !erlaubeErsatz, ablehnungsgrund != nil, planned.isEmpty {
+            completeJob(job, result: "Szenenplan verworfen – zweiter Anlauf folgt", tokens: tokens)
+            return ablehnungsgrund
         }
 
         if planned.count < expectedCount {
@@ -2625,6 +2806,7 @@ final class PipelineOrchestrator: ObservableObject {
         }
         chapter.status = .scenesPlanned
         completeJob(job, result: "\(planned.count) Szenen geplant", tokens: tokens)
+        return nil
     }
 
     /// Garantiert verwertbare, kapitelspezifische Ersatz-Szene (besteht die
@@ -3141,6 +3323,11 @@ final class PipelineOrchestrator: ObservableObject {
                     let manuscriptAvoidance = alreadyOverused
                         .map { "- \($0)" }
                         .joined(separator: "\n")
+                    let chapterEventsAlreadyHappened = scenes.prefix(sceneIndex).compactMap { prior -> String? in
+                        let summary = (prior.summary ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !summary.isEmpty else { return nil }
+                        return "Szene \(prior.sceneNumber): \(summary)"
+                    }.joined(separator: "\n")
                     let basePrompt = PromptFactory.draftScene(
                         language: project.language, style: project.styleProfile,
                         tonality: profile.tonality, perspective: profile.narrativePerspective,
@@ -3163,7 +3350,8 @@ final class PipelineOrchestrator: ObservableObject {
                         catalogAvoidance: catalogAvoidance,
                         manuscriptAvoidance: manuscriptAvoidance,
                         researchContext: profile.researchNotes,
-                        canonicalStory: sceneDraftCanon
+                        canonicalStory: sceneDraftCanon,
+                        chapterEventsAlreadyHappened: chapterEventsAlreadyHappened
                     )
                     let maxTokens = LongFormProductionPlan.draftMaxTokens(forTargetWords: scene.targetWordCount)
                     let minWords = Int(Double(scene.targetWordCount) * 0.75)
@@ -3580,6 +3768,10 @@ final class PipelineOrchestrator: ObservableObject {
                                     : "Redundanz in der Kapitelrevision verdichten.")
                     }
 
+                    sceneText = AutonomousContentQuality.cleaningStoredBookText(
+                        sceneText,
+                        bookTitle: project.title
+                    )
                     scene.text = sceneText
                     scene.status = .written
                     scene.updatedAt = Date()
@@ -3592,7 +3784,23 @@ final class PipelineOrchestrator: ObservableObject {
                        !AutonomousContentQuality.soundsLikeAI(sceneText),
                        AutonomousContentQuality.repeatedSentenceCollisions(
                            candidate: sceneText, priorTexts: Array(priorProseTexts.dropLast())
-                       ).isEmpty {
+                       ).isEmpty,
+                       AutonomousContentQuality.unsupportedCanonClaims(
+                           in: sceneText, canon: primaryCanon,
+                           characterNames: characterNames
+                       ).isEmpty,
+                       !AutonomousContentQuality.hasScenePlanGenreDrift(
+                           sceneText, genre: project.genre, canon: primaryCanon
+                       ),
+                       AutonomousContentQuality.unexpectedCharacterNames(
+                           in: sceneText, allowedContext: allowedDraftContext,
+                           characterNames: characterNames
+                       ).isEmpty,
+                       AutonomousContentQuality.unexpectedStoryArtifacts(
+                           in: sceneText, allowedContext: allowedDraftContext
+                       ).isEmpty,
+                       !PublicContentGuard.disclosureViolation(in: sceneText),
+                       ContentSafetyFilter.isSafe(sceneText) {
                         resolveSceneReports(
                             project: project,
                             chapterNumber: chapter.chapterNumber,
@@ -3619,6 +3827,25 @@ final class PipelineOrchestrator: ObservableObject {
                     failJob(job, error: error)
                     throw error
                 }
+            }
+
+            if !project.isNonfiction {
+                _ = await auditAndRepairChapterEventDuplicates(
+                    project: project,
+                    chapter: chapter,
+                    config: config
+                )
+                previousSceneText = sortedScenes(chapter).last?.text
+                priorProseTexts = chapters.prefix(chapterIndex + 1).flatMap { completedChapter in
+                    sortedScenes(completedChapter).compactMap(\.text)
+                }
+                storySoFar.removeAll {
+                    $0.hasPrefix("Kap. \(chapter.chapterNumber), Szene ")
+                }
+                storySoFar.append(contentsOf: sortedScenes(chapter).compactMap { completedScene in
+                    guard let summary = completedScene.summary, !summary.isEmpty else { return nil }
+                    return "Kap. \(chapter.chapterNumber), Szene \(completedScene.sceneNumber): \(summary)"
+                })
             }
 
             if !(chapter.finalText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -3715,6 +3942,472 @@ final class PipelineOrchestrator: ObservableObject {
             failJob(job, error: error)
             return String(joined.prefix(350))
         }
+    }
+
+    /// Prüft unmittelbar nach dem Schreiben eines Kapitels, ob ein konkretes Ereignis
+    /// in einer späteren Szene noch einmal als neu ausgespielt wurde. Nur die spätere
+    /// Szene wird ersetzt; der bereits etablierte Kanon bleibt unangetastet.
+    @discardableResult
+    private func auditAndRepairChapterEventDuplicates(project: Project, chapter: Chapter,
+                                                      config: ProviderConfiguration) async -> Int {
+        let scenes = sortedScenes(chapter)
+        guard scenes.count >= 2, scenes.allSatisfy({ !($0.text ?? "").isEmpty }) else { return 0 }
+
+        let auditInput = scenes.map { scene in
+            let summary = (scene.summary ?? "Keine Zusammenfassung").truncated(to: 900)
+            let text = (scene.text ?? "").truncated(to: 6_000)
+            return "== SZENE \(scene.sceneNumber) ==\nSUMMARY: \(summary)\nTEXT:\n\(text)"
+        }.joined(separator: "\n\n")
+        let auditJob = beginJob(agent: AgentName.consistency, phase: .drafting,
+                                project: project, chapter: chapter.chapterNumber)
+
+        let auditResponse: GenerationResponse
+        do {
+            auditResponse = try await generate(
+                prompt: PromptFactory.chapterEventDuplicateAudit(
+                    bookTitle: project.title,
+                    chapterNumber: chapter.chapterNumber,
+                    chapterTitle: chapter.title,
+                    scenes: auditInput
+                ),
+                system: "Du bist ein strenger Kontinuitätslektor. Du unterscheidest echte Ereignisdopplungen von Folgen, Erinnerungen und Motiven.",
+                maxTokens: 900, temperature: 0.1, config: config
+            )
+        } catch {
+            completeJob(auditJob, result: "Semantische Kapitelprüfung vorübergehend nicht verfügbar")
+            addReport(project: project, area: "Kapitel \(chapter.chapterNumber)",
+                      type: "Kapitel-Dopplungsprüfung",
+                      result: "Semantische Ereignisprüfung konnte nicht abgeschlossen werden.",
+                      severity: .warning,
+                      recommendation: "Bei der Endabnahme erneut semantisch prüfen.")
+            return 0
+        }
+
+        guard ChapterEventDuplicateParser.isConclusive(auditResponse.text) else {
+            completeJob(auditJob, result: "Prüfantwort war nicht eindeutig", tokens: auditResponse.tokensUsed ?? 0)
+            addReport(project: project, area: "Kapitel \(chapter.chapterNumber)",
+                      type: "Kapitel-Dopplungsprüfung",
+                      result: "Semantische Prüfantwort war nicht eindeutig auswertbar.",
+                      severity: .warning,
+                      recommendation: "Bei der Endabnahme erneut semantisch prüfen.")
+            return 0
+        }
+
+        let findings = ChapterEventDuplicateParser.parse(auditResponse.text)
+        completeJob(auditJob,
+                    result: findings.isEmpty ? "Keine doppelt erzählten Ereignisse" : "\(findings.count) Ereignisdopplung(en) erkannt",
+                    tokens: auditResponse.tokensUsed ?? 0)
+
+        // Das frische Audit ist die Wahrheit über dieses Kapitel: Was es NICHT mehr
+        // meldet, ist behoben. Ohne diesen Abgleich bleiben Befunde aus früheren
+        // Runden für immer auf „offen" stehen – auch dann, wenn dieselbe Szene
+        // danach nachweislich erfolgreich ersetzt wurde. Gemessen an Buch 7: 16
+        // offene Fehler-Befunde für Szenen, von denen etwa Kapitel 2 Szene 4
+        // viermal erfolgreich repariert worden war. Da PublicationReadiness offene
+        // Fehler zählt, blockieren solche Karteileichen die Freigabe dauerhaft –
+        // dieselbe Buchhaltungsfalle, die diese Produktion schon einmal lahmlegte.
+        let nochBetroffen = Set(findings.map(\.laterSceneNumber))
+        let kapitelPraefix = "Kapitel \(chapter.chapterNumber), Szene "
+        for report in (project.qualityReports ?? [])
+        where report.checkType == "Kapitel-Dopplung" && !report.autoFixed
+            && report.checkedArea.hasPrefix(kapitelPraefix) {
+            let szene = Int(report.checkedArea.dropFirst(kapitelPraefix.count)
+                .trimmingCharacters(in: .whitespaces))
+            if let szene, !nochBetroffen.contains(szene) {
+                report.autoFixed = true
+            }
+        }
+        modelContext?.saveOrLog()
+
+        guard !findings.isEmpty else { return 0 }
+
+        let summaries = scenes.map {
+            "Szene \($0.sceneNumber): \(($0.summary ?? $0.goal).truncated(to: 900))"
+        }.joined(separator: "\n")
+        var repaired = 0
+        var handledLaterScenes = Set<Int>()
+
+        for finding in findings where handledLaterScenes.insert(finding.laterSceneNumber).inserted {
+            guard let earlier = scenes.first(where: { $0.sceneNumber == finding.earlierSceneNumber }),
+                  let later = scenes.first(where: { $0.sceneNumber == finding.laterSceneNumber }),
+                  let earlierText = earlier.text, let source = later.text else { continue }
+            let job = beginJob(agent: AgentName.repairEditor, phase: .drafting,
+                               project: project, chapter: chapter.chapterNumber,
+                               scene: later.sceneNumber)
+            var accepted: String?
+            var usedTokens = 0
+            var lastRejectionReasons: [String] = []
+            for attempt in 1...Self.maxSceneRepairAttempts where accepted == nil {
+                do {
+                    // Gemessen an Buch 7: Ohne Rückmeldung schrieb das Modell im zweiten
+                    // Versuch denselben Text mit denselben Mängeln – es erfuhr nie, woran
+                    // der erste gescheitert war. Die Ablehnungsgründe gehören deshalb in
+                    // den Folge-Prompt, sonst ist jeder weitere Versuch blindes Raten.
+                    var versuchsHinweis = "\nVollständigkeitsversuch \(attempt)/\(Self.maxSceneRepairAttempts)."
+                    if !lastRejectionReasons.isEmpty {
+                        versuchsHinweis += """
+
+                        DEIN VORIGER VERSUCH WURDE ABGELEHNT – Grund: \
+                        \(lastRejectionReasons.joined(separator: "; ")).
+                        Behebe GENAU diese Punkte. Halte dich strikt an den Szenenplan, \
+                        bleibe im belegten Kanon, übernimm KEINE Sätze aus anderen Szenen \
+                        und schreibe konkrete, sinnliche Prosa statt schematischer Wendungen.
+                        """
+                    }
+                    let response = try await generate(
+                        prompt: PromptFactory.repairDuplicateScene(
+                            language: project.language, bookTitle: project.title,
+                            chapterNumber: chapter.chapterNumber, chapterTitle: chapter.title,
+                            laterSceneNumber: later.sceneNumber,
+                            earlierSceneNumber: earlier.sceneNumber,
+                            duplicatedEvent: finding.event,
+                            instruction: finding.instruction,
+                            chapterGoal: chapter.goal,
+                            laterScenePlan: "Ziel: \(later.goal); Hindernis: \(later.obstacle); Wendung: \(later.cliffhanger)",
+                            earlierSceneText: earlierText.truncated(to: 12_000),
+                            laterSceneText: source.truncated(to: 18_000),
+                            allSceneSummaries: summaries
+                        ) + versuchsHinweis,
+                        system: "Du bist ein chirurgisch arbeitender Romanlektor. Du reparierst ausschließlich die spätere Szene und führst die Handlung kausal weiter.",
+                        maxTokens: min(8_000, max(2_000, later.targetWordCount * 4)),
+                        // Ab dem dritten Anlauf etwas mehr Spielraum: Zweimal dieselbe
+                        // Temperatur liefert oft zweimal denselben abgelehnten Text.
+                        temperature: attempt >= 3 ? 0.5 : 0.3, config: config, creative: true
+                    )
+                    usedTokens += response.tokensUsed ?? 0
+                    var candidate = AutonomousContentQuality.cleaningStoredBookText(
+                        response.text,
+                        bookTitle: project.title
+                    )
+                    if candidate.wordCount > Int(Double(later.targetWordCount) * 1.25) {
+                        let fitted = try await fitSceneToTarget(
+                            candidate,
+                            project: project,
+                            chapter: chapter,
+                            scene: later,
+                            config: config
+                        )
+                        candidate = fitted.text
+                        usedTokens += fitted.tokens
+                    }
+                    let collisionCleanup = try await cleanDraftSentenceCollisions(
+                        candidate,
+                        priorTexts: scenes.filter { $0.id != later.id }.compactMap(\.text),
+                        project: project,
+                        chapter: chapter,
+                        scene: later,
+                        config: config
+                    )
+                    candidate = collisionCleanup.text
+                    usedTokens += collisionCleanup.tokens
+                    let styleCleanup = try await cleanDraftStyleArtifacts(
+                        candidate,
+                        priorTexts: scenes.filter { $0.id != later.id }.compactMap(\.text),
+                        project: project,
+                        chapter: chapter,
+                        scene: later,
+                        config: config
+                    )
+                    candidate = styleCleanup.text
+                    usedTokens += styleCleanup.tokens
+                    lastRejectionReasons = sceneRepairRejectionReasons(
+                        source: source, candidate: candidate,
+                        targetWords: later.targetWordCount,
+                        finishReason: response.finishReason,
+                        project: project, later: later,
+                        earlierText: earlierText,
+                        allSceneSummaries: summaries,
+                        priorTexts: scenes.filter { $0.id != later.id }.compactMap(\.text)
+                    )
+                    if lastRejectionReasons.isEmpty {
+                        accepted = candidate
+                    }
+                } catch {
+                    if isFatalProductionError(error) { break }
+                }
+            }
+
+            if let accepted {
+                _ = replaceSceneText(accepted, scene: later, in: chapter)
+                later.summary = await summarizeScene(accepted, project: project,
+                                                     chapter: chapter, scene: later, config: config)
+                later.updatedAt = Date()
+                repaired += 1
+                completeJob(job, result: "Doppelte Handlung in späterer Szene gezielt ersetzt",
+                            tokens: usedTokens)
+                let report = addReport(
+                    project: project,
+                    area: "Kapitel \(chapter.chapterNumber), Szene \(later.sceneNumber)",
+                    type: "Kapitel-Dopplung",
+                    result: "Doppelt erzähltes Ereignis gegenüber Szene \(earlier.sceneNumber) gezielt repariert: \(finding.event)",
+                    severity: .info,
+                    recommendation: "Automatisch auf Szenenebene behoben."
+                )
+                report.autoFixed = true
+            } else {
+                let detail = lastRejectionReasons.isEmpty
+                    ? "keine verwertbare Modellantwort"
+                    : lastRejectionReasons.joined(separator: ", ")
+                // Auch ein abgelehnter Anlauf kostet Tokens – bis zu vier Modellaufrufe.
+                // Ohne diese Buchung meldete der Job 0 Tokens und die Kostenanzeige log.
+                completeJob(job, result: "Szenenreparatur nicht angenommen – \(detail); Original bleibt erhalten",
+                            tokens: usedTokens)
+                addReport(project: project,
+                          area: "Kapitel \(chapter.chapterNumber), Szene \(later.sceneNumber)",
+                          type: "Kapitel-Dopplung",
+                          result: "Doppelt erzähltes Ereignis bleibt offen: \(finding.event)",
+                          severity: .error,
+                          recommendation: finding.instruction)
+            }
+        }
+        chapter.actualWordCount = sortedScenes(chapter).compactMap { $0.text?.wordCount }.reduce(0, +)
+        chapter.updatedAt = Date()
+        modelContext?.saveOrLog()
+        return repaired
+    }
+
+    /// Repariert einen bereits gemeldeten Konsistenz-Doppler auf Szenenebene. Für eine
+    /// vorhandene Endfassung gilt die Reparatur nur dann als erfolgreich, wenn deren
+    /// Szenentrenner die spätere Szene eindeutig adressierbar machen.
+    private func repairReportedSceneDuplicate(_ finding: ChapterEventDuplicate,
+                                              project: Project, chapter: Chapter,
+                                              config: ProviderConfiguration) async -> Bool {
+        let scenes = sortedScenes(chapter)
+        guard let earlier = scenes.first(where: { $0.sceneNumber == finding.earlierSceneNumber }),
+              let later = scenes.first(where: { $0.sceneNumber == finding.laterSceneNumber }),
+              let earlierText = earlier.text, let source = later.text else { return false }
+
+        let summaries = scenes.map {
+            "Szene \($0.sceneNumber): \(($0.summary ?? $0.goal).truncated(to: 900))"
+        }.joined(separator: "\n")
+        let job = beginJob(agent: AgentName.repairEditor, phase: .manuscriptRevision,
+                           project: project, chapter: chapter.chapterNumber,
+                           scene: later.sceneNumber)
+        var usedTokens = 0
+        var lastRejectionReasons: [String] = []
+        for attempt in 1...Self.maxSceneRepairAttempts {
+            do {
+                // Gleiche Rückkopplung wie in der Kapitel-Reparatur: Ohne die konkreten
+                // Ablehnungsgründe wiederholt der nächste Anlauf denselben Mangel.
+                var versuchsHinweis = "\nVollständigkeitsversuch \(attempt)/\(Self.maxSceneRepairAttempts)."
+                if !lastRejectionReasons.isEmpty {
+                    versuchsHinweis += """
+
+                    DEIN VORIGER VERSUCH WURDE ABGELEHNT – Grund: \
+                    \(lastRejectionReasons.joined(separator: "; ")).
+                    Behebe GENAU diese Punkte. Halte dich strikt an den Szenenplan, \
+                    bleibe im belegten Kanon, übernimm KEINE Sätze aus anderen Szenen \
+                    und schreibe konkrete, sinnliche Prosa statt schematischer Wendungen.
+                    """
+                }
+                let response = try await generate(
+                    prompt: PromptFactory.repairDuplicateScene(
+                        language: project.language, bookTitle: project.title,
+                        chapterNumber: chapter.chapterNumber, chapterTitle: chapter.title,
+                        laterSceneNumber: later.sceneNumber,
+                        earlierSceneNumber: earlier.sceneNumber,
+                        duplicatedEvent: finding.event,
+                        instruction: finding.instruction,
+                        chapterGoal: chapter.goal,
+                        laterScenePlan: "Ziel: \(later.goal); Hindernis: \(later.obstacle); Wendung: \(later.cliffhanger)",
+                        earlierSceneText: earlierText.truncated(to: 12_000),
+                        laterSceneText: source.truncated(to: 18_000),
+                        allSceneSummaries: summaries
+                    ) + versuchsHinweis,
+                    system: "Du bist ein chirurgisch arbeitender Romanlektor. Du reparierst ausschließlich die spätere Szene.",
+                    maxTokens: min(8_000, max(2_000, later.targetWordCount * 4)),
+                    temperature: attempt >= 3 ? 0.45 : 0.25, config: config, creative: true
+                )
+                usedTokens += response.tokensUsed ?? 0
+                var candidate = AutonomousContentQuality.cleaningStoredBookText(
+                    response.text,
+                    bookTitle: project.title
+                )
+                if candidate.wordCount > Int(Double(later.targetWordCount) * 1.25) {
+                    let fitted = try await fitSceneToTarget(
+                        candidate,
+                        project: project,
+                        chapter: chapter,
+                        scene: later,
+                        config: config
+                    )
+                    candidate = fitted.text
+                    usedTokens += fitted.tokens
+                }
+                let collisionCleanup = try await cleanDraftSentenceCollisions(
+                    candidate,
+                    priorTexts: scenes.filter { $0.id != later.id }.compactMap(\.text),
+                    project: project,
+                    chapter: chapter,
+                    scene: later,
+                    config: config
+                )
+                candidate = collisionCleanup.text
+                usedTokens += collisionCleanup.tokens
+                let styleCleanup = try await cleanDraftStyleArtifacts(
+                    candidate,
+                    priorTexts: scenes.filter { $0.id != later.id }.compactMap(\.text),
+                    project: project,
+                    chapter: chapter,
+                    scene: later,
+                    config: config
+                )
+                candidate = styleCleanup.text
+                usedTokens += styleCleanup.tokens
+                lastRejectionReasons = sceneRepairRejectionReasons(
+                    source: source, candidate: candidate,
+                    targetWords: later.targetWordCount,
+                    finishReason: response.finishReason,
+                    project: project, later: later,
+                    earlierText: earlierText,
+                    allSceneSummaries: summaries,
+                    priorTexts: scenes.filter { $0.id != later.id }.compactMap(\.text)
+                )
+                guard lastRejectionReasons.isEmpty else { continue }
+
+                guard replaceSceneText(candidate, scene: later, in: chapter) else {
+                    completeJob(job, result: "Endfassung ohne eindeutige Szenentrenner – Befund bleibt offen",
+                                tokens: usedTokens)
+                    return false
+                }
+                later.summary = await summarizeScene(candidate, project: project,
+                                                     chapter: chapter, scene: later, config: config)
+                chapter.actualWordCount = chapter.bestText?.wordCount ?? candidate.wordCount
+                chapter.updatedAt = Date()
+                completeJob(job, result: "Doppelte Handlung in Szene \(later.sceneNumber) gezielt repariert",
+                            tokens: usedTokens)
+                modelContext?.saveOrLog()
+                return true
+            } catch {
+                if isFatalProductionError(error) { break }
+            }
+        }
+        let detail = lastRejectionReasons.isEmpty
+            ? "keine verwertbare Modellantwort"
+            : lastRejectionReasons.joined(separator: ", ")
+        completeJob(job, result: "Szenenreparatur nicht angenommen – \(detail); Original bleibt erhalten",
+                    tokens: usedTokens)
+        return false
+    }
+
+    private func sceneRepairRejectionReasons(source: String, candidate: String,
+                                             targetWords: Int,
+                                             finishReason: String?,
+                                             project: Project,
+                                             later: StoryScene,
+                                             earlierText: String,
+                                             allSceneSummaries: String,
+                                             priorTexts: [String]) -> [String] {
+        let minimumRatio = SceneFittingSizing.minimumSourceRatio(
+            sourceWords: source.wordCount,
+            targetWords: targetWords
+        )
+        var reasons: [String] = []
+        if !AutonomousContentQuality.isAcceptableRewrite(
+            source: source, candidate: candidate,
+            minRatio: minimumRatio,
+            finishReason: finishReason
+        ) {
+            reasons.append("Länge oder Satzende unzulässig (\(candidate.wordCount)/\(targetWords) Wörter)")
+        }
+        if !AutonomousContentQuality.acceptsDraftScene(candidate, targetWords: targetWords) {
+            reasons.append("außerhalb des Szenenziels oder unvollständig")
+        }
+        if AutonomousContentQuality.containsMetaRequest(candidate) {
+            reasons.append("Meta- oder Anweisungstext")
+        }
+        if PublicContentGuard.disclosureViolation(in: candidate) {
+            reasons.append("unzulässiger Offenlegungstext")
+        }
+        if !ContentSafetyFilter.isSafe(candidate) {
+            reasons.append("Sicherheitsfilter")
+        }
+        if !AutonomousContentQuality.clarityAssessment(candidate).isAcceptable {
+            reasons.append("Stil oder Klarheit")
+        }
+        if AutonomousContentQuality.soundsLikeAI(candidate) {
+            reasons.append("schematische Prosa")
+        }
+        // Die Gründe gehen als Korrekturauftrag zurück ins Modell. Ein pauschales
+        // „nicht belegte Kanonbehauptung" ist dafür wertlos – der nächste Anlauf weiß
+        // nicht, WELCHE Behauptung gemeint ist, und wiederholt sie. Die Prüfungen
+        // liefern die konkreten Treffer bereits; sie werden hier mitgegeben.
+        let kollisionen = AutonomousContentQuality.repeatedSentenceCollisions(
+            candidate: candidate, priorTexts: priorTexts
+        )
+        if !kollisionen.isEmpty {
+            reasons.append("wortgleiche Sätze aus anderen Szenen: "
+                           + kollisionen.prefix(3).map { "„\($0.truncated(to: 90))“" }
+                               .joined(separator: ", "))
+        }
+        let primaryCanon = primaryStoryCanon(project: project)
+        let characterNames = (project.storyBible?.characters ?? []).map(\.name)
+        let allowedContext = [
+            primaryCanon, source, earlierText, allSceneSummaries,
+            later.goal, later.obstacle, later.cliffhanger
+        ].joined(separator: "\n")
+        // Gemessen an Buch 7, Kapitel 4: Die Reparatur wurde wegen „Jonas' Mutter"
+        // abgelehnt – eine Behauptung, die in ALLEN VIER Szenen des Kapitels bereits
+        // stand. Sie gegen den globalen Kanon allein zu prüfen bestraft die Reparatur
+        // dafür, dass sie die Szene korrekt fortführt: ein Erzeuger/Prüfer-Patt, das
+        // sich nie auflösen kann. Etabliertes aus Originalszene, Vorszene und
+        // Zusammenfassungen zählt deshalb als belegt – genau wie bei den beiden
+        // Schwesterprüfungen unten, die `allowedContext` längst verwenden. Neu
+        // erfundene Verwandtschaften fängt die Prüfung weiterhin.
+        let canonClaims = AutonomousContentQuality.unsupportedCanonClaims(
+            in: candidate, canon: allowedContext, characterNames: characterNames
+        )
+        if !canonClaims.isEmpty {
+            reasons.append("nicht belegte Kanonbehauptung: "
+                           + canonClaims.prefix(3).joined(separator: ", "))
+        }
+        if AutonomousContentQuality.hasScenePlanGenreDrift(
+            candidate, genre: project.genre, canon: primaryCanon
+        ) {
+            reasons.append("Genre-Abdrift")
+        }
+        let fremdeFiguren = AutonomousContentQuality.unexpectedCharacterNames(
+            in: candidate, allowedContext: allowedContext,
+            characterNames: characterNames
+        )
+        if !fremdeFiguren.isEmpty {
+            reasons.append("ungeplante Figur: " + fremdeFiguren.prefix(3).joined(separator: ", "))
+        }
+        let artifacts = AutonomousContentQuality.unexpectedStoryArtifacts(
+            in: candidate, allowedContext: allowedContext
+        )
+        if !artifacts.isEmpty {
+            reasons.append("ungeplante Elemente: \(artifacts.joined(separator: ", "))")
+        }
+        return reasons
+    }
+
+    /// Hält Rohszenen und bereits zusammengesetzte Kapitelversionen synchron. Eine
+    /// überarbeitete Fassung wird nur angefasst, wenn ihre Szenentrenner eine eindeutige
+    /// Zuordnung erlauben; andernfalls bleibt der offene Befund sichtbar.
+    @discardableResult
+    private func replaceSceneText(_ text: String, scene: StoryScene, in chapter: Chapter) -> Bool {
+        let scenes = sortedScenes(chapter)
+        guard let index = scenes.firstIndex(where: { $0.id == scene.id }) else { return false }
+        scene.text = text
+        if chapter.draftText != nil {
+            chapter.draftText = scenes.compactMap(\.text).joined(separator: "\n\n***\n\n")
+        }
+
+        func replacingSection(in manuscript: String?) -> (String?, Bool) {
+            guard let manuscript else { return (nil, true) }
+            var sections = manuscript.components(separatedBy: "\n\n***\n\n")
+            guard sections.count == scenes.count, sections.indices.contains(index) else {
+                return (manuscript, false)
+            }
+            sections[index] = text
+            return (sections.joined(separator: "\n\n***\n\n"), true)
+        }
+        let revised = replacingSection(in: chapter.revisedText)
+        let final = replacingSection(in: chapter.finalText)
+        if chapter.revisedText != nil { chapter.revisedText = revised.0 }
+        if chapter.finalText != nil { chapter.finalText = final.0 }
+        return revised.1 && final.1
     }
 
     /// Benennt ein Kapitel anhand seines Inhalts neu, wenn der Titel generisch oder
@@ -4638,6 +5331,16 @@ final class PipelineOrchestrator: ObservableObject {
             return "Es gibt noch keinen prüfbaren Manuskripttext."
         }
 
+        // Bereits bekannte harte Konsistenzbefunde zuerst abarbeiten. Insbesondere
+        // doppelt ausgespielte Ereignisse mit Szenenangaben werden dadurch gezielt in
+        // der späteren Szene repariert, bevor ein neues allgemeines Audit weitere
+        // Formulierungsaufträge erzeugt.
+        currentAgent = "\(AgentName.repairEditor) – bekannte Konsistenzbefunde"
+        let targetedConsistencyRepairs = try await runConsistencyRepair(
+            project: project,
+            config: config
+        )
+
         let summaries = repairAuditSummaries(for: chapters)
         let auditedReports = repairReportsForAudit(project)
         let reportBrief = repairReportBrief(auditedReports)
@@ -4715,7 +5418,10 @@ final class PipelineOrchestrator: ObservableObject {
                       severity: .info,
                       recommendation: "")
             modelContext?.saveOrLog()
-            return "Prüfung abgeschlossen: keine reparaturpflichtigen Inkonsistenzen gefunden."
+            let prefix = targetedConsistencyRepairs > 0
+                ? "\(targetedConsistencyRepairs) bekannte Konsistenzbefund(e) gezielt repariert. "
+                : ""
+            return prefix + "Prüfung abgeschlossen: keine weiteren reparaturpflichtigen Inkonsistenzen gefunden."
         }
 
         var repairedCount = 0
@@ -4843,9 +5549,15 @@ final class PipelineOrchestrator: ObservableObject {
 
         modelContext?.saveOrLog()
         if repairedCount == 0 {
-            return "Prüfung abgeschlossen: \(issues.count) Befund(e) gespeichert, aber keine kapitelgenaue automatische Reparatur ausgeführt."
+            let targeted = targetedConsistencyRepairs > 0
+                ? "\(targetedConsistencyRepairs) bekannte Konsistenzbefund(e) gezielt behoben. "
+                : ""
+            return targeted + "Prüfung abgeschlossen: \(issues.count) weitere Befund(e) gespeichert, aber keine zusätzliche kapitelgenaue Reparatur ausgeführt."
         }
         var message = "Nachbearbeitung abgeschlossen: \(repairedCount) Kapitel repariert."
+        if targetedConsistencyRepairs > 0 {
+            message += " Zusätzlich \(targetedConsistencyRepairs) bekannte Konsistenzbefund(e) gezielt behoben."
+        }
         if skippedCount > 0 || processedCount < issues.count {
             message += " \(max(skippedCount, issues.count - processedCount)) Befund(e) bleiben als Report zur manuellen Prüfung."
         }
@@ -5333,16 +6045,66 @@ final class PipelineOrchestrator: ObservableObject {
     /// Bewusst gedeckelt (Kosten/Zeit): höchstens `maxWidersprueche` Widersprüche und
     /// `maxKapitelGesamt` Kapitel-Neufassungen pro Lauf. Die Rundenbegrenzung der
     /// Endabnahme fängt hartnäckige Fälle zusätzlich ab.
+    /// Repariert am Buchende die Kapitel, in denen noch Ereignisdopplungen offen sind.
+    ///
+    /// Warum das nötig ist: Die Dopplungsprüfung lief bisher NUR beim Schreiben. Was ein
+    /// späteres Audit fand – etwa nachdem eine Reparatur das Kapitel verändert hatte –
+    /// blieb für immer liegen, weil die Endabnahme ausschließlich Befunde vom Typ
+    /// „Konsistenz" ansieht und diese hier „Kapitel-Dopplung" heißen. Gemessen an Buch 7:
+    /// sechs erkannte, nie angefasste Dopplungen; das fertige Buch blieb deshalb in der
+    /// Prüfung hängen.
+    ///
+    /// Statt aus den alten Befunden zu rekonstruieren, welche Szenen gemeint waren
+    /// (der Befund nennt nur die spätere), wird das Kapitel frisch auditiert: Das findet
+    /// den aktuellen Stand, repariert szenenweise mit Ablehnungs-Rückkopplung und
+    /// schließt über den Abgleich im Audit zugleich die inzwischen behobenen Befunde.
+    @discardableResult
+    private func repariereOffeneKapitelDopplungen(project: Project,
+                                                  config: ProviderConfiguration) async throws -> Int {
+        let offeneKapitel = Set((project.qualityReports ?? [])
+            .filter { $0.checkType == "Kapitel-Dopplung" && !$0.autoFixed
+                      && ($0.severity == .critical || $0.severity == .error) }
+            .compactMap { report -> Int? in
+                guard let bereich = report.checkedArea.range(of: #"Kapitel\s+(\d+)"#,
+                                                             options: .regularExpression)
+                else { return nil }
+                return Int(report.checkedArea[bereich].filter(\.isNumber))
+            })
+        guard !offeneKapitel.isEmpty else { return 0 }
+
+        var behoben = 0
+        // Deckel wie bei den übrigen Endabnahme-Schritten: Die Reparatur darf das
+        // Buch nicht unbegrenzt weiterbearbeiten.
+        for chapter in sortedChapters(project).filter({ offeneKapitel.contains($0.chapterNumber) })
+            .prefix(Self.maxEndabnahmeKapitel) {
+            try Task.checkCancellation()
+            currentAgent = "Kapitel \(chapter.chapterNumber): offene Dopplung wird behoben …"
+            behoben += await auditAndRepairChapterEventDuplicates(
+                project: project, chapter: chapter, config: config)
+        }
+        modelContext?.saveOrLog()
+        return behoben
+    }
+
     @discardableResult
     private func runConsistencyRepair(project: Project, config: ProviderConfiguration) async throws -> Int {
-        let maxWidersprueche = 6
+        let maxWidersprueche = 8
         let maxKapitelGesamt = 10
 
-        // Nur blockierende, noch nicht behobene Konsistenz-Widersprüche.
+        // Blockierende, noch nicht behobene Widersprüche.
+        //
+        // Der Filter stand auf checkType == "Konsistenz" – und übersah damit exakt die
+        // Befunde, an denen Buch 7 scheiterte: „Nachbearbeitung" (die Mutter-Erscheinung
+        // aus Kapitel 10 wird nie aufgelöst; der 60-Minuten-Zyklus widerspricht sich).
+        // Sie waren als kritisch gemeldet, wurden aber von keinem Reparaturschritt je
+        // angefasst. Kritische Punkte zuerst, damit der Deckel die schwersten trifft.
+        let reparierbareTypen: Set<String> = ["Konsistenz", "Nachbearbeitung"]
         let blocker = (project.qualityReports ?? []).filter {
-            $0.checkType == "Konsistenz"
+            reparierbareTypen.contains($0.checkType)
                 && !$0.autoFixed
                 && ($0.severity == .critical || $0.severity == .error)
+        }.sorted { lhs, rhs in
+            (lhs.severity == .critical ? 0 : 1) < (rhs.severity == .critical ? 0 : 1)
         }.prefix(maxWidersprueche)
         guard !blocker.isEmpty else { return 0 }
 
@@ -5357,7 +6119,43 @@ final class PipelineOrchestrator: ObservableObject {
             guard kapitelBudget > 0 else { break }
 
             let befund = report.result
-            let nummern = kapitelNummern(inText: befund)
+            let gesamterBefund = "\(report.checkedArea) \(report.result) \(report.recommendation)"
+            let sceneReferences = ChapterSceneReferenceParser.parse(gesamterBefund)
+            let normalizedFinding = gesamterBefund
+                .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                .lowercased()
+            let isDuplicateEvent = ["doppelt", "dopplung", "wiederholt", "erneut", "noch einmal"]
+                .contains(where: normalizedFinding.contains)
+            if isDuplicateEvent,
+               sceneReferences.count >= 2,
+               Set(sceneReferences.map(\.chapterNumber)).count == 1,
+               let earlierReference = sceneReferences.min(by: { $0.sceneNumber < $1.sceneNumber }),
+               let laterReference = sceneReferences.max(by: { $0.sceneNumber < $1.sceneNumber }),
+               let targetChapter = kapitel.first(where: { $0.chapterNumber == laterReference.chapterNumber }) {
+                let finding = ChapterEventDuplicate(
+                    laterSceneNumber: laterReference.sceneNumber,
+                    earlierSceneNumber: earlierReference.sceneNumber,
+                    event: report.result,
+                    instruction: report.recommendation.isEmpty
+                        ? "Die spätere Szene zeigt die nächste kausale Folge statt das Ereignis erneut auszuspielen."
+                        : report.recommendation
+                )
+                if await repairReportedSceneDuplicate(
+                    finding,
+                    project: project,
+                    chapter: targetChapter,
+                    config: config
+                ) {
+                    report.autoFixed = true
+                    behoben += 1
+                }
+                // Ereignisdopplungen werden nie mehr durch eine komplette
+                // Kapitel-Neufassung behandelt. Bleibt die Szene offen, bleibt auch
+                // der Bericht offen und führt später zu „Prüfung erforderlich“.
+                continue
+            }
+
+            let nummern = kapitelNummern(inText: gesamterBefund)
             let betroffen = kapitel.filter { nummern.contains($0.chapterNumber) }
             guard !betroffen.isEmpty else { continue }
 
@@ -5549,6 +6347,11 @@ final class PipelineOrchestrator: ObservableObject {
                 // die kritischen Konsistenzbefunde stehen, an denen das Testbuch scheiterte:
                 // „Jonas heißt mal Hartmann, mal Brenner", „Lina stirbt in drei Versionen".
                 try await runConsistencyRepair(project: project, config: config)
+                // Offene Ereignisdopplungen zuletzt: Die Kapitel-Neufassungen oben
+                // können den Text verändert haben, das frische Audit sieht damit den
+                // endgültigen Stand – und schließt Befunde, die dadurch bereits
+                // erledigt sind, statt sie als Karteileichen stehen zu lassen.
+                try await repariereOffeneKapitelDopplungen(project: project, config: config)
                 _ = try await runRepairWorkflow(project: project, config: config)
             }
             if issues.contains(where: { $0.contains("über Zielumfang") }) {
@@ -5639,6 +6442,21 @@ final class PipelineOrchestrator: ObservableObject {
     /// Verschwendung und das Buch bleibt für immer im Export hängen.
     static let maxQualityRepairRounds = 3
 
+    /// Anläufe je Szenen-Reparatur einer erkannten Ereignisdopplung.
+    ///
+    /// Warum hier MEHR Anläufe sinnvoll sind als bei der Endabnahme (dort gemessen
+    /// wirkungslos): Jeder Anlauf bekommt seit Buch 7 die Ablehnungsgründe des
+    /// vorigen mit. Er rät also nicht erneut blind, sondern korrigiert gezielt –
+    /// eine abgelehnte Fassung wegen „schematische Prosa" wird beim nächsten Mal
+    /// konkret angegangen. Gemessen an Buch 7 scheiterten die verbliebenen Fälle
+    /// an genau einem Kriterium, nicht an mehreren gleichzeitig.
+    static let maxSceneRepairAttempts = 4
+
+    /// Wie viele Kapitel die Endabnahme höchstens auf offene Ereignisdopplungen
+    /// nacharbeitet. Deckel gegen unbegrenzte Nacharbeit an einem fertigen Buch;
+    /// Buch 7 hatte offene Befunde in zwei Kapiteln.
+    static let maxEndabnahmeKapitel = 6
+
     /// Ist der Fehler „Buch fertig, aber Qualitäts-Endabnahme noch offen"? Nur dann
     /// wird selbstkorrigierend weitergearbeitet statt zu verwerfen.
     /// Schält die konkreten offenen Punkte aus der Fehlermeldung heraus.
@@ -5648,6 +6466,7 @@ final class PipelineOrchestrator: ObservableObject {
         let text = (error as? AIError)?.errorDescription ?? error.localizedDescription
         let punkte = text
             .replacingOccurrences(of: "\(Self.readinessShortfallMarker): ", with: "")
+            .replacingOccurrences(of: "\(Self.readinessUnfixableMarker): ", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !punkte.isEmpty, punkte != text || !text.contains(Self.readinessShortfallMarker) else {
             return "Grund unbekannt"
@@ -5659,6 +6478,34 @@ final class PipelineOrchestrator: ObservableObject {
         guard let aiError = error as? AIError else { return false }
         let text = aiError.errorDescription ?? "\(aiError)"
         return text.contains(Self.readinessShortfallMarker)
+    }
+
+    static func isReadinessReviewFailure(_ error: Error) -> Bool {
+        guard let aiError = error as? AIError else { return false }
+        let text = aiError.errorDescription ?? "\(aiError)"
+        return text.contains(Self.readinessShortfallMarker)
+            || text.contains(Self.readinessUnfixableMarker)
+    }
+
+    /// Ein vollständiges Manuskript mit offenen Lektoratsbefunden ist kein technischer
+    /// Fehlschlag. Es bleibt les- und bearbeitbar, wird aber nicht an KDP weitergereicht.
+    @discardableResult
+    private func keepCompletedManuscriptForReview(project: Project, after error: Error) -> Bool {
+        let texts = sortedChapters(project).map { $0.rawBestText ?? "" }
+        guard ProductionCompletionPolicy.shouldRequireReview(
+            chapterTexts: texts,
+            readinessShortfall: Self.isReadinessReviewFailure(error),
+            retriesExhausted: true
+        ) else { return false }
+
+        let reason = Self.offenePunkteText(error)
+        project.status = .needsReview
+        project.updatedAt = Date()
+        progress = 1.0
+        lastError = "Manuskript vollständig. Vor Export/KDP sind noch Prüfstellen offen: \(reason)"
+        currentAgent = "Manuskript vollständig – Prüfung erforderlich"
+        ProductionIncidentStore.record(lastError ?? reason)
+        return true
     }
 
     private func runFinalSizingCleanup(project: Project,
@@ -6093,13 +6940,41 @@ final class PipelineOrchestrator: ObservableObject {
         return AutonomousContentQuality.hasUsableChapterPlan(planned)
     }
 
-    private func hasUsableExistingScenePlan(_ chapter: Chapter, expectedCount: Int) -> Bool {
+    private func hasUsableExistingScenePlan(_ chapter: Chapter, expectedCount: Int,
+                                            primaryCanon: String,
+                                            characterNames: [String],
+                                            genre: String,
+                                            project: Project? = nil,
+                                            perspective: String = "") -> Bool {
         let planned = sortedScenes(chapter).map {
             PlannedScene(number: $0.sceneNumber, perspective: $0.perspective,
                          location: $0.location, time: $0.time,
                          goal: $0.goal, obstacle: $0.obstacle, turn: $0.cliffhanger)
         }
-        return AutonomousContentQuality.hasUsableScenePlan(planned, expectedCount: expectedCount)
+        guard AutonomousContentQuality.hasUsableScenePlan(
+            planned, expectedCount: expectedCount
+        ) else { return false }
+        // Ein Plan aus lauter Standard-Beats zählt NICHT als brauchbar: Er gibt jeder
+        // Szene dasselbe Ziel und erzeugt damit die doppelt erzählten Ereignisse.
+        if AutonomousContentQuality.istGenerischerSzenenplan(planned) { return false }
+        let planText = planned.map {
+            "\($0.location)|\($0.time)|\($0.goal)|\($0.obstacle)|\($0.turn)"
+        }.joined(separator: "\n")
+        // Derselbe Kontext wie beim Annehmen des Plans – sonst verwirft diese Prüfung,
+        // was die andere gerade akzeptiert hat.
+        let kontext = project.map {
+            szenenplanKontext(project: $0, chapter: chapter,
+                              primaryCanon: primaryCanon, perspective: perspective)
+        } ?? primaryCanon
+        return AutonomousContentQuality.unsupportedCanonClaims(
+            in: planText, canon: kontext, characterNames: characterNames
+        ).isEmpty
+            && !AutonomousContentQuality.hasScenePlanGenreDrift(
+                planText, genre: genre, canon: kontext
+            )
+            && AutonomousContentQuality.unexpectedStoryArtifacts(
+                in: planText, allowedContext: kontext
+            ).isEmpty
     }
 
     private func resetChapterPlan(for project: Project) {

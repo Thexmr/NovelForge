@@ -6,8 +6,41 @@ enum ProductionRecoveryPolicy {
     static func shouldAutoResume(result: String?, projectStatus: ProjectStatus) -> Bool {
         guard projectStatus == .paused else { return false }
         let reason = result?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return reason.hasPrefix("Die App wurde während ")
+        return (reason.hasPrefix("Die App wurde während ")
+                || reason.hasPrefix("Die App wurde zwischen "))
             && reason.contains("gespeicherte Stand ist vollständig")
+    }
+
+    /// Ein aktiver Phasenstatus kann nach einem frischen Prozessstart nicht echt
+    /// weiterlaufen. Er bedeutet, dass die App genau zwischen zwei persistierten Jobs
+    /// beendet wurde. `paused` ist ausdrücklich nicht enthalten, damit eine manuelle
+    /// Pause niemals automatisch aufgehoben wird.
+    static func isOrphanedActiveStatus(_ status: ProjectStatus) -> Bool {
+        switch status {
+        case .conceptDevelopment, .structurePlanning, .chapterPlanning, .scenePlanning,
+             .drafting, .chapterRevision, .manuscriptRevision, .proofreading,
+             .copyrightCheck, .kdpFormatting, .export:
+            return true
+        case .created, .completed, .needsReview, .failed, .paused:
+            return false
+        }
+    }
+
+    static func phase(for status: ProjectStatus) -> PipelinePhase {
+        switch status {
+        case .conceptDevelopment: return .conceptDevelopment
+        case .structurePlanning: return .structurePlanning
+        case .chapterPlanning: return .chapterPlanning
+        case .scenePlanning: return .scenePlanning
+        case .drafting: return .drafting
+        case .chapterRevision: return .chapterRevision
+        case .manuscriptRevision: return .manuscriptRevision
+        case .proofreading: return .proofreading
+        case .copyrightCheck: return .copyrightCheck
+        case .kdpFormatting: return .kdpFormatting
+        case .export: return .export
+        case .created, .completed, .needsReview, .failed, .paused: return .projectSetup
+        }
     }
 }
 
@@ -44,6 +77,7 @@ enum ProductionRecoveryService {
 
         let now = Date()
         var recoveredJobs = 0
+        var projectsWithInterruptedJob = Set<UUID>()
         for job in recentJobs where activeStatuses.contains(job.status) {
             job.status = .paused
             job.endTime = now
@@ -51,9 +85,42 @@ enum ProductionRecoveryService {
             setRecoveryReasonIfMissing(for: job, appWasInterrupted: true)
             recoveredJobs += 1
 
-            guard let project = job.project, project.status != .completed else { continue }
+            guard let project = job.project,
+                  project.status != .completed,
+                  project.status != .needsReview else { continue }
+            projectsWithInterruptedJob.insert(project.id)
             project.status = .paused
             project.updatedAt = now
+        }
+
+        // App-Abbruch GENAU zwischen zwei Jobs: Der letzte Job ist bereits abgeschlossen,
+        // das Projekt trägt aber noch einen aktiven Phasenstatus. Ohne Recovery-Marker
+        // blieb es nach dem Neustart unbegrenzt auf „Rohfassung“, ohne Job, Heartbeat oder
+        // Fehlermeldung. Dieser Zustand wurde im echten 50-Seiten-Test reproduziert.
+        let projects: [Project]
+        do {
+            projects = try modelContext.fetch(FetchDescriptor<Project>())
+        } catch {
+            Logger(subsystem: "com.novelforge.app", category: "recovery")
+                .error("Verwaiste Projekte konnten nicht geladen werden: \(error.localizedDescription, privacy: .public)")
+            return recoveredJobs
+        }
+        for project in projects
+        where ProductionRecoveryPolicy.isOrphanedActiveStatus(project.status)
+            && !projectsWithInterruptedJob.contains(project.id) {
+            let phase = ProductionRecoveryPolicy.phase(for: project.status)
+            let marker = PipelineJob(agentName: "Recovery Monitor", phase: phase)
+            marker.status = .paused
+            marker.startTime = now
+            marker.endTime = now
+            marker.lastHeartbeat = now
+            marker.result = "Die App wurde zwischen zwei Produktionsschritten in der Phase \(phase.rawValue) beendet. Der gespeicherte Stand ist vollständig und kann fortgesetzt werden."
+            marker.project = project
+            modelContext.insert(marker)
+            project.status = .paused
+            project.updatedAt = now
+            projectsWithInterruptedJob.insert(project.id)
+            recoveredJobs += 1
         }
 
         // Ein älterer Build konnte den Status bereits auf „pausiert“ setzen, ohne
@@ -84,6 +151,71 @@ enum ProductionRecoveryService {
         Logger(subsystem: "com.novelforge.app", category: "recovery")
             .info("Startprüfung abgeschlossen: \(recoveredJobs) offene Jobs pausiert, \(backfilledReasons) Hinweise ergänzt")
         return recoveredJobs
+    }
+
+    /// Korrigiert den Altzustand früherer Builds: Ein komplett geschriebenes Buch mit
+    /// offenen Lektoratsbefunden wurde nach dem Reparaturlimit fälschlich als technischer
+    /// Fehler gespeichert. Solche Projekte werden beim Start sichtbar neu eingeordnet.
+    @discardableResult
+    static func reclassifyCompletedManuscripts(in modelContext: ModelContext) -> Int {
+        let projects: [Project]
+        do {
+            projects = try modelContext.fetch(FetchDescriptor<Project>())
+        } catch {
+            Logger(subsystem: "com.novelforge.app", category: "recovery")
+                .error("Projektstatus konnte nicht geprüft werden: \(error.localizedDescription, privacy: .public)")
+            return 0
+        }
+
+        var changed = 0
+        for project in projects where project.status == .failed {
+            let chapters = project.chapters ?? []
+            let texts = chapters.map { $0.rawBestText ?? "" }
+            let hasOpenBlockingFinding = (project.qualityReports ?? []).contains {
+                !$0.autoFixed && ($0.severity == .critical || $0.severity == .error)
+            }
+            guard hasOpenBlockingFinding,
+                  ProductionCompletionPolicy.shouldRequireReview(
+                    chapterTexts: texts,
+                    readinessShortfall: true,
+                    retriesExhausted: true
+                  ) else { continue }
+            project.status = .needsReview
+            project.updatedAt = Date()
+            changed += 1
+        }
+        if changed > 0 { modelContext.saveOrLog("Altstatus Prüfung erforderlich") }
+        return changed
+    }
+
+    /// Bereinigt auch historische Rohszenen in der Datenbank. Der Export ist bereits
+    /// defensiv geschützt; diese Migration verhindert zusätzlich, dass Arbeitsmarken
+    /// bei einer späteren Szenenreparatur wieder in ein Kapitel zurückgelangen.
+    @discardableResult
+    static func sanitizePersistedScenes(in modelContext: ModelContext) -> Int {
+        let scenes: [StoryScene]
+        do {
+            scenes = try modelContext.fetch(FetchDescriptor<StoryScene>())
+        } catch {
+            Logger(subsystem: "com.novelforge.app", category: "recovery")
+                .error("Rohszenen konnten nicht bereinigt werden: \(error.localizedDescription, privacy: .public)")
+            return 0
+        }
+
+        var changed = 0
+        for scene in scenes {
+            guard let text = scene.text, !text.isEmpty else { continue }
+            let cleaned = AutonomousContentQuality.cleaningStoredBookText(
+                text,
+                bookTitle: scene.chapter?.project?.title ?? ""
+            )
+            guard cleaned != text else { continue }
+            scene.text = cleaned
+            scene.updatedAt = Date()
+            changed += 1
+        }
+        if changed > 0 { modelContext.saveOrLog("Historische Rohszenen bereinigt") }
+        return changed
     }
 
     /// Nur ein durch App-Abbruch unterbrochener NEUESTER Projektjob darf automatisch

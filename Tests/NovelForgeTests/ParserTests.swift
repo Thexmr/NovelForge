@@ -217,6 +217,53 @@ final class ParserTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Fehlerquelle"))
         XCTAssertTrue(prompt.contains("Setze die Erkenntnis"))
     }
+
+    func testChapterDuplicateParserTargetsOnlyLaterScene() {
+        let findings = ChapterEventDuplicateParser.parse(
+            "DUPLICATE|2|1|Mara entdeckt das Versteck erneut.|Szene 2 zeigt stattdessen die unmittelbare Konsequenz."
+        )
+
+        XCTAssertEqual(findings.count, 1)
+        XCTAssertEqual(findings[0].laterSceneNumber, 2)
+        XCTAssertEqual(findings[0].earlierSceneNumber, 1)
+        XCTAssertTrue(findings[0].event.contains("Versteck"))
+        XCTAssertTrue(findings[0].instruction.contains("Konsequenz"))
+    }
+
+    func testChapterDuplicateParserAcceptsCleanAudit() {
+        XCTAssertTrue(ChapterEventDuplicateParser.isConclusive("KEINE DOPPLUNG"))
+        XCTAssertTrue(ChapterEventDuplicateParser.parse("KEINE DOPPLUNG").isEmpty)
+    }
+
+    func testSceneReferenceParserReadsBothSidesOfConsistencyFinding() {
+        let refs = ChapterSceneReferenceParser.parse(
+            "Kapitel 3, Szene 1 & Kapitel 3, Szene 2: dasselbe Versteck wird erneut entdeckt"
+        )
+        XCTAssertEqual(refs, [
+            ChapterSceneReference(chapterNumber: 3, sceneNumber: 1),
+            ChapterSceneReference(chapterNumber: 3, sceneNumber: 2),
+        ])
+    }
+
+    func testDraftPromptNamesAlreadyCompletedChapterEventsExplicitly() {
+        let prompt = PromptFactory.draftScene(
+            language: "Deutsch", style: "klar", tonality: "spannend",
+            perspective: "personal", tense: "Präteritum", genre: "Thriller",
+            bookTitle: "Test", chapterNumber: 3, chapterTitle: "Das Haus",
+            chapterGoal: "Mara muss fliehen", sceneNumber: 2,
+            sceneGoal: "Die Verfolger abschütteln", sceneLocation: "Keller",
+            sceneTime: "Nacht", sceneObstacle: "Die Tür ist verriegelt",
+            sceneTurn: "Sie findet einen Ausgang", scenePerspective: "Mara",
+            charactersSummary: "Mara – Protagonistin", styleRules: "präzise",
+            storySoFar: "Mara kennt das Versteck.", previousSceneEnding: "Die Luke fiel zu.",
+            isFirstScene: false, isFinalScene: false, targetWords: 900,
+            chapterEventsAlreadyHappened: "Szene 1: Mara entdeckt das Versteck und öffnet die Luke."
+        )
+
+        XCTAssertTrue(prompt.contains("BEREITS IN DIESEM KAPITEL GESCHEHEN"))
+        XCTAssertTrue(prompt.contains("Mara entdeckt das Versteck"))
+        XCTAssertTrue(prompt.contains("NIEMALS erneut ausspielen"))
+    }
 }
 
 /// Tests für Preislogik, Wortzählung und KDP-Druckmaße.

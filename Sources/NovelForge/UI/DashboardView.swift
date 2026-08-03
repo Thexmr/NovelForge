@@ -496,6 +496,7 @@ struct StatusBadge: View {
     var color: Color {
         switch status {
         case .completed: return StudioTheme.lime
+        case .needsReview: return StudioTheme.amber
         case .failed: return StudioTheme.danger
         case .paused: return StudioTheme.amber
         case .created: return StudioTheme.textFaint

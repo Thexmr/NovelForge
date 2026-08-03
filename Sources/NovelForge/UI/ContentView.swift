@@ -96,6 +96,8 @@ struct ContentView: View {
         .onAppear {
             let orchestrator = PipelineOrchestrator.shared
             orchestrator.configure(with: modelContext)
+            ProductionRecoveryService.reclassifyCompletedManuscripts(in: modelContext)
+            ProductionRecoveryService.sanitizePersistedScenes(in: modelContext)
             ProductionRecoveryService.recoverInterruptedJobs(in: modelContext)
             if let project = ProductionRecoveryService.automaticResumeCandidate(
                 in: modelContext

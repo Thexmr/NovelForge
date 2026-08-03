@@ -751,7 +751,8 @@ enum PromptFactory {
                            targetWords: Int, bookSignature: String = "", spiceLevel: Int = 0,
                            genreBrief: String = "", positionBlock: String = "",
                            catalogAvoidance: String = "", manuscriptAvoidance: String = "",
-                           researchContext: String = "", canonicalStory: String = "") -> String {
+                           researchContext: String = "", canonicalStory: String = "",
+                           chapterEventsAlreadyHappened: String = "") -> String {
         if BookContentType.infer(from: genre) == .nonfiction {
             return nonfictionDraftSection(language: language, style: style, tonality: tonality,
                                            genre: genre, bookTitle: bookTitle,
@@ -810,6 +811,16 @@ enum PromptFactory {
         Keinen dieser Sätze oder Beats wiederholen oder nur kosmetisch umstellen.
         Reagiere an dieser Stelle konkret aus Figur, Ort und Handlung heraus.
         """
+        let chapterEventBlock = chapterEventsAlreadyHappened
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : """
+
+        BEREITS IN DIESEM KAPITEL GESCHEHEN, UNVERÄNDERLICH ABGESCHLOSSEN:
+        \(chapterEventsAlreadyHappened)
+        Diese konkreten Ereignisse NIEMALS erneut ausspielen, entdecken, enthüllen,
+        entscheiden oder als ersten Moment inszenieren. Beginne mit ihrer Folge und
+        führe Ursache und Wirkung weiter. Eine Erinnerung oder kurze Bezugnahme ist nur
+        erlaubt, wenn sie für die neue Handlung nötig ist; keine Reinszenierung.
+        """
 
         return """
         Schreibe Szene \(sceneNumber) aus Kapitel \(chapterNumber) ("\(chapterTitle)") des Romans "\(bookTitle)".
@@ -821,6 +832,7 @@ enum PromptFactory {
         \(genreDirectiveBlock(genreBrief))
         \(catalogAvoidance)
         \(manuscriptAvoidanceBlock)
+        \(chapterEventBlock)
         \(ContentSafetyFilter.promptDirective)
         VERBINDLICHER BUCHKANON (jede Aussage muss damit vereinbar sein):
         \(canonicalStory.truncated(to: 7000))
@@ -893,6 +905,68 @@ enum PromptFactory {
         REINER FLIESSTEXT: keine Markdown-Formatierung (kein *, **, _, #, keine Aufzählungen),
         keine Sternchen, keine Emojis, keine Szenen-Überschriften. Betonung entsteht durch
         Wortwahl, nicht durch Sonderzeichen. Nur normale Wörter und Satzzeichen.
+        """
+    }
+
+    static func chapterEventDuplicateAudit(bookTitle: String, chapterNumber: Int,
+                                           chapterTitle: String, scenes: String) -> String {
+        """
+        Prüfe die Szenen aus Kapitel \(chapterNumber) „\(chapterTitle)" des Romans
+        „\(bookTitle)" ausschließlich auf SEMANTISCH DOPPELT ERZÄHLTE EREIGNISSE.
+
+        Ein Fehler liegt vor, wenn eine spätere Szene denselben konkreten Fund, dieselbe
+        Entdeckung, Konfrontation, Enthüllung, Entscheidung, Ankunft, Übergabe oder
+        Handlung erneut wie zum ersten Mal ausspielt. Wiederkehrende Figuren, Orte,
+        Themen, Folgen oder kurze Erinnerungen sind allein KEIN Fehler.
+
+        SZENEN MIT TEXT:
+        \(scenes)
+
+        Für jede echte Dopplung genau eine Zeile:
+        DUPLICATE|spätere Szenennummer|frühere Szenennummer|konkret doppeltes Ereignis|was die spätere Szene stattdessen als nächsten kausalen Schritt zeigen muss
+
+        Nenne immer die SPÄTERE Szene zuerst. Wenn keine echte Ereignisdopplung vorliegt,
+        antworte exakt: KEINE DOPPLUNG
+        Keine Vorrede, keine allgemeinen Stilhinweise.
+        """
+    }
+
+    static func repairDuplicateScene(language: String, bookTitle: String,
+                                     chapterNumber: Int, chapterTitle: String,
+                                     laterSceneNumber: Int, earlierSceneNumber: Int,
+                                     duplicatedEvent: String, instruction: String,
+                                     chapterGoal: String, laterScenePlan: String,
+                                     earlierSceneText: String, laterSceneText: String,
+                                     allSceneSummaries: String) -> String {
+        """
+        Repariere ausschließlich Szene \(laterSceneNumber) aus Kapitel \(chapterNumber)
+        „\(chapterTitle)" des Romans „\(bookTitle)". Sprache: \(language).
+
+        FEHLER: Szene \(laterSceneNumber) spielt dieses bereits in Szene
+        \(earlierSceneNumber) abgeschlossene Ereignis erneut aus:
+        \(duplicatedEvent)
+
+        VERBINDLICHER AUFTRAG:
+        \(instruction)
+
+        Kapitelziel: \(chapterGoal)
+        Plan der späteren Szene: \(laterScenePlan)
+
+        ALLE SZENEN-ZUSAMMENFASSUNGEN:
+        \(allSceneSummaries)
+
+        FRÜHERE, KANONISCHE SZENE \(earlierSceneNumber) (nicht verändern):
+        \(earlierSceneText)
+
+        ZU REPARIERENDE SPÄTERE SZENE \(laterSceneNumber):
+        \(laterSceneText)
+
+        Schreibe nur die vollständige neue Fassung der SPÄTEREN Szene. Das frühere
+        Ereignis ist bereits geschehen: nicht wiederholen und nicht kosmetisch umstellen.
+        Setze bei seiner unmittelbaren Folge an und führe Handlung, Entscheidung und
+        Einsatz kausal weiter. Erhalte Perspektive, Figurenkanon, Zeitform, ungefähre
+        Länge und den Anschluss an die Folgeszene. Keine Überschrift, keine Labels,
+        keine Kommentare, nur veröffentlichungsreifer Buchtext.
         """
     }
 

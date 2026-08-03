@@ -124,4 +124,22 @@ final class ReadinessLoopTests: XCTestCase {
         XCTAssertLessThanOrEqual(PipelineOrchestrator.maxQualityRepairRounds, 3,
                                  "Gemessen wurde in 329 Runden null behobene Punkte – mehr als drei Anläufe sind belegbar sinnlos")
     }
+
+    func testVollstaendigesManuskriptWirdNachReparaturgrenzeNichtZumProduktionsfehler() {
+        XCTAssertTrue(ProductionCompletionPolicy.shouldRequireReview(
+            chapterTexts: ["Ein vollständiges erstes Kapitel.", "Ein vollständiges zweites Kapitel."],
+            readinessShortfall: true,
+            retriesExhausted: true
+        ))
+        XCTAssertFalse(ProductionCompletionPolicy.shouldRequireReview(
+            chapterTexts: ["Ein vollständiges Kapitel.", ""],
+            readinessShortfall: true,
+            retriesExhausted: true
+        ))
+    }
+
+    func testReviewStatusIsVisibleAndNotAFailure() {
+        XCTAssertEqual(ProjectStatus.needsReview.displayName, "Prüfung erforderlich")
+        XCTAssertNotEqual(ProjectStatus.needsReview, .failed)
+    }
 }

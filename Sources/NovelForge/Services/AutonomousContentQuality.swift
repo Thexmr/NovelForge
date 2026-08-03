@@ -85,6 +85,33 @@ enum AutonomousContentQuality {
         !scenePlanGenreDriftMarkers(text, genre: genre, canon: canon).isEmpty
     }
 
+    /// Besteht der Plan nur aus den generischen Notfall-Beats?
+    ///
+    /// Gemessen an Buch 7: Ein Drittel aller Szenen bekam Ziele wie „KOMPLIKATION:
+    /// ein NEUER, anderer Vorstoß" und bei allen vier Szenen eines Kapitels dasselbe
+    /// Hindernis. Der Draft Writer hat damit keinerlei Unterscheidungsmerkmal und
+    /// erzählt dasselbe Ereignis mehrfach. Diese Doppler sind später durch KEINE
+    /// Reparatur behebbar – eine Szene wurde achtmal neu geschrieben und blieb ein
+    /// Doppler, weil ihr Plan mit dem der Nachbarszene identisch war. Deshalb gilt
+    /// ein solcher Plan als unbrauchbar und wird neu angefordert.
+    static func istGenerischerSzenenplan(_ planned: [PlannedScene]) -> Bool {
+        guard planned.count >= 2 else { return false }
+        let marken = ["einstieg:", "komplikation:", "zuspitzung:", "wende und übergang",
+                      "wende und ubergang"]
+        let generisch = planned.filter { szene in
+            let ziel = szene.goal.folding(options: [.diacriticInsensitive], locale: .current)
+                .lowercased()
+            return marken.contains { ziel.hasPrefix($0) || ziel.contains($0) }
+        }.count
+        // Mehrheit generisch → unbrauchbar.
+        if generisch * 2 > planned.count { return true }
+        // Oder: alle Szenen teilen sich wörtlich dasselbe Hindernis.
+        let hindernisse = Set(planned.map {
+            $0.obstacle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        }.filter { !$0.isEmpty })
+        return hindernisse.count == 1 && planned.count >= 3
+    }
+
     static func scenePlanGenreDriftMarkers(_ text: String, genre: String,
                                            canon: String) -> [String] {
         let normalizedGenre = canonNormalized(genre)
@@ -92,8 +119,25 @@ enum AutonomousContentQuality {
               !normalizedGenre.contains("mystery"),
               !normalizedGenre.contains("thriller"),
               !normalizedGenre.contains("krimi") else { return [] }
-        let candidate = canonNormalized(text)
         let established = canonNormalized(canon)
+        // Nur was der Kandidat NEU einführt, ist Abdrift. Was der etablierte Text
+        // bereits enthält, darf eine Fortsetzung aufgreifen.
+        //
+        // Gemessen an Buch 7: Kapitel 1, Szene 3 enthält „eine flüchtige Gestalt"
+        // vor dem Fenster. Der established-Abgleich galt bisher NUR für die
+        // `driftMarkers`-Liste am Ende – die fest verdrahteten Regeln darüber
+        // prüften ihn nie. Jede Reparatur, die diese Szene korrekt fortführte,
+        // schlug deshalb zwangsläufig als „bedrohliche Gestalt" an und konnte nie
+        // angenommen werden: ein Patt, das sich nicht auflösen lässt.
+        let imKandidaten = genreDriftRuleHits(in: canonNormalized(text))
+        guard !imKandidaten.isEmpty else { return [] }
+        let imEtablierten = Set(genreDriftRuleHits(in: established))
+        return imKandidaten.filter { !imEtablierten.contains($0) }.sorted()
+    }
+
+    /// Wendet den Regelsatz auf EINEN Text an. Getrennt, damit derselbe Satz auch auf
+    /// den etablierten Text angewendet werden kann – sonst zählt Bestehendes als neu.
+    private static func genreDriftRuleHits(in candidate: String) -> [String] {
         var matches: [String] = []
         if candidate.contains("schatten"),
            candidate.contains("waldrand") || candidate.contains("zwischen den baumen") {
@@ -147,9 +191,10 @@ enum AutonomousContentQuality {
             "einzelnen schlussel", "fremden schlussel", "unbekannten schlussel",
             "frischer abdruck", "frische mulde", "wer hier gewesen war"
         ]
-        matches.append(contentsOf: driftMarkers.filter { marker in
-            containsStandaloneMarker(marker, in: candidate)
-                && !containsStandaloneMarker(marker, in: established)
+        // Kein established-Abgleich mehr an dieser Stelle: Er gilt jetzt zentral in
+        // scenePlanGenreDriftMarkers für ALLE Regeln, nicht nur für diese Liste.
+        matches.append(contentsOf: driftMarkers.filter {
+            containsStandaloneMarker($0, in: candidate)
         })
         return Array(Set(matches)).sorted()
     }
@@ -517,8 +562,11 @@ enum AutonomousContentQuality {
 
     static func hasUsableScenePlan(_ scenes: [PlannedScene], expectedCount: Int) -> Bool {
         guard scenes.count >= expectedCount else { return false }
-        return scenes.allSatisfy { scene in
-            scene.goal.wordCount >= 5
+        let requiredScenes = Array(scenes.prefix(expectedCount))
+        return requiredScenes.allSatisfy { scene in
+            !scene.location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !scene.time.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && scene.goal.wordCount >= 5
                 && scene.obstacle.wordCount >= 3
                 && scene.turn.wordCount >= 3
                 && !isGenericPlaceholder(scene.goal)
@@ -570,7 +618,11 @@ enum AutonomousContentQuality {
             "blockiert das unmittelbare vorankommen",
             "eine neue wendung verschiebt die lage",
             "enthüllt eine information, die das kräfteverhältnis",
-            "lässt einen rückschlag den einsatz"
+            "lässt einen rückschlag den einsatz",
+            "einstieg: die perspektivfigur",
+            "komplikation: ausgehend vom ende",
+            "zuspitzung: die folgen der vorigen szenen",
+            "wende und übergang: eine entscheidung oder enthüllung"
         ]
         return hollowPlanningPhrases.contains(where: normalized.contains)
     }
@@ -904,6 +956,21 @@ enum AutonomousContentQuality {
             ergebnis = ergebnis.replacingOccurrences(of: "\n\n\n", with: "\n\n")
         }
         return ergebnis.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Einheitlicher letzter Filter für jeden Text, der in Datenbank oder Export landet.
+    /// Zentralisiert die bisher auf mehrere Produktionsphasen verteilte Bereinigung.
+    static func cleaningStoredBookText(_ text: String, bookTitle: String = "") -> String {
+        fixingTypography(
+            strippingProductionMarkers(
+                humanizeProse(
+                    strippingInlineFormatting(
+                        strippingPromptArtifacts(text)
+                    )
+                ),
+                buchtitel: bookTitle
+            )
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Ist diese Zeile eine reine Arbeitsmarke der Produktion?

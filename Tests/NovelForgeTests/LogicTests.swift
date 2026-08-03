@@ -174,6 +174,21 @@ final class LogicTests: XCTestCase {
         ))
     }
 
+    func testBestTextDefensivelyRemovesProductionMarkersAndFixesQuotes() {
+        let chapter = Chapter(chapterNumber: 1, title: "Auftakt", goal: "Start", targetWordCount: 100)
+        chapter.draftText = """
+        KAPITZEL 1, SZENE 1, VERSUCH 2/2
+        ABSATZ:
+        \"Bleib hier\", sagte Mara.
+        """
+
+        let text = chapter.bestText ?? ""
+        XCTAssertFalse(text.localizedCaseInsensitiveContains("VERSUCH"))
+        XCTAssertFalse(text.localizedCaseInsensitiveContains("ABSATZ:"))
+        XCTAssertFalse(text.contains("\""))
+        XCTAssertTrue(text.contains("„Bleib hier“"))
+    }
+
     func testGlobalRepairIssueExpandsToEveryNamedChapter() {
         let parsed = RepairIssueParser.parse(
             "REPAIR|Kritisch|Gesamtmanuskript|Zeitlinie|Kapitel 18 widerspricht Kapitel 49 und Kapitel 55|Todesursache vereinheitlichen"
@@ -356,10 +371,10 @@ final class LogicTests: XCTestCase {
     /// Belegt zugleich, warum die ALTE Auto-Auffüllung sich selbst verwarf.
     func testSceneGateAcceptsChapterSpecificFallbackButRejectsOldFiller() {
         let good = (1...4).map { n in
-            PlannedScene(number: n, perspective: "Personaler Erzähler", location: "", time: "",
-                goal: "In „Das Haus, das keine Heimat war“ erzwingt die Szene eine Entscheidung, die das Ziel der Figuren gefährdet.",
-                obstacle: "Der drohende Abriss blockiert das unmittelbare Vorankommen der Szene.",
-                turn: "Eine neue Wendung verschiebt die Lage und wirft eine drängende offene Frage auf.")
+            PlannedScene(number: n, perspective: "Personaler Erzähler", location: "Küche", time: "Abend",
+                goal: "Mara versucht in Schritt \(n), den Abrissbescheid vor dem Gemeinderat konkret anzufechten.",
+                obstacle: "Bürgermeisterin Heller verweigert Mara in Schritt \(n) die benötigte Akteneinsicht.",
+                turn: "Mara entdeckt in Schritt \(n) einen Widerspruch im protokollierten Abstimmungsergebnis.")
         }
         XCTAssertTrue(AutonomousContentQuality.hasUsableScenePlan(good, expectedCount: 4))
 
@@ -368,6 +383,16 @@ final class LogicTests: XCTestCase {
             obstacle: "Der bisherige Konflikt verschärft sich.",
             turn: "Eine neue Information zwingt zur nächsten Entscheidung.")]
         XCTAssertFalse(AutonomousContentQuality.hasUsableScenePlan(oldFiller, expectedCount: 1))
+
+        let genericFallback = (1...4).map {
+            AutonomousContentQuality.safeFictionScene(
+                number: $0, chapterTitle: "Rückkehr",
+                chapterGoal: "Lina stellt Jonas wegen seines Verschwindens zur Rede.",
+                chapterConflict: "Jonas weicht ihren Fragen aus.",
+                perspective: "Personaler Erzähler"
+            )
+        }
+        XCTAssertFalse(AutonomousContentQuality.hasUsableScenePlan(genericFallback, expectedCount: 4))
     }
 
     /// Vertrag des Kapitel-Fallbacks: die synthetisierte Form muss die Gates
@@ -485,9 +510,45 @@ final class LogicTests: XCTestCase {
         )
     }
 
+    func testSceneRepairSizingAllowsExpansionTowardTarget() {
+        let sourceWords = 130
+        let targetWords = 212
+        let repairedWords = 205
+        let minimumRatio = SceneFittingSizing.minimumSourceRatio(
+            sourceWords: sourceWords,
+            targetWords: targetWords
+        )
+
+        XCTAssertGreaterThan(Double(repairedWords), Double(sourceWords) * 1.20)
+        XCTAssertGreaterThanOrEqual(Double(repairedWords), Double(sourceWords) * minimumRatio)
+        XCTAssertLessThanOrEqual(repairedWords, Int(Double(targetWords) * 1.25))
+    }
+
+    func testUnexpectedArtifactMustRemainOpenUntilItIsGone() {
+        let allowed = "Lina betritt Jonas' Hütte und sucht Schutz vor dem Regen."
+        let stillBroken = "Unter dem Hemd findet Lina einen beschriebenen Zettel."
+        let repaired = "Lina hängt das nasse Hemd über die Stuhllehne und schließt das Fenster."
+
+        XCTAssertEqual(
+            AutonomousContentQuality.unexpectedStoryArtifacts(
+                in: stillBroken, allowedContext: allowed
+            ),
+            ["Zettel"]
+        )
+        XCTAssertTrue(
+            AutonomousContentQuality.unexpectedStoryArtifacts(
+                in: repaired, allowedContext: allowed
+            ).isEmpty
+        )
+    }
+
     func testRecoveryPolicyOnlyAutoResumesAppInterruptions() {
         XCTAssertTrue(ProductionRecoveryPolicy.shouldAutoResume(
             result: "Die App wurde während Draft Writer (Kapitel 3, Szene 2) beendet. Der gespeicherte Stand ist vollständig und kann fortgesetzt werden.",
+            projectStatus: .paused
+        ))
+        XCTAssertTrue(ProductionRecoveryPolicy.shouldAutoResume(
+            result: "Die App wurde zwischen zwei Produktionsschritten in der Phase Rohfassung beendet. Der gespeicherte Stand ist vollständig und kann fortgesetzt werden.",
             projectStatus: .paused
         ))
         XCTAssertFalse(ProductionRecoveryPolicy.shouldAutoResume(
@@ -498,6 +559,15 @@ final class LogicTests: XCTestCase {
             result: "Die App wurde während Export beendet.",
             projectStatus: .completed
         ))
+    }
+
+    func testRecoveryPolicyDetectsOnlyOrphanedActivePhases() {
+        XCTAssertTrue(ProductionRecoveryPolicy.isOrphanedActiveStatus(.drafting))
+        XCTAssertTrue(ProductionRecoveryPolicy.isOrphanedActiveStatus(.export))
+        XCTAssertFalse(ProductionRecoveryPolicy.isOrphanedActiveStatus(.paused))
+        XCTAssertFalse(ProductionRecoveryPolicy.isOrphanedActiveStatus(.completed))
+        XCTAssertFalse(ProductionRecoveryPolicy.isOrphanedActiveStatus(.needsReview))
+        XCTAssertEqual(ProductionRecoveryPolicy.phase(for: .drafting), .drafting)
     }
 
     func testImmediateSentenceRepeatsCollapseWithoutChangingLaterRefrain() {
