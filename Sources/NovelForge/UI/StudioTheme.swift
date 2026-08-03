@@ -450,17 +450,30 @@ struct NovelForgeLogo: View {
                     .fill(StudioTheme.glassBase.opacity(0.48))
             }
             .overlay {
-                NMonogram()
-                    .stroke(StudioTheme.brandGradient,
-                            style: StrokeStyle(lineWidth: size * 0.12, lineCap: .round, lineJoin: .round))
-                    .padding(.horizontal, size * 0.30)
-                    .padding(.vertical, size * 0.25)
+                // Buchflächen ganz dezent füllen, damit das Zeichen auch auf
+                // hellem Hintergrund Körper bekommt.
+                OpenBookShape()
+                    .fill(Color.white.opacity(0.07))
             }
-            .overlay(alignment: .topTrailing) {
-                Image(systemName: "sparkle")
-                    .font(.system(size: size * 0.18, weight: .bold))
-                    .foregroundStyle(StudioTheme.amber)
-                    .padding(size * 0.09)
+            .overlay {
+                OpenBookShape()
+                    .stroke(StudioTheme.brandGradient,
+                            style: StrokeStyle(lineWidth: size * 0.034, lineCap: .round, lineJoin: .round))
+            }
+            .overlay {
+                // Zeilenandetung auf den Seiten – feiner Strich wie im App-Icon.
+                OpenBookLinesShape()
+                    .stroke(StudioTheme.brandGradient,
+                            style: StrokeStyle(lineWidth: size * 0.016, lineCap: .round))
+                    .opacity(0.65)
+            }
+            .overlay {
+                // Der Funke über dem Buch: „Geschichten werden geschmiedet."
+                SparkShape()
+                    .fill(StudioTheme.amber)
+                    .frame(width: size * 0.17, height: size * 0.17)
+                    .offset(y: -size * 0.10)
+                    .shadow(color: StudioTheme.amber.opacity(0.45), radius: size * 0.05)
             }
             .overlay {
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
@@ -470,13 +483,82 @@ struct NovelForgeLogo: View {
     }
 }
 
-struct NMonogram: Shape {
+/// Aufgeschlagenes Buch – gleiche Geometrie wie das App-Icon
+/// (Scripts/make-icon.py, book_paths), damit Marke und App-Icon zusammenpassen.
+/// Alle Koordinaten sind Bruchteile der Zeichenfläche.
+struct OpenBookShape: Shape {
     func path(in rect: CGRect) -> Path {
+        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + x * rect.width, y: rect.minY + y * rect.height)
+        }
+        let top: CGFloat = 0.585      // Oberkante Buch (außen)
+        let bottom: CGFloat = 0.755   // Unterkante Buch (außen)
+        let half: CGFloat = 0.295     // halbe Buchbreite
+        let dip: CGFloat = 0.052      // Einsattelung am Rücken
+
+        let spineTop = pt(0.5, top + dip)
+        let spineBottom = pt(0.5, bottom + dip)
+
         var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        // Linker Flügel: Rücken oben → geschwungene Oberkante nach außen →
+        // Außenkante runter → geschwungene Unterkante zurück zum Rücken.
+        path.move(to: spineTop)
+        path.addQuadCurve(to: pt(0.5 - half, top - 0.004),
+                          control: pt(0.5 - half * 0.62, top - 0.030))
+        path.addLine(to: pt(0.5 - half, bottom - 0.020))
+        path.addQuadCurve(to: spineBottom,
+                          control: pt(0.5 - half * 0.62, bottom + 0.030))
+        path.closeSubpath()
+        // Rechter Flügel: exakt gespiegelt.
+        path.move(to: spineTop)
+        path.addQuadCurve(to: pt(0.5 + half, top - 0.004),
+                          control: pt(0.5 + half * 0.62, top - 0.030))
+        path.addLine(to: pt(0.5 + half, bottom - 0.020))
+        path.addQuadCurve(to: spineBottom,
+                          control: pt(0.5 + half * 0.62, bottom + 0.030))
+        path.closeSubpath()
+        // Buchrücken: kurze Mittellinie.
+        path.move(to: pt(0.5, top + dip * 0.9))
+        path.addLine(to: spineBottom)
+        return path
+    }
+}
+
+/// Die drei Zeilenandetungen pro Seite (folgt der Seitenneigung) – separater
+/// Shape, weil sie dünner gestrichelt werden als die Buchkontur.
+struct OpenBookLinesShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + x * rect.width, y: rect.minY + y * rect.height)
+        }
+        let half: CGFloat = 0.295
+        var path = Path()
+        for yy in [0.642, 0.682, 0.722] as [CGFloat] {
+            path.move(to: pt(0.5 - half * 0.76, yy + 0.006))
+            path.addLine(to: pt(0.5 - half * 0.24, yy - 0.010))
+            path.move(to: pt(0.5 + half * 0.24, yy - 0.010))
+            path.addLine(to: pt(0.5 + half * 0.76, yy + 0.006))
+        }
+        return path
+    }
+}
+
+/// Vierstrahliger Stern (lange/kurze Strahlen im Wechsel) – der Funke aus dem
+/// App-Icon, Verhältnis kurz/lang ≈ 0.35 wie in Scripts/make-icon.py.
+struct SparkShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let long = min(rect.width, rect.height) / 2
+        let short = long * 0.35
+        var path = Path()
+        for i in 0..<8 {
+            let angle = CGFloat.pi / 2 - CGFloat(i) * .pi / 4
+            let radius = i % 2 == 0 ? long : short
+            let point = CGPoint(x: center.x + radius * cos(angle),
+                                y: center.y - radius * sin(angle))
+            if i == 0 { path.move(to: point) } else { path.addLine(to: point) }
+        }
+        path.closeSubpath()
         return path
     }
 }

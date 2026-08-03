@@ -13,6 +13,14 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp .build/release/NovelForge "$APP/Contents/MacOS/NovelForge"
 
+# App-Icon mitbündeln. Ohne CFBundleIconFile + .icns zeigt Finder/Dock das
+# generische App-Platzhalter-Icon – das neue Markenzeichen wäre unsichtbar.
+if [ -f "Assets/AppIcon.icns" ]; then
+  cp Assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+else
+  echo "  ⚠ Assets/AppIcon.icns fehlt – App erscheint mit Standard-Icon."
+fi
+
 # KDP-Upload-Sidecar mitbündeln (Node/Puppeteer).
 #
 # Die Abhängigkeiten werden bei Bedarf HIER installiert. Vorher verlangte das Skript
@@ -55,6 +63,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <string>NovelForge</string>
     <key>CFBundleIdentifier</key>
     <string>com.novelforge.app</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
