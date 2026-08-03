@@ -38,6 +38,54 @@ struct ChapterSceneReference: Equatable, Hashable {
     let sceneNumber: Int
 }
 
+/// Eine Ereignisdopplung ÜBER KAPITELGRENZEN hinweg.
+///
+/// WARUM EIN EIGENES FORMAT: Der kapitelinterne Audit (ChapterEventDuplicate)
+/// sieht nur die Szenen EINES Kapitels. Die teuersten Doppler entstehen aber
+/// kapitelübergreifend – dieselbe Entdeckung/Begegnung wird in Kapitel 3, 5 und 9
+/// jeweils „zum ersten Mal" inszeniert. Solche Doppler waren bisher nur über die
+/// Zusammenfassungs-Konsistenzprüfung sichtbar, die keine Szenentexte kennt.
+struct CrossChapterEventDuplicate: Equatable {
+    let laterChapterNumber: Int
+    let laterSceneNumber: Int
+    let earlierChapterNumber: Int
+    let earlierSceneNumber: Int
+    let event: String
+    let instruction: String
+}
+
+enum CrossChapterEventDuplicateParser {
+    static func isConclusive(_ text: String) -> Bool {
+        !parse(text).isEmpty || text.localizedCaseInsensitiveContains("KEINE DOPPLUNG")
+    }
+
+    /// Format: DUPLICATE|späteres Kap|spätere Sz|früheres Kap|frühere Sz|Ereignis|Anweisung
+    static func parse(_ text: String) -> [CrossChapterEventDuplicate] {
+        text.components(separatedBy: .newlines).compactMap { line in
+            let cleaned = line
+                .replacingOccurrences(of: "**", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard cleaned.uppercased().hasPrefix("DUPLICATE|") else { return nil }
+            let parts = cleaned.components(separatedBy: "|").map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            guard parts.count >= 7,
+                  let laterChapter = Int(parts[1]), let laterScene = Int(parts[2]),
+                  let earlierChapter = Int(parts[3]), let earlierScene = Int(parts[4]),
+                  (laterChapter, laterScene) != (earlierChapter, earlierScene),
+                  laterChapter >= earlierChapter,
+                  !parts[5].isEmpty else { return nil }
+            let instruction = parts.dropFirst(6).joined(separator: " | ")
+            guard !instruction.isEmpty else { return nil }
+            return CrossChapterEventDuplicate(
+                laterChapterNumber: laterChapter, laterSceneNumber: laterScene,
+                earlierChapterNumber: earlierChapter, earlierSceneNumber: earlierScene,
+                event: parts[5], instruction: instruction
+            )
+        }
+    }
+}
+
 enum ChapterSceneReferenceParser {
     static func parse(_ text: String) -> [ChapterSceneReference] {
         guard let regex = try? NSRegularExpression(

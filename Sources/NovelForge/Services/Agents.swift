@@ -924,6 +924,34 @@ enum PromptFactory {
         """
     }
 
+    /// Kapitelübergreifender Doppler-Scan: arbeitet auf den Szenen-Zusammenfassungen
+    /// des GANZEN Buches und findet Ereignisse, die in verschiedenen Kapiteln erneut
+    /// „zum ersten Mal" erzählt werden – die Lücke, die der kapitelinterne Audit
+    /// (chapterEventDuplicateAudit) strukturell nicht sehen kann.
+    static func crossChapterDuplicateScan(bookTitle: String, sceneSummaries: String) -> String {
+        """
+        Prüfe die Szenen-Übersicht des GESAMTEN Romans „\(bookTitle)" auf Ereignisse, \
+        die in VERSCHIEDENEN Kapiteln doppelt erzählt werden.
+
+        Ein Fehler liegt vor, wenn eine spätere Szene dasselbe konkrete Ereignis \
+        (Fund, Entdeckung, Konfrontation, Enthüllung, Entscheidung, Ankunft, Übergabe, \
+        Gespräch mit demselben Ergebnis) erneut wie zum ersten Mal ausspielt – also \
+        etwa dieselbe Figur denselben Brief in Kapitel 3 UND in Kapitel 7 „zum ersten \
+        Mal" findet. Folgen, Erinnerungen, kurze Rückverweise und wiederkehrende Orte \
+        oder Motive sind KEIN Fehler.
+
+        SZENEN-ÜBERSICHT (Kapitel, Szene, Inhalt):
+        \(sceneSummaries)
+
+        Für jede echte kapitelübergreifende Dopplung GENAU eine Zeile:
+        DUPLICATE|späteres Kapitel|spätere Szene|früheres Kapitel|frühere Szene|konkret doppeltes Ereignis|was die spätere Szene stattdessen als nächsten kausalen Schritt zeigen muss
+
+        Nenne immer die SPÄTERE Szene zuerst. Wenn keine echte Dopplung vorliegt, \
+        antworte exakt: KEINE DOPPLUNG
+        Keine Vorrede, keine Stilhinweise, keine Kapitel-internen Dubletten.
+        """
+    }
+
     static func chapterEventDuplicateAudit(bookTitle: String, chapterNumber: Int,
                                            chapterTitle: String, scenes: String) -> String {
         """

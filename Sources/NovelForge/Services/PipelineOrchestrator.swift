@@ -3410,6 +3410,7 @@ final class PipelineOrchestrator: ObservableObject {
                     var lastUnexpectedCharacters: [String] = []
                     var lastUnexpectedArtifacts: [String] = []
                     var lastStyleTics: [String] = []
+                    var lastRetelling = false
                     // Bis zu 3 Schreibversuche. Provider-FATAL-Fehler pausieren das Buch
                     // (fortsetzbar); reine Inhaltsschwäche lässt es NIE scheitern.
                     for attempt in 1...3 {
@@ -3428,9 +3429,21 @@ final class PipelineOrchestrator: ObservableObject {
                             : "\n\nPLANVERSTOSS: Der vorige Text enthielt eine ungeplante benannte Figur oder ein zusätzliches Fundstück. Verwende ausschließlich Figuren und Elemente aus Szenenziel, Hindernis, Wendung und bisheriger Handlung. Wiederhole keine Namen oder Gegenstände aus verworfenen Versuchen."
                         let styleTicHint = lastStyleTics.isEmpty ? "" : "\n\nSTIL-TICKS AUS DEM VERSUCH (gehäufte Muster, an denen Leser KI-Prosa erkennen – reduziere sie):\n"
                             + lastStyleTics.map { "- \($0)" }.joined(separator: "\n")
+                        // Semantische Nacherzählung: Der Versuch war formal sauber, erzählte
+                        // aber überwiegend bereits gezeigte Ereignisse in neuen Worten –
+                        // genau die „Szene wird dreimal erzählt"-Falle, die Satzkollisions-
+                        // Zähler allein nicht fangen.
+                        let retellingHint = !lastRetelling ? "" : """
+
+                            NACHERZÄHLUNG ERKANNT: Dein voriger Versuch erzählte überwiegend \
+                            Ereignisse nach, die das Buch bereits gezeigt hat – nur in anderen \
+                            Worten. Beginne bei der FOLGE des letzten Geschehens und erzähle \
+                            ausschließlich den nächsten NEUEN Schritt: neue Information, neue \
+                            Entscheidung, neue Konsequenz.
+                            """
                         let hint = attempt == 1 ? "" : (project.isNonfiction
                             ? "\n\nDer vorige Versuch war zu kurz, unvollständig oder erfüllte die geplante Abschnittsfunktion nicht. Schreibe den vollständigen Abschnitt klar und anwendbar mit 85–115 % der Zielwortzahl. Wenn Abschnittstyp oder Take-away Beispiel, Übung, Aufgabe oder Checkliste verlangen, muss dieses Element sichtbar und vollständig enthalten sein. Erfinde keine Belege oder Statistiken."
-                            : "\n\nDer vorige Versuch war zu kurz, zu lang, unklar, unbrauchbar oder klang zu schematisch. Schreibe jetzt die vollständige Szene als reinen Fließtext mit 85–115 % der Zielwortzahl, ohne Meta-Kommentare. Jeder Absatz macht Handlung, Absicht oder Folge konkret. Keine Standardfloskeln und kein deutender Zusammenfassungssatz am Absatzende.") + collisionHint + clarityHint + canonHint + genreHint + planHint + styleTicHint
+                            : "\n\nDer vorige Versuch war zu kurz, zu lang, unklar, unbrauchbar oder klang zu schematisch. Schreibe jetzt die vollständige Szene als reinen Fließtext mit 85–115 % der Zielwortzahl, ohne Meta-Kommentare. Jeder Absatz macht Handlung, Absicht oder Folge konkret. Keine Standardfloskeln und kein deutender Zusammenfassungssatz am Absatzende.") + collisionHint + clarityHint + canonHint + genreHint + planHint + styleTicHint + retellingHint
                         do {
                             let response = try await generate(
                                 prompt: basePrompt + hint,
@@ -3471,6 +3484,10 @@ final class PipelineOrchestrator: ObservableObject {
                             lastStyleTics = project.isNonfiction
                                 ? []
                                 : AutonomousContentQuality.styleTicViolations(in: response.text)
+                            lastRetelling = !project.isNonfiction
+                                && AutonomousContentQuality.retellingOverlap(
+                                    candidate: response.text, priorTexts: priorProseTexts
+                                ) >= AutonomousContentQuality.retellingOverlapLimit
                             // „Gut" = keine durchgesickerte Anweisung UND nicht maschinell klingend.
                             // Eine schwächere Fassung führt zu einem neuen Versuch (statt sie zu behalten).
                             let candidateGood = !AutonomousContentQuality.containsPromptArtifacts(response.text)
@@ -3486,6 +3503,7 @@ final class PipelineOrchestrator: ObservableObject {
                                 && lastUnexpectedCharacters.isEmpty
                                 && lastUnexpectedArtifacts.isEmpty
                                 && lastStyleTics.isEmpty
+                                && !lastRetelling
                                 && (!project.isNonfiction
                                     || AutonomousContentQuality.satisfiesNonfictionSectionContract(
                                         response.text,
@@ -3558,6 +3576,13 @@ final class PipelineOrchestrator: ObservableObject {
                                // Annahme nicht mehr – Kostenkontrolle statt Endlos-Perfektion.
                                (project.isNonfiction || attempt >= 2
                                 || AutonomousContentQuality.styleTicViolations(in: sceneText).isEmpty),
+                               // Nacherzählung bleibt in allen drei Versuchen ein Blocker –
+                               // eine „Szene noch einmal in anderen Worten" ist kein Stil-
+                               // problem, sondern ein Handlungsfehler.
+                               (project.isNonfiction
+                                || AutonomousContentQuality.retellingOverlap(
+                                    candidate: sceneText, priorTexts: priorProseTexts
+                                ) < AutonomousContentQuality.retellingOverlapLimit),
                                ContentSafetyFilter.isSafe(sceneText) {
                                 lastProviderError = nil
                                 break
@@ -3937,6 +3962,18 @@ final class PipelineOrchestrator: ObservableObject {
                                          summary: chapter.summary ?? "", config: config)
             modelContext?.saveOrLog()
         }
+
+        // BUCH-WEITER DOPPLER-SCAN: Der kapitelinterne Audit oben läuft nach jedem
+        // einzelnen Kapitel und sieht nur dieses. Erst jetzt, nach dem letzten
+        // Kapitel, sind alle Szenen-Summaries vollständig – die einzige Stelle, an
+        // der eine in Kapitel 3 UND 9 „zum ersten Mal" erzählte Entdeckung mit
+        // Szenennummern sichtbar und gezielt reparierbar wird.
+        if !project.isNonfiction {
+            _ = await auditAndRepairCrossChapterEventDuplicates(
+                project: project, config: config
+            )
+            modelContext?.saveOrLog()
+        }
         estimatedTimeRemaining = ""
     }
 
@@ -4211,6 +4248,206 @@ final class PipelineOrchestrator: ObservableObject {
         chapter.actualWordCount = sortedScenes(chapter).compactMap { $0.text?.wordCount }.reduce(0, +)
         chapter.updatedAt = Date()
         modelContext?.saveOrLog()
+        return repaired
+    }
+
+    /// Buch-weiter Doppler-Audit: findet Ereignisse, die in VERSCHIEDENEN Kapiteln
+    /// erneut „zum ersten Mal" erzählt werden, und ersetzt die spätere Szene.
+    ///
+    /// WARUM: Der kapitelinterne Audit (auditAndRepairChapterEventDuplicates) sieht
+    /// nur die Szenen EINES Kapitels. Die für Leser auffälligsten Wiederholungen –
+    /// dieselbe Entdeckung in Kapitel 3, 5 und 9 – lagen damit komplett blind; nur
+    /// die Zusammenfassungs-Konsistenzprüfung konnte sie erahnen, kannte aber keine
+    /// Szenentexte und keine Szenennummern für eine gezielte Reparatur. Dieser Scan
+    /// arbeitet auf den Summaries des ganzen Buches (ein Modellaufruf) und repariert
+    /// bestätigte Fälle mit derselben chirurgischen Szenen-Reparatur wie der
+    /// kapitelinterne Audit.
+    @discardableResult
+    private func auditAndRepairCrossChapterEventDuplicates(project: Project,
+                                                           config: ProviderConfiguration) async -> Int {
+        let chapters = sortedChapters(project)
+        guard chapters.count >= 2 else { return 0 }
+        let allScenes: [(chapter: Chapter, scene: StoryScene)] = chapters.flatMap { chapter in
+            sortedScenes(chapter).map { (chapter: chapter, scene: $0) }
+        }.filter { !($0.scene.text ?? "").isEmpty && !($0.scene.summary ?? "").isEmpty }
+        guard allScenes.count >= 4 else { return 0 }
+
+        // Übersicht budgetieren: pro Szene knapp, damit auch 100+ Szenen in einen
+        // einzigen Scan-Aufruf passen.
+        let perScene = max(140, min(400, 14_000 / max(allScenes.count, 1)))
+        let overview = allScenes.map { item in
+            "Kap. \(item.chapter.chapterNumber), Szene \(item.scene.sceneNumber): "
+                + (item.scene.summary ?? "").truncated(to: perScene)
+        }.joined(separator: "\n")
+
+        let scanJob = beginJob(agent: AgentName.consistency, phase: .drafting, project: project)
+        let scanResponse: GenerationResponse
+        do {
+            scanResponse = try await generate(
+                prompt: PromptFactory.crossChapterDuplicateScan(
+                    bookTitle: project.title, sceneSummaries: overview),
+                system: "Du bist ein strenger Kontinuitätslektor. Du unterscheidest echte Ereignisdopplungen über Kapitelgrenzen von Folgen, Erinnerungen und Motiven.",
+                maxTokens: 1_500, temperature: 0.1, config: config
+            )
+        } catch {
+            completeJob(scanJob, result: "Buch-weite Dopplerprüfung vorübergehend nicht verfügbar")
+            return 0
+        }
+        guard CrossChapterEventDuplicateParser.isConclusive(scanResponse.text) else {
+            completeJob(scanJob, result: "Scan-Antwort war nicht eindeutig",
+                        tokens: scanResponse.tokensUsed ?? 0)
+            addReport(project: project, area: "Gesamtmanuskript",
+                      type: "Buch-Dopplungsprüfung",
+                      result: "Buch-weite Dopplerprüfung war nicht eindeutig auswertbar.",
+                      severity: .warning,
+                      recommendation: "Bei der Endabnahme erneut prüfen.")
+            return 0
+        }
+        let findings = CrossChapterEventDuplicateParser.parse(scanResponse.text)
+        completeJob(scanJob,
+                    result: findings.isEmpty
+                        ? "Keine kapitelübergreifenden Ereignisdopplungen"
+                        : "\(findings.count) kapitelübergreifende Dopplung(en) erkannt",
+                    tokens: scanResponse.tokensUsed ?? 0)
+        guard !findings.isEmpty else { return 0 }
+
+        var repaired = 0
+        var handledLaterScenes = Set<String>()
+        for finding in findings.prefix(6) {
+            let key = "\(finding.laterChapterNumber)/\(finding.laterSceneNumber)"
+            guard handledLaterScenes.insert(key).inserted else { continue }
+            guard let laterChapter = chapters.first(where: {
+                        $0.chapterNumber == finding.laterChapterNumber }),
+                  let earlierChapter = chapters.first(where: {
+                        $0.chapterNumber == finding.earlierChapterNumber }),
+                  let later = sortedScenes(laterChapter).first(where: {
+                        $0.sceneNumber == finding.laterSceneNumber }),
+                  let earlier = sortedScenes(earlierChapter).first(where: {
+                        $0.sceneNumber == finding.earlierSceneNumber }),
+                  let earlierText = earlier.text, let source = later.text else { continue }
+
+            let summaries = sortedScenes(laterChapter).map {
+                "Szene \($0.sceneNumber): \(($0.summary ?? $0.goal).truncated(to: 900))"
+            }.joined(separator: "\n")
+            let priorTexts = allScenes.filter { $0.scene.id != later.id }
+                .compactMap { $0.scene.text }
+            let job = beginJob(agent: AgentName.repairEditor, phase: .drafting,
+                               project: project, chapter: laterChapter.chapterNumber,
+                               scene: later.sceneNumber)
+            var accepted: String?
+            var usedTokens = 0
+            var lastRejectionReasons: [String] = []
+            for attempt in 1...Self.maxSceneRepairAttempts where accepted == nil {
+                do {
+                    var versuchsHinweis = "\nVollständigkeitsversuch \(attempt)/\(Self.maxSceneRepairAttempts)."
+                    if !lastRejectionReasons.isEmpty {
+                        versuchsHinweis += """
+
+                        DEIN VORIGER VERSUCH WURDE ABGELEHNT – Grund: \
+                        \(lastRejectionReasons.joined(separator: "; ")).
+                        Behebe GENAU diese Punkte. Halte dich strikt an den Szenenplan, \
+                        bleibe im belegten Kanon, übernimm KEINE Sätze aus anderen Szenen \
+                        und schreibe konkrete, sinnliche Prosa statt schematischer Wendungen.
+                        """
+                    }
+                    let response = try await generate(
+                        prompt: PromptFactory.repairDuplicateScene(
+                            language: project.language, bookTitle: project.title,
+                            chapterNumber: laterChapter.chapterNumber,
+                            chapterTitle: laterChapter.title,
+                            laterSceneNumber: later.sceneNumber,
+                            earlierSceneNumber: earlier.sceneNumber,
+                            duplicatedEvent: finding.event
+                                + " (bereits vollständig erzählt in Kapitel "
+                                + "\(earlierChapter.chapterNumber), Szene \(earlier.sceneNumber))",
+                            instruction: finding.instruction,
+                            chapterGoal: laterChapter.goal,
+                            laterScenePlan: "Ziel: \(later.goal); Hindernis: \(later.obstacle); Wendung: \(later.cliffhanger)",
+                            earlierSceneText: earlierText.truncated(to: 12_000),
+                            laterSceneText: source.truncated(to: 18_000),
+                            allSceneSummaries: summaries
+                        ) + versuchsHinweis,
+                        system: "Du bist ein chirurgisch arbeitender Romanlektor. Du reparierst ausschließlich die spätere Szene und führst die Handlung kausal weiter.",
+                        maxTokens: min(8_000, max(2_000, later.targetWordCount * 4)),
+                        temperature: attempt >= 3 ? 0.5 : 0.3, config: config, creative: true
+                    )
+                    usedTokens += response.tokensUsed ?? 0
+                    var candidate = AutonomousContentQuality.cleaningStoredBookText(
+                        response.text, bookTitle: project.title
+                    )
+                    if candidate.wordCount > Int(Double(later.targetWordCount) * 1.25) {
+                        let fitted = try await fitSceneToTarget(
+                            candidate, project: project, chapter: laterChapter,
+                            scene: later, config: config
+                        )
+                        candidate = fitted.text
+                        usedTokens += fitted.tokens
+                    }
+                    let collisionCleanup = try await cleanDraftSentenceCollisions(
+                        candidate, priorTexts: priorTexts,
+                        project: project, chapter: laterChapter, scene: later, config: config
+                    )
+                    candidate = collisionCleanup.text
+                    usedTokens += collisionCleanup.tokens
+                    let styleCleanup = try await cleanDraftStyleArtifacts(
+                        candidate, priorTexts: priorTexts,
+                        project: project, chapter: laterChapter, scene: later, config: config
+                    )
+                    candidate = styleCleanup.text
+                    usedTokens += styleCleanup.tokens
+                    lastRejectionReasons = sceneRepairRejectionReasons(
+                        source: source, candidate: candidate,
+                        targetWords: later.targetWordCount,
+                        finishReason: response.finishReason,
+                        project: project, later: later,
+                        earlierText: earlierText,
+                        allSceneSummaries: summaries,
+                        priorTexts: priorTexts
+                    )
+                    if lastRejectionReasons.isEmpty {
+                        accepted = candidate
+                    }
+                } catch {
+                    if isFatalProductionError(error) { break }
+                }
+            }
+
+            if let accepted {
+                later.text = accepted
+                later.summary = await summarizeScene(accepted, project: project,
+                                                     chapter: laterChapter, scene: later,
+                                                     config: config)
+                later.updatedAt = Date()
+                laterChapter.actualWordCount = sortedScenes(laterChapter)
+                    .compactMap { $0.text?.wordCount }.reduce(0, +)
+                laterChapter.updatedAt = Date()
+                repaired += 1
+                completeJob(job, result: "Kapitelübergreifende Dopplung in späterer Szene ersetzt",
+                            tokens: usedTokens)
+                let report = addReport(
+                    project: project,
+                    area: "Kapitel \(laterChapter.chapterNumber), Szene \(later.sceneNumber)",
+                    type: "Buch-Dopplung",
+                    result: "Kapitelübergreifend doppelt erzähltes Ereignis (aus Kapitel \(earlierChapter.chapterNumber), Szene \(earlier.sceneNumber)) gezielt repariert: \(finding.event)",
+                    severity: .info,
+                    recommendation: "Automatisch auf Szenenebene behoben."
+                )
+                report.autoFixed = true
+            } else {
+                let detail = lastRejectionReasons.isEmpty
+                    ? "keine verwertbare Modellantwort"
+                    : lastRejectionReasons.joined(separator: ", ")
+                completeJob(job, result: "Szenenreparatur nicht angenommen – \(detail); Original bleibt erhalten",
+                            tokens: usedTokens)
+                addReport(project: project,
+                          area: "Kapitel \(laterChapter.chapterNumber), Szene \(later.sceneNumber)",
+                          type: "Buch-Dopplung",
+                          result: "Kapitelübergreifend doppelt erzähltes Ereignis bleibt offen: \(finding.event)",
+                          severity: .error,
+                          recommendation: finding.instruction)
+            }
+            modelContext?.saveOrLog()
+        }
         return repaired
     }
 

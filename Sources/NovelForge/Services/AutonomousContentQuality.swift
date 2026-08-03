@@ -1737,6 +1737,36 @@ enum AutonomousContentQuality {
         return collisions
     }
 
+    /// Anteil der Kandidaten-Sätze, die bereits erzählte Sätze (fast) wortgleich
+    /// wiederholen – der deterministische „Dieselbe Szene noch einmal"-Detektor.
+    ///
+    /// WARUM: `repeatedSentenceCollisions` meldet nur die ersten 12 Einzelsätze und
+    /// dient als Gate. Eine komplett neu erzählte Szene in leicht anderen Worten
+    /// fällt damit nicht auf, obwohl sie inhaltlich eine Wiederholung ist. Der
+    /// ANTEIL dagegen steigt bei einer echten Nacherzählung sprunghaft (30 % und
+    /// mehr der Sätze sind Fast-Dubletten), während normale Folge-Szenen unter
+    /// ~10 % bleiben (Rückverweise, wiederkehrende Formulierungen).
+    static func retellingOverlap(candidate: String, priorTexts: [String]) -> Double {
+        let candidateRecords = significantSentenceRecords(in: candidate)
+        guard !candidateRecords.isEmpty else { return 0 }
+        let priorRecords = priorTexts.flatMap { significantSentenceRecords(in: $0) }
+        guard !priorRecords.isEmpty else { return 0 }
+        let priorKeys = Set(priorRecords.map(\.key))
+        let priorTrigramme = priorRecords.map { wortTrigramme($0.spelling) }
+        var hits = 0
+        for record in candidateRecords {
+            let exact = priorKeys.contains(record.key)
+            let eigene = wortTrigramme(record.spelling)
+            if exact || priorTrigramme.contains(where: { istFastGleich(eigene, $0) }) {
+                hits += 1
+            }
+        }
+        return Double(hits) / Double(candidateRecords.count)
+    }
+
+    /// Ab diesem Anteil fast gleicher Sätze gilt eine Szene als Nacherzählung.
+    static let retellingOverlapLimit = 0.30
+
     /// Anteil, ab dem zwei Sätze als dieselbe Formulierung gelten.
     ///
     /// Am fertigen Buch „Das letzte Streichholz" kalibriert: Bei 0,5 werden 63 Stellen in
