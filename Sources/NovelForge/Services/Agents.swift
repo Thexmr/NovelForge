@@ -1320,6 +1320,38 @@ enum PromptFactory {
         """
     }
 
+    /// STILTICK-JUDGE (B2): Die deterministischen Stiltick-Prüfungen (styleTicViolations)
+    /// zählen Wortlisten – sie erwischen „Nicht …"-Satzanfänge und Körper-Beats, aber
+    /// nicht die Muster, an denen Leser KI-Prosa WIRKLICH erkennen: Erklär-Sätze, die
+    /// Dialog doppelt deuten, Emotions-Doppelungen (benennen + zeigen + kommentieren),
+    /// bedeutungsschwangere Leere ohne Inhalt, gestelzte Gesten, monotone Satzrhythmen.
+    /// Das kann nur ein lesender Lektor finden. Dieser Prompt prüft EIN Kapitel auf
+    /// genau diese kontextabhängigen Muster – bewusst nur WIEDERKEHRENDE, damit keine
+    /// Einzelstellen-Kleinlichkeit endlos Neufassungen auslöst.
+    static func styleTicJudge(bookTitle: String, chapterNumber: Int,
+                              chapterTitle: String, chapterText: String) -> String {
+        return """
+        Du bist Stil-Lektor für den Roman "\(bookTitle)". Lies Kapitel \(chapterNumber) \
+        („\(chapterTitle)") und finde WIEDERKEHRENDE maschinelle Muster, an denen Leser \
+        KI-Prosa sofort erkennen. Keine Einzelstellen – nur Muster, die im Kapitel \
+        mehrfach oder strukturell auftreten:
+
+        - ERKLÄR-SÄTZE: Dialog oder Handlung wird doppelt gedeutet („sagte sie, weil sie Angst hatte", „er ging hinaus, um sich zu beruhigen")
+        - EMOTIONS-DOPPELUNG: Ein Gefühl wird benannt UND gezeigt UND kommentiert
+        - BEDEUTUNGSSCHWANGERE LEERE: „irgendetwas stimmte nicht", „etwas an ihm war anders" – ohne dass es je konkret wird
+        - GESTELZTE GESTEN: Reaktionen, die kein echter Mensch so macht (ständiges Augenbrauen-Heben, Lächeln ohne Grund, choreografierte Körperbetonung)
+        - MONOTONER SATZRHYTHMUS: 3+ Sätze gleicher Bauart in Serie (alle Subjekt-Verb-Objekt, alle mit „Und" beginnend)
+
+        KAPITEL \(chapterNumber):
+        \(chapterText.truncated(to: 9000))
+
+        Antworte pro gefundenem Muster GENAU eine Zeile in diesem Format:
+        TICK|<Muster in 3-6 Wörtern>|<eine kurze wörtliche Belegstelle>|<konkrete Anweisung, wie es stattdessen geht>
+
+        Maximal 5 Zeilen. Kein Kommentar drumherum. Wenn das Kapitel stilistisch sauber ist, antworte: SAUBER.
+        """
+    }
+
     static func consistencyCheck(bookTitle: String, summaries: String, characters: String,
                                  isNonfiction: Bool = false) -> String {
         if isNonfiction {

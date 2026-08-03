@@ -2035,6 +2035,34 @@ enum AutonomousContentQuality {
         return eval
     }
 
+    /// Ein vom Stiltick-Judge gefundenes Muster (siehe PromptFactory.styleTicJudge).
+    struct StyleTicVerdict {
+        let muster: String
+        let beleg: String
+        let anweisung: String
+    }
+
+    /// Parst TICK-Zeilen des Stiltick-Judges. Strikt beim Format (vier Felder mit
+    /// „|" getrennt), damit Kommentarzeilen des Modells nicht als Befund durchrutschen;
+    /// tolerant bei Leerzeichen und Aufzählungszeichen am Zeilenanfang.
+    static func parseStyleTicVerdicts(_ antwort: String, maxVerdicts: Int = 5) -> [StyleTicVerdict] {
+        antwort.components(separatedBy: .newlines).compactMap { rawLine in
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "-•*"))
+                .trimmingCharacters(in: .whitespaces)
+            guard line.uppercased().hasPrefix("TICK|") else { return nil }
+            let felder = line.components(separatedBy: "|").map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }
+            guard felder.count >= 4 else { return nil }
+            let muster = felder[1], anweisung = felder[3]
+            guard !muster.isEmpty, !anweisung.isEmpty else { return nil }
+            return StyleTicVerdict(muster: muster.truncated(to: 120),
+                                   beleg: felder[2].truncated(to: 160),
+                                   anweisung: anweisung.truncated(to: 220))
+        }.prefix(maxVerdicts).map { $0 }
+    }
+
     /// Findet Szenenpläne, deren Beats einander inhaltlich wiederholen.
     ///
     /// WARUM: Die Wurzel der doppelt erzählten Szenen liegt im PLAN, nicht in der

@@ -3192,6 +3192,11 @@ final class PipelineOrchestrator: ObservableObject {
         // Figuren „wissen" Dinge aus Szenen, bei denen sie nicht dabei waren, oder
         // Beziehungen springen zurück, als wäre ein Kapitel nie geschehen.
         var figurenStand: [String: String] = [:]
+        // STILTICK-JUDGE: kontextabhängige KI-Muster (Erklär-Sätze, Emotions-
+        // Doppelung, bedeutungsschwangere Leere), die der Lektor in geschriebenen
+        // Kapiteln fand. Wird in alle folgenden Szenen als Vermeidungsliste
+        // injiziert – so kann sich ein Muster nicht über 40 Kapitel einschleifen.
+        var stilTickVermeidung: [String] = []
 
         let charactersSummary = compactCharacterSummary(bible)
         let primaryCanon = primaryStoryCanon(project: project)
@@ -3203,6 +3208,10 @@ final class PipelineOrchestrator: ObservableObject {
         for (chapterIndex, chapter) in chapters.enumerated() {
             currentChapter = chapter.chapterNumber
             let scenes = sortedScenes(chapter)
+            // War das Kapitel vor diesem Durchlauf schon fertig (Resume)? Dann lohnt
+            // der Stiltick-Judge nicht mehr – er soll das SCHREIBEN steuern, nicht
+            // nachträglich 40 Kapitel begutachten (Kosten ohne Lenkwirkung).
+            let kapitelWarBereitsFertig = !scenes.isEmpty && scenes.allSatisfy { isSceneWritten($0) }
 
             for (sceneIndex, scene) in scenes.enumerated() {
                 try Task.checkCancellation()
@@ -3379,6 +3388,16 @@ final class PipelineOrchestrator: ObservableObject {
                                 + "was sie in dieser Szene selbst erlebt. Sie kann NICHTS aus Szenen wissen, "
                                 + "bei denen sie nicht dabei war – höchstens erahnen, misstrauen, irren.")
                         }
+                    }
+                    // STILTICK-VERMEIDUNG: Muster, die der Lektor in bisherigen
+                    // Kapiteln fand, aktiv nicht wiederholen. Steht als Kontext-
+                    // Block (nicht als Sperrliste am Ende), weil es um bewusste
+                    // Gestaltung geht, nicht um Verbote.
+                    if !stilTickVermeidung.isEmpty {
+                        contextParts.append(
+                            "STILTICKS, DIE DER LEKTOR IN DIESEM BUCH BEREITS GEFUNDEN HAT "
+                            + "(in dieser Szene nicht wiederholen):\n"
+                            + stilTickVermeidung.map { "- \($0)" }.joined(separator: "\n"))
                     }
                     if !chapterDigests.isEmpty {
                         contextParts.append("BISHERIGE KAPITEL:\n" + chapterDigests.joined(separator: "\n"))
@@ -4018,6 +4037,31 @@ final class PipelineOrchestrator: ObservableObject {
                     charactersSummary: charactersSummary, characterNames: characterNames,
                     config: config
                 )
+
+                // (4) STILTICK-JUDGE: kontextabhängige KI-Muster finden, die keine
+                // Wortliste erwischt – und als Vermeidungsliste in alle folgenden
+                // Kapitel geben. Nur für in DIESEM Durchlauf geschriebene Kapitel.
+                if !kapitelWarBereitsFertig {
+                    let neueTicks = await stiltickJudge(chapter: chapter, project: project,
+                                                        config: config)
+                    for tick in neueTicks {
+                        let eintrag = "\(tick.muster): \(tick.anweisung)"
+                        if !stilTickVermeidung.contains(eintrag) {
+                            stilTickVermeidung.append(eintrag)
+                        }
+                        addReport(project: project,
+                                  area: "Kapitel \(chapter.chapterNumber)",
+                                  type: "Stiltick",
+                                  result: "Stilmuster „\(tick.muster)" + (tick.beleg.isEmpty ? "" : " – Beleg: \(tick.beleg)"),
+                                  severity: .info,
+                                  recommendation: tick.anweisung)
+                    }
+                    // Liste deckeln: Die neuesten Befunde sind die relevantesten,
+                    // eine unbegrenzte Liste fräße das Szenen-Kontextbudget.
+                    if stilTickVermeidung.count > 12 {
+                        stilTickVermeidung = Array(stilTickVermeidung.suffix(12))
+                    }
+                }
             }
 
             // Echten, inhaltsbezogenen Kapiteltitel sicherstellen (verhindert „Aufbruch N").
@@ -4106,6 +4150,27 @@ final class PipelineOrchestrator: ObservableObject {
         var neu = stand
         for (name, eintrag) in updates { neu[name] = eintrag }
         return neu
+    }
+
+    /// Fragt den Stiltick-Judge für ein fertig geschriebenes Kapitel ab.
+    /// Fehler sind nicht fatal – schlimmstenfalls fehlt die Vermeidungsliste
+    /// für die folgenden Kapitel. Kurze Kapitel werden übersprungen: Unter
+    /// ~250 Wörtern gibt es keine belastbaren Muster.
+    private func stiltickJudge(chapter: Chapter, project: Project,
+                               config: ProviderConfiguration) async
+        -> [AutonomousContentQuality.StyleTicVerdict] {
+        guard let text = chapter.bestText,
+              text.split(whereSeparator: { $0.isWhitespace }).count >= 250 else { return [] }
+        guard let antwort = try? await generate(
+            prompt: PromptFactory.styleTicJudge(
+                bookTitle: project.title, chapterNumber: chapter.chapterNumber,
+                chapterTitle: chapter.title, chapterText: text),
+            system: "Du bist ein strenger Stil-Lektor, der nur wiederkehrende maschinelle Muster meldet, niemals Einzelstellen.",
+            maxTokens: 450, temperature: 0.1, config: config
+        ) else { return [] }
+        let trimmed = antwort.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.uppercased().hasPrefix("SAUBER") else { return [] }
+        return AutonomousContentQuality.parseStyleTicVerdicts(trimmed)
     }
 
     private func condenseChapterSummary(_ chapter: Chapter, project: Project,
