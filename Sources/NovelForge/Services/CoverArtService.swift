@@ -25,7 +25,15 @@ enum CoverArtService {
         }
     }
 
-    struct CoverResult { let url: URL; let provider: Provider }
+    struct CoverResult {
+        let url: URL
+        let provider: Provider
+        /// Befunde des Qualitäts-Gates – leer, wenn das Cover sauber durchging.
+        /// Bleibt das Gate nach allen Versuchen unbestanden, steht hier warum
+        /// (das beste verfügbare Cover wird trotzdem geliefert; ein Cover mit
+        /// Warnung ist immer besser als gar keins).
+        var qualityNotes: [String] = []
+    }
 
     /// KDP-Empfehlung fürs eBook-Cover: 2560 px hoch, 1600 px breit.
     static let targetWidth = 1600
@@ -190,18 +198,50 @@ enum CoverArtService {
     static func generateCover(for project: Project,
                               provider: Provider = selectedProvider) async throws -> CoverResult {
         let prompt = buildPrompt(for: project)
-        let rawImage: Data
-        switch provider {
-        case .pollinations:
-            rawImage = try await requestPollinations(prompt: prompt)
-        case .openAI:
-            guard let apiKey = KeychainService.getAPIKey(for: .openAI), !apiKey.isEmpty else {
-                throw AIError.systemError(
-                    "Für OpenAI-Cover fehlt der API-Key. In Einstellungen → KI-Provider → OpenAI hinterlegen — oder den kostenlosen Anbieter wählen.")
+
+        // QUALITÄTS-GATE MIT NEUVERSUCH: Bis zu 3 Motive anfordern; das erste
+        // saubere gewinnt. Der Seed ist bisher deterministisch aus dem Prompt
+        // abgeleitet – ohne Versuchs-Zähler käme bei einem zweiten Aufruf exakt
+        // dasselbe (fehlerhafte) Bild. Deshalb variiert der Seed pro Versuch.
+        var rawImage: Data?
+        var qualityNotes: [String] = []
+        var letzteBefunde: [String] = []
+        var gateBestanden = false
+        for versuch in 1...3 {
+            let kandidat: Data
+            switch provider {
+            case .pollinations:
+                kandidat = try await requestPollinations(prompt: prompt, seedOffset: versuch - 1)
+            case .openAI:
+                guard let apiKey = KeychainService.getAPIKey(for: .openAI), !apiKey.isEmpty else {
+                    throw AIError.systemError(
+                        "Für OpenAI-Cover fehlt der API-Key. In Einstellungen → KI-Provider → OpenAI hinterlegen — oder den kostenlosen Anbieter wählen.")
+                }
+                // gpt-image hat keinen Seed-Parameter; die API ist von sich aus
+                // nicht deterministisch, ein erneuter Aufruf liefert ein neues Bild.
+                kandidat = try await requestOpenAI(prompt: prompt, apiKey: apiKey)
             }
-            rawImage = try await requestOpenAI(prompt: prompt, apiKey: apiKey)
+            let befunde = CoverQualityGate.probleme(motiv: kandidat)
+            if befunde.isEmpty {
+                rawImage = kandidat
+                gateBestanden = true
+                break
+            }
+            letzteBefunde = befunde
+            // Fallback-Strategie: das ERSTE Bild behalten (spätere Versuche sind
+            // nicht belegt besser), aber weiterprobieren auf ein sauberes.
+            if rawImage == nil { rawImage = kandidat }
         }
-        guard let jpeg = scaleFillToJPEG(rawImage, width: targetWidth, height: targetHeight) else {
+        guard let motif = rawImage else {
+            throw AIError.systemError("Cover-Bild konnte nicht erzeugt werden.")
+        }
+        if !gateBestanden {
+            // Gate nach allen Versuchen unbestanden: bestes Bild verwenden, Befunde
+            // melden – ein Cover mit Warnung ist besser als gar keins.
+            qualityNotes = ["Gate nach 3 Versuchen nicht bestanden: "
+                + letzteBefunde.joined(separator: "; ")]
+        }
+        guard let jpeg = scaleFillToJPEG(motif, width: targetWidth, height: targetHeight) else {
             throw AIError.systemError("Cover-Bild konnte nicht auf KDP-Maß skaliert werden.")
         }
         let dir = try ExportEngine.exportDirectory(for: project)
@@ -233,15 +273,17 @@ enum CoverArtService {
         // Das ROHE, textfreie Motiv separat sichern. Das Druckcover braucht genau dieses
         // Bild – nimmt man das fertige eBook-Cover, ist dessen Titel schon eingebrannt und
         // erscheint auf dem Wrap ein zweites Mal quer über Rück- und Vorderseite.
-        try? rawImage.write(to: dir.appendingPathComponent("cover_motiv.jpg"), options: .atomic)
-        return CoverResult(url: url, provider: provider)
+        try? motif.write(to: dir.appendingPathComponent("cover_motiv.jpg"), options: .atomic)
+        return CoverResult(url: url, provider: provider, qualityNotes: qualityNotes)
     }
 
     // MARK: - Pollinations (kostenlos, kein Key)
 
-    private static func requestPollinations(prompt: String) async throws -> Data {
+    private static func requestPollinations(prompt: String, seedOffset: Int = 0) async throws -> Data {
         // Deterministischer Seed aus dem Prompt (reproduzierbar, aber pro Buch anders).
-        let seed = abs(prompt.hashValue) % 1_000_000
+        // seedOffset variiert ihn pro Gate-Neuversuch – sonst käme exakt dasselbe
+        // (verworfene) Bild noch einmal.
+        let seed = abs((prompt + "#\(seedOffset)").hashValue) % 1_000_000
         let encoded = prompt.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? prompt
         // Höhere Auflösung anfordern; wird anschließend auf 1600×2560 gebracht.
         let urlString = "https://image.pollinations.ai/prompt/\(encoded)"
