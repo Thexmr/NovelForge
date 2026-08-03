@@ -1891,6 +1891,70 @@ enum AutonomousContentQuality {
         return ergebnis
     }
 
+    /// Ergebnis der Golden-Eval (siehe PromptFactory.goldenEval): numerische Noten
+    /// je Dimension, Gesamtnote, Freigabe-Urteil und konkrete Schwächen.
+    struct GoldenEval {
+        var noten: [(name: String, wert: Int)] = []
+        var gesamt: Int?
+        var gesamtBegruendung = ""
+        var freigabe: Bool?
+        var schwaechen: [String] = []
+    }
+
+    /// Parst die Golden-Eval-Antwort. Tolerant gegenüber Formatwacklern (fehlende
+    /// Begründung, „Note: 7" statt „7", URTEIL in Kleinbuchstaben), aber strikt bei
+    /// den Notenwerten: Nur ganze Zahlen 1–10 zählen, alles andere wird ignoriert,
+    /// damit ein ausuferndes Modell keine Phantom-Noten erzeugt.
+    static func parseGoldenEval(_ antwort: String) -> GoldenEval {
+        var eval = GoldenEval()
+        for rawLine in antwort.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "-•*"))
+                .trimmingCharacters(in: .whitespaces)
+            guard let colon = line.firstIndex(of: ":") else { continue }
+            let schluessel = String(line[..<colon])
+                .trimmingCharacters(in: .whitespaces).uppercased()
+            let rest = String(line[line.index(after: colon)...])
+                .trimmingCharacters(in: .whitespaces)
+
+            if schluessel.hasPrefix("URTEIL") {
+                eval.freigabe = rest.uppercased().hasPrefix("FREIGABE")
+                continue
+            }
+            if schluessel.hasPrefix("SCHWÄCHE") || schluessel.hasPrefix("SCHWACHE") {
+                if !rest.isEmpty, eval.schwaechen.count < 3 {
+                    eval.schwaechen.append(rest.truncated(to: 300))
+                }
+                continue
+            }
+            // Notenzeile: Zahl am Anfang (optional „Note:" davor), Begründung nach „—".
+            var zahlText = rest
+            if let noteRange = zahlText.range(of: "—") {
+                zahlText = String(zahlText[..<noteRange.lowerBound])
+            } else if let noteRange = zahlText.range(of: " - ") {
+                zahlText = String(zahlText[..<noteRange.lowerBound])
+            }
+            zahlText = zahlText.replacingOccurrences(of: "Note", with: "", options: .caseInsensitive)
+                .replacingOccurrences(of: ":", with: "")
+                .trimmingCharacters(in: .whitespaces)
+            guard let wert = Int(zahlText.split(separator: " ").first.map(String.init) ?? zahlText),
+                  (1...10).contains(wert) else { continue }
+            let begruendung: String
+            if let dash = rest.range(of: "—") ?? rest.range(of: " - ") {
+                begruendung = String(rest[dash.upperBound...]).trimmingCharacters(in: .whitespaces)
+            } else {
+                begruendung = ""
+            }
+            if schluessel.hasPrefix("GESAMT") {
+                eval.gesamt = wert
+                eval.gesamtBegruendung = begruendung
+            } else {
+                eval.noten.append((name: schluessel, wert: wert))
+            }
+        }
+        return eval
+    }
+
     /// Findet Szenenpläne, deren Beats einander inhaltlich wiederholen.
     ///
     /// WARUM: Die Wurzel der doppelt erzählten Szenen liegt im PLAN, nicht in der

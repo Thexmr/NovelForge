@@ -6289,6 +6289,87 @@ final class PipelineOrchestrator: ObservableObject {
         completeJob(job, result: ExportEngine.generateKDPReport(project: project))
     }
 
+    // MARK: - Golden-Eval (urteilende Endnote)
+
+    /// Die Golden-Eval ist die urteilende Messlatte am Ende: Die heuristischen
+    /// Scores zählen nur Messbares – hier bewertet ein strenger Lektor das fertige
+    /// Buch als Ganzes (Spannungsbogen, Figuren, Konflikt, Stil, Ende) auf einer
+    /// hart geeichten 1–10-Skala. Läuft NACH den Endabnahme-Reparaturen und VOR der
+    /// Freigabe, misst also den Text, der wirklich veröffentlicht wird.
+    ///
+    /// Das Ergebnis landet als „Golden-Eval"-Bericht in der Qualitätsliste (für den
+    /// Nutzer sichtbar). Es blockiert die Freigabe bewusst NICHT hart: Die Schwächen
+    /// sind buch-global (Pacing, Voice) und keine kapitelweise chirurgisch
+    /// reparierbaren Befunde – ein hartes Gate würde Bücher ewig festhalten, ohne
+    /// dass der Reparatur-Workflow sie beheben könnte. Stattdessen werden die
+    /// konkreten Schwächen als Warnungen mit Anweisung abgelegt, die die nächste
+    /// Nachbearbeitungsrunde als Kontext sieht. Fehler sind nie fatal.
+    private func runGoldenEval(project: Project, config: ProviderConfiguration) async {
+        let chapters = sortedChapters(project)
+        let digests = chapters.compactMap { chapter -> String? in
+            guard let summary = chapter.summary, !summary.isEmpty else { return nil }
+            return "Kapitel \(chapter.chapterNumber): \(summary.truncated(to: 160))"
+        }.joined(separator: "\n")
+        guard !digests.isEmpty else { return }
+
+        // Wörtliche Auszüge: Die Leseprobe (Anfang) entscheidet über den Kauf, die
+        // Mitte über Durchhaltevermögen, das Ende über Rezensionen und Folgekäufe.
+        var excerptParts: [String] = []
+        if let first = chapters.first?.bestText, !first.isEmpty {
+            excerptParts.append("ANFANG:\n„\(String(first.prefix(1500)))…“")
+        }
+        if chapters.count > 2, let middle = chapters[chapters.count / 2].bestText, !middle.isEmpty {
+            excerptParts.append("MITTE:\n„\(String(middle.prefix(1200)))…“")
+        }
+        if let last = chapters.last?.bestText, !last.isEmpty {
+            excerptParts.append("SCHLUSS:\n„…\(String(last.suffix(1500)))“")
+        }
+
+        let job = beginJob(agent: AgentName.qualityJudge, phase: .export, project: project)
+        do {
+            let response = try await generate(
+                prompt: PromptFactory.goldenEval(
+                    bookTitle: project.title, genre: project.genre,
+                    digests: digests, excerpts: excerptParts.joined(separator: "\n\n"),
+                    isNonfiction: project.isNonfiction),
+                system: "Du bist ein strenger, ehrlicher Lektor mit Bestseller-Erfahrung. Du schmeichelst nie und vergibst Noten nach der vorgegebenen Eichung.",
+                maxTokens: 600, temperature: 0.2, config: config
+            )
+            let eval = AutonomousContentQuality.parseGoldenEval(response.text)
+
+            // Alte Eval-Berichte ersetzen (bei erneutem Export keine Duplikate).
+            if let stale = project.qualityReports?.filter({ $0.checkType == "Golden-Eval" }) {
+                for report in stale { modelContext?.delete(report) }
+                project.qualityReports?.removeAll { $0.checkType == "Golden-Eval" }
+            }
+
+            let gesamt = eval.gesamt
+            let notenText = eval.noten.map { "\($0.name) \($0.wert)" }.joined(separator: ", ")
+            let urteilText = eval.freigabe == true ? "FREIGABE" : (eval.freigabe == false ? "NACHARBEIT" : "ohne Urteil")
+            addReport(project: project, area: "Gesamtmanuskript", type: "Golden-Eval",
+                      result: "Gesamtnote \(gesamt.map { "\($0)/10" } ?? "k. A.") – \(urteilText)"
+                        + (notenText.isEmpty ? "" : " (\(notenText))")
+                        + (eval.gesamtBegruendung.isEmpty ? "" : " – \(eval.gesamtBegruendung)"),
+                      severity: (gesamt ?? 0) >= 7 ? .info : .warning,
+                      recommendation: "")
+            // Die konkreten Schwächen einzeln ablegen, damit sie der nächste
+            // Nachbearbeitungslauf als Arbeitsauftrag mitbekommt.
+            for schwaeche in eval.schwaechen {
+                addReport(project: project, area: "Gesamtmanuskript", type: "Golden-Eval",
+                          result: "Lektorats-Schwäche: \(schwaeche)",
+                          severity: .warning,
+                          recommendation: schwaeche)
+            }
+            completeJob(job, result: "Gesamtnote \(gesamt.map(String.init) ?? "k. A.")/10",
+                        tokens: response.tokensUsed ?? 0)
+            modelContext?.saveOrLog()
+        } catch {
+            // Die Eval ist eine Messlatte, kein Produktionsschritt – ein Fehler darf
+            // den Export niemals blockieren.
+            failJob(job, error: error)
+        }
+    }
+
     // MARK: - Phase 12: Export
 
     private func runExport(project: Project, config: ProviderConfiguration) async throws {
@@ -6301,6 +6382,7 @@ final class PipelineOrchestrator: ObservableObject {
         entferneArbeitsmarken(project: project)
         await korrigiereRechtschreibung(project: project, config: config)
         try await runFinalReadinessRepairs(project: project, config: config)
+        await runGoldenEval(project: project, config: config)
         try PublicationReadiness.validateForCompletion(project: project)
         await stelleVeroeffentlichungstexteSicher(project: project, config: config)
         let job = beginJob(agent: AgentName.exporter, phase: .export, project: project)

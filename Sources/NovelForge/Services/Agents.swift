@@ -16,6 +16,7 @@ enum AgentName {
     static let proofreader = "Proofreader"
     static let repairEditor = "Repair Editor"
     static let globalEditor = "Global Editor"
+    static let qualityJudge = "Quality Judge"
     static let copyright = "Copyright Checker"
     static let kdpFormatter = "KDP Formatter"
     static let exporter = "Export Agent"
@@ -1262,6 +1263,56 @@ enum PromptFactory {
         - Der Stand ersetzt den bisherigen Eintrag der Figur vollständig.
         - Keine Vermutungen, keine Zukunft, keine Meta-Kommentare – nur der belegbare Ist-Zustand.
         - Wenn sich bei keiner Figur etwas Relevantes geändert hat, antworte mit: KEINE.
+        """
+    }
+
+    /// GOLDEN-EVAL: Die heuristischen Qualitäts-Scores (QualityScores) messen nur,
+    /// was sich zählen lässt (Längen, Wiederholungen, Format). Ob sich ein Buch wie
+    /// ein Bestseller LIEST, kann nur ein urteilender Lektor bewerten. Dieser Prompt
+    /// ist diese Messlatte: ein strenges, numerisches Urteil über das fertige
+    /// Manuskript – verdichtete Kapitelinhalte für die Gesamtsicht plus wörtliche
+    /// Auszüge (Anfang/Mitte/Schluss) für die Prosa-Qualität. Bewusst hart geeicht
+    /// (7 = gut genug für KDP, alles darunter ist Nacharbeit), damit die Note ein
+    /// echter Maßstab bleibt und keine Feel-Good-Zahl.
+    static func goldenEval(bookTitle: String, genre: String, digests: String,
+                           excerpts: String, isNonfiction: Bool = false) -> String {
+        let dimensionen = isNonfiction
+            ? """
+              LESERNUTZEN: <1-10> — <eine Zeile Grund>
+              STRUKTUR UND ROTE LINIE: <1-10> — <eine Zeile Grund>
+              KLARHEIT UND STIL: <1-10> — <eine Zeile Grund>
+              UMSETZBARKEIT: <1-10> — <eine Zeile Grund>
+              """
+            : """
+              SPANNUNGSBOGEN: <1-10> — <eine Zeile Grund>
+              FIGUREN UND DIALOGE: <1-10> — <eine Zeile Grund>
+              KONFLIKT UND EINSÄTZE: <1-10> — <eine Zeile Grund>
+              STIL UND VOICE: <1-10> — <eine Zeile Grund>
+              ENDE UND KATHARSIS: <1-10> — <eine Zeile Grund>
+              """
+        let buchart = isNonfiction ? "Sachbuch/Ratgeber" : "Roman"
+        return """
+        Du bist der strengste Lektor einer Bestseller-Agentur. Bewerte das fertige \
+        \(buchart)-Manuskript "\(bookTitle)" (Genre: \(genre)). Du erhältst die \
+        verdichteten Inhalte aller Kapitel und wörtliche Auszüge (Anfang, Mitte, Schluss).
+
+        KAPITEL-INHALTE:
+        \(digests.truncated(to: 6000))
+
+        WÖRTLICHE AUSZÜGE:
+        \(excerpts.truncated(to: 6000))
+
+        Vergib je Dimension eine ganze Note von 1 bis 10. Eichung (verbindlich): \
+        10 = Bestseller-Niveau, 8 = sehr gut, 7 = gut genug für die Veröffentlichung, \
+        5-6 = spürbare Schwächen, unter 5 = so nicht veröffentlichbar. \
+        Durchschnittliche KI-Ware ist eine 4-5 – bewerte ehrlich, nicht freundlich.
+
+        Antworte GENAU in diesem Format, keine anderen Zeilen:
+        \(dimensionen)\
+        GESAMT: <1-10> — <eine Zeile Gesamturteil>
+        URTEIL: FREIGABE oder NACHARBEIT
+        SCHWÄCHE: <die konkreteste Verbesserungsanweisung> \
+        (bis zu 3 SCHWÄCHE-Zeilen, nur bei NACHARBEIT; jede muss sagen, WAS wo besser werden muss)
         """
     }
 
