@@ -556,7 +556,8 @@ enum PromptFactory {
                           chapterGoal: String, chapterConflict: String,
                           perspective: String, plotContext: String, targetWords: Int,
                           scenesPerChapter: Int = 4, isFinalChapter: Bool = false,
-                          canonicalStory: String = "") -> String {
+                          canonicalStory: String = "",
+                          pacingGewichte: [Double] = [], pacingEtiketten: [String] = []) -> String {
         if plotContext.contains("SACHBUCH-ARCHITEKTUR") {
             return nonfictionSectionPlan(bookTitle: bookTitle, chapterNumber: chapterNumber,
                                          chapterTitle: chapterTitle, chapterGoal: chapterGoal,
@@ -586,6 +587,30 @@ enum PromptFactory {
               Buch am Kapitelende nicht weglegen können. Haken-Typ für dieses Kapitel:
               \(hookTypes[abs(chapterNumber) % hookTypes.count]).
               """
+        // Szenen-Rhythmus: ungleiche Längen sind ein verbindlicher Teil des Plans,
+        // nicht nur der späteren Wortzielverteilung – das Modell soll Beats,
+        // Informationsdichte und Tempo jeder Szene auf ihre Längenklasse zuschneiden.
+        let pacingBlock: String
+        if pacingGewichte.count == scenesPerChapter,
+           pacingEtiketten.count == scenesPerChapter,
+           targetWords > 0 {
+            let summe = pacingGewichte.reduce(0, +)
+            let zeilen = (0..<scenesPerChapter).map { index in
+                let worte = max(1, Int((Double(targetWords) * pacingGewichte[index] / summe).rounded()))
+                return "Szene \(index + 1): \(pacingEtiketten[index]) (ca. \(worte) Wörter)"
+            }.joined(separator: "\n")
+            pacingBlock = """
+            SZENENRHYTHMUS (verbindlich): Gleich lange Szenen ermüden das Ohr des Lesers.
+            Plane Konflikt, Informationsdichte und Tempo jeder Szene passend zu ihrer
+            vorgesehenen Länge:
+            \(zeilen)
+            Kurze Szenen: sofort mitten im Geschehen, genau EIN Konflikt, hartes Ende.
+            Lange Szenen: Raum für Atmosphäre, Beziehung und Innenschau – ohne Leerlauf.
+
+            """
+        } else {
+            pacingBlock = ""
+        }
         return """
         Plane die Szenen für Kapitel \(chapterNumber) ("\(chapterTitle)") des Romans "\(bookTitle)".
         Kapitelziel: \(chapterGoal)
@@ -619,7 +644,7 @@ enum PromptFactory {
         Jede Information im Feld „Wendung“ muss sich wörtlich aus Primärkanon, Kapitelziel oder
         Kapitelkonflikt begründen lassen. Bei Unsicherheit plane eine Entscheidung oder
         Beziehungsverschiebung statt einer neuen Tatsache.
-        \(endingNote)
+        \(pacingBlock)\(endingNote)
 
         Gib für JEDE Szene GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
         SZENE|Nummer|Perspektive|Ort|Zeit|Ziel der Szene|Hindernis|Wendung am Szenenende

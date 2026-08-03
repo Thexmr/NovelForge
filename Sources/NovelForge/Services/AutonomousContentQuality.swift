@@ -1900,6 +1900,90 @@ enum AutonomousContentQuality {
         }
     }
 
+    // MARK: - Szenen-Rhythmus (D1)
+
+    /// Dramaturgisch begründete Szenenlängen statt reiner Zufallsstreuung.
+    ///
+    /// Bisher bekamen alle Szenen eines Kapitels per Zufall ±20 % desselben
+    /// Wortziels – das Ohr des Lesers hört aber keine Wortzahl-Varianz, sondern
+    /// das VERHÄLTNIS: ein kurzer Schock neben einem langen Kammerspiel. Diese
+    /// Funktion verteilt die Szenen deterministisch auf drei Längenklassen
+    /// (kurz 0.55×, mittel 1.0×, lang 1.6×) und positioniert sie nach
+    /// Spannungsstufe des Kapitels:
+    ///
+    /// - hohe Stufe (≥8: Midpoint, dunkle Nacht, Höhepunkt): STAKKATO – mehrere
+    ///   kurze, harte Szenen; die längste Szene ist die LETZTE (Klimax des Kapitels)
+    /// - niedrige Stufe (≤4: Hook, Auflösung, Übergänge): KAMMERSPIEL – kurzer
+    ///   Einstieg vorn, ausgedehnte Szenen in der Mitte/am Ende
+    /// - Mittelfeld: WECHSELBAD – kurz und lang gemischt, die lange Szene in der
+    ///   zweiten Kapitelhälfte (Zuspitzung zum Kapitelende)
+    ///
+    /// Rückgabe: Gewichte je Szene (werden auf das Kapitel-Wortziel normiert)
+    /// und Etiketten für den Pacing-Hinweis im Szenenplan-Prompt.
+    static func szenenRhythmus(sceneCount: Int, stufe: Int, seedKey: String)
+        -> (gewichte: [Double], etiketten: [String]) {
+        guard sceneCount > 1 else {
+            return sceneCount == 1 ? ([1.0], ["mittel – Fließtempo"]) : ([], [])
+        }
+        let seed = NarrativeSignature.stableSeed(seedKey)
+        func seedWert(_ schritt: Int) -> Int {
+            Int((seed >> UInt64((schritt % 8) * 8)) % 10_007)
+        }
+        // 0 = kurz, 1 = mittel, 2 = lang
+        var klassen = [Int](repeating: 1, count: sceneCount)
+        if stufe >= 8 {
+            klassen[sceneCount - 1] = 2
+            let kurzZiel = min(sceneCount - 1, max(2, sceneCount / 2))
+            var gesetzt = 0
+            var position = seedWert(1) % max(1, sceneCount - 1)
+            while gesetzt < kurzZiel {
+                if klassen[position] == 1 {
+                    klassen[position] = 0
+                    gesetzt += 1
+                }
+                position = (position + 1) % max(1, sceneCount - 1)
+            }
+        } else if stufe <= 4 {
+            klassen[0] = 0
+            klassen[sceneCount / 2] = 2
+            if sceneCount >= 5 {
+                klassen[sceneCount - 1] = 2
+            }
+        } else {
+            let kurzIndex = seedWert(2) % sceneCount
+            klassen[kurzIndex] = 0
+            let hintereHaelfte = max(1, sceneCount - sceneCount / 2)
+            var langIndex = sceneCount - 1 - (seedWert(3) % hintereHaelfte)
+            if langIndex == kurzIndex {
+                langIndex = kurzIndex == sceneCount - 1 ? sceneCount - 2 : sceneCount - 1
+            }
+            klassen[langIndex] = 2
+            if sceneCount >= 5 {
+                var zweiteKurze = (kurzIndex + 1 + seedWert(4)) % sceneCount
+                if zweiteKurze == kurzIndex || zweiteKurze == langIndex {
+                    zweiteKurze = (kurzIndex + 1) % sceneCount
+                    if zweiteKurze == langIndex { zweiteKurze = (zweiteKurze + 1) % sceneCount }
+                }
+                klassen[zweiteKurze] = 0
+            }
+        }
+        let gewichte = klassen.map { klasse -> Double in
+            switch klasse {
+            case 0: return 0.55
+            case 2: return 1.6
+            default: return 1.0
+            }
+        }
+        let etiketten = klassen.map { klasse -> String in
+            switch klasse {
+            case 0: return "kurz – Schlaglicht, harter Schnitt"
+            case 2: return "lang – Kammerspiel, emotionale Tiefe"
+            default: return "mittel – Fließtempo"
+            }
+        }
+        return (gewichte, etiketten)
+    }
+
     /// Filtert den Fakten-Ledger auf die Zeilen, die für DIESE Szene relevant sind.
     ///
     /// WARUM: Der Ledger wurde bisher vollständig in JEDEN Szenen-Prompt injiziert.

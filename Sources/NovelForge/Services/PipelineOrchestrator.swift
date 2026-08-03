@@ -2530,6 +2530,10 @@ final class PipelineOrchestrator: ObservableObject {
         for chapter in pending {
             jobs.append(beginJob(agent: AgentName.scenePlanner, phase: .scenePlanning,
                                  project: project, chapter: chapter.chapterNumber))
+            let rhythmus = szenenRhythmusFuerKapitel(
+                project: project, chapter: chapter,
+                sceneCount: plan.scenesPerChapter, chapterCount: chapters.count
+            )
             requests.append(makeRequest(
                 prompt: PromptFactory.scenePlan(
                     bookTitle: project.title,
@@ -2541,7 +2545,8 @@ final class PipelineOrchestrator: ObservableObject {
                     scenesPerChapter: plan.scenesPerChapter,
                     // Schlusskapitel: Auszahlung statt erzwungenem Cliffhanger.
                     isFinalChapter: chapter.chapterNumber == chapters.last?.chapterNumber,
-                    canonicalStory: canonicalStoryContext(project: project)
+                    canonicalStory: canonicalStoryContext(project: project),
+                    pacingGewichte: rhythmus.gewichte, pacingEtiketten: rhythmus.etiketten
                 ),
                 system: project.isNonfiction
                     ? "Du bist ein Sachbuchredakteur. Du planst nützliche Abschnitte und hältst das Ausgabeformat exakt ein."
@@ -2597,6 +2602,10 @@ final class PipelineOrchestrator: ObservableObject {
             resetScenePlan(for: chapter)
             let retryJob = beginJob(agent: AgentName.scenePlanner, phase: .scenePlanning,
                                     project: project, chapter: chapter.chapterNumber)
+            let rhythmus = szenenRhythmusFuerKapitel(
+                project: project, chapter: chapter,
+                sceneCount: plan.scenesPerChapter, chapterCount: chapters.count
+            )
             do {
                 let response = try await generate(
                     prompt: PromptFactory.scenePlan(
@@ -2608,7 +2617,8 @@ final class PipelineOrchestrator: ObservableObject {
                         targetWords: chapter.targetWordCount,
                         scenesPerChapter: plan.scenesPerChapter,
                         isFinalChapter: chapter.chapterNumber == chapters.last?.chapterNumber,
-                        canonicalStory: canonicalStoryContext(project: project)
+                        canonicalStory: canonicalStoryContext(project: project),
+                        pacingGewichte: rhythmus.gewichte, pacingEtiketten: rhythmus.etiketten
                     ) + neuplanungsHinweis(grund: ablehnungsgruende[chapter.chapterNumber]),
                     system: project.isNonfiction
                         ? "Du bist ein genauer Sachbuchredakteur. Du korrigierst einen zuvor zu allgemeinen Abschnittsplan."
@@ -2817,12 +2827,26 @@ final class PipelineOrchestrator: ObservableObject {
         }
 
         if chapter.scenes == nil { chapter.scenes = [] }
-        let sceneTargets = variedWordTargets(
-            total: chapter.targetWordCount,
-            count: planned.count,
-            seedKey: "\(project.id.uuidString)|chapter|\(chapter.chapterNumber)|sections",
-            spread: project.isNonfiction ? 0.12 : 0.20
-        )
+        let sceneTargets: [Int]
+        if project.isNonfiction {
+            sceneTargets = variedWordTargets(
+                total: chapter.targetWordCount,
+                count: planned.count,
+                seedKey: "\(project.id.uuidString)|chapter|\(chapter.chapterNumber)|sections",
+                spread: 0.12
+            )
+        } else {
+            // Belletristik: dramaturgischer Szenen-Rhythmus (D1) statt reiner
+            // Zufallsstreuung – kurze Schlaglichter neben langen Kammerspielen,
+            // positioniert nach der Spannungsstufe des Kapitels.
+            let rhythmus = szenenRhythmusFuerKapitel(
+                project: project, chapter: chapter,
+                sceneCount: planned.count,
+                chapterCount: estimatedChapterCount(for: project)
+            )
+            sceneTargets = normierteWortziele(total: chapter.targetWordCount,
+                                              gewichte: rhythmus.gewichte)
+        }
         for (index, item) in planned.enumerated() {
             let scene = StoryScene(
                 sceneNumber: item.number,
@@ -7804,13 +7828,38 @@ final class PipelineOrchestrator: ObservableObject {
             let unit = Double(seed % 10_001) / 10_000.0
             return 1.0 - spread + unit * spread * 2.0
         }
-        let totalWeight = weights.reduce(0, +)
-        var targets = weights.map {
-            max(1, Int((Double(total) * $0 / totalWeight).rounded()))
+        return normierteWortziele(total: total, gewichte: weights)
+    }
+
+    /// Normiert Gewichte so auf das Gesamt-Wortziel, dass die Summe exakt
+    /// aufgeht (Rundungsdifferenz landet auf der letzten Szene).
+    private func normierteWortziele(total: Int, gewichte: [Double]) -> [Int] {
+        guard !gewichte.isEmpty else { return [] }
+        let summe = gewichte.reduce(0, +)
+        guard summe > 0 else { return gewichte.map { _ in max(1, total / max(1, gewichte.count)) } }
+        var targets = gewichte.map {
+            max(1, Int((Double(total) * $0 / summe).rounded()))
         }
         let difference = total - targets.reduce(0, +)
         targets[targets.count - 1] = max(1, targets[targets.count - 1] + difference)
         return targets
+    }
+
+    /// Szenen-Rhythmus (D1) für ein Kapitel: bei Belletristik dramaturgisch
+    /// nach Spannungsstufe, bei Sachbüchern neutral (keine Gewichte → die
+    /// Aufrufer nutzen dann die gleichmäßige Verteilung).
+    private func szenenRhythmusFuerKapitel(project: Project, chapter: Chapter,
+                                           sceneCount: Int, chapterCount: Int)
+        -> (gewichte: [Double], etiketten: [String]) {
+        guard !project.isNonfiction else { return ([], []) }
+        let stufe = AutonomousContentQuality.spannungsStufe(
+            chapterIndex: chapter.chapterNumber - 1,
+            chapterCount: max(1, chapterCount)
+        ).stufe
+        return AutonomousContentQuality.szenenRhythmus(
+            sceneCount: sceneCount, stufe: stufe,
+            seedKey: "\(project.id.uuidString)|rhythmus|\(chapter.chapterNumber)"
+        )
     }
 
     private func sortedChapters(_ project: Project) -> [Chapter] {
