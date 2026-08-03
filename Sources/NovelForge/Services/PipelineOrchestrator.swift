@@ -2756,9 +2756,26 @@ final class PipelineOrchestrator: ObservableObject {
         // für alle Szenen eines Kapitels gleich – der Draft Writer erzählt dann
         // zwangsläufig dasselbe Ereignis mehrfach, und keine Reparatur kann das
         // später beheben.
-        if !erlaubeErsatz, ablehnungsgrund != nil, planned.isEmpty {
-            completeJob(job, result: "Szenenplan verworfen – zweiter Anlauf folgt", tokens: tokens)
-            return ablehnungsgrund
+        // Im ersten Durchlauf wird NICHT mit Standard-Beats aufgefüllt – weder bei
+        // inhaltlicher Ablehnung noch bei einem unvollständigen oder generischen Plan.
+        //
+        // Gemessen an Buch 8: Kapitel 2 rutschte trotz erweitertem Prüfkontext durch,
+        // weil der Parser zu wenige Szenen fand und der Rest generisch ergänzt wurde.
+        // Ein generischer Plan besteht die Kanonprüfungen mühelos – er enthält ja
+        // nichts Konkretes, das unbelegt sein könnte. Genau deshalb muss hier die
+        // Vollständigkeit UND die Generik den Ausschlag geben, nicht nur der Kanon.
+        if !erlaubeErsatz {
+            let unvollstaendig = planned.count < expectedCount
+            let generisch = AutonomousContentQuality.istGenerischerSzenenplan(planned)
+            if ablehnungsgrund != nil || unvollstaendig || generisch {
+                let grund = ablehnungsgrund
+                    ?? (unvollstaendig
+                        ? "unvollständiger Plan (\(planned.count) statt \(expectedCount) Szenen)"
+                        : "nur allgemeine Standard-Beats ohne konkretes Ereignis je Szene")
+                completeJob(job, result: "Szenenplan verworfen – zweiter Anlauf folgt: \(grund)",
+                            tokens: tokens)
+                return grund
+            }
         }
 
         if planned.count < expectedCount {
@@ -6045,6 +6062,95 @@ final class PipelineOrchestrator: ObservableObject {
     /// Bewusst gedeckelt (Kosten/Zeit): höchstens `maxWidersprueche` Widersprüche und
     /// `maxKapitelGesamt` Kapitel-Neufassungen pro Lauf. Die Rundenbegrenzung der
     /// Endabnahme fängt hartnäckige Fälle zusätzlich ab.
+    /// Behebt einen Kontinuitäts-Widerspruch, indem NUR die betroffenen Absätze
+    /// neu geschrieben werden. Gibt den vollständigen Kapiteltext zurück – oder nil,
+    /// wenn der Weg nicht greift; dann übernimmt die Ganz-Kapitel-Neufassung.
+    ///
+    /// Warum absatzweise: Eine Neufassung des ganzen Kapitels ändert alles, was nicht
+    /// im Widerspruch stand, gleich mit – Gegenstände wechseln den Besitzer, Orte
+    /// verschieben sich. Bei Buch 7 entstanden so laufend neue kritische Befunde,
+    /// während alte behoben wurden. Derselbe Umbau hat die Doppler-Bereinigung
+    /// bereits von „Original behalten" auf zuverlässige Treffer gebracht.
+    private func gleicheKapitelChirurgischAn(kap: Chapter, kanon: String, befund: String,
+                                             config: ProviderConfiguration) async -> String? {
+        guard let quelle = kap.bestText, !quelle.isEmpty else { return nil }
+        var absaetze = quelle.components(separatedBy: "\n\n")
+        // Zu wenige Absätze → chirurgisch sinnlos, das ganze Kapitel ist der Absatz.
+        guard absaetze.count >= 3 else { return nil }
+
+        let nummeriert = absaetze.enumerated().map { index, text in
+            "[\(index + 1)] \(text.truncated(to: 700))"
+        }.joined(separator: "\n\n")
+
+        guard let ortung = try? await generate(
+            prompt: """
+            Ein Kapitel enthält einen Kontinuitäts-Widerspruch. Die verbindliche Wahrheit
+            steht fest. Finde die Absätze, die ihr WIDERSPRECHEN.
+
+            VERBINDLICHE WAHRHEIT:
+            \(kanon)
+
+            WIDERSPRUCH:
+            \(befund)
+
+            KAPITEL (nummerierte Absätze):
+            \(nummeriert.truncated(to: 20_000))
+
+            Antworte NUR mit den Nummern der widersprechenden Absätze, durch Komma
+            getrennt (Beispiel: 3, 7). Widerspricht kein Absatz, antworte: KEINE.
+            Nenne höchstens vier Nummern – die am eindeutigsten betroffenen.
+            """,
+            system: "Du bist Kontinuitätslektor. Du benennst präzise Fundstellen, nichts sonst.",
+            maxTokens: 120, temperature: 0.1, config: config
+        ) else { return nil }
+
+        let treffer = ortung.text
+            .components(separatedBy: CharacterSet(charactersIn: ", \n"))
+            .compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+            .filter { $0 >= 1 && $0 <= absaetze.count }
+        guard !treffer.isEmpty, treffer.count <= 4 else { return nil }
+
+        var geaendert = 0
+        for nummer in Set(treffer).sorted() {
+            let original = absaetze[nummer - 1]
+            guard original.trimmingCharacters(in: .whitespacesAndNewlines).count >= 40 else { continue }
+            guard let antwort = try? await generate(
+                prompt: """
+                Schreibe GENAU DIESEN EINEN ABSATZ so um, dass er der verbindlichen
+                Wahrheit entspricht. Ändere nichts, was nicht widerspricht.
+
+                VERBINDLICHE WAHRHEIT:
+                \(kanon)
+
+                ABSATZ:
+                \(original)
+
+                Behalte Länge, Ton und Perspektive bei. Antworte NUR mit dem neuen
+                Absatz, ohne Vorrede und ohne Anführungszeichen drumherum.
+                """,
+                system: "Du bist ein chirurgisch arbeitender Romanlektor. Du lieferst genau einen Absatz.",
+                maxTokens: max(400, original.wordCount * 4),
+                temperature: 0.25, config: config, creative: true
+            ) else { continue }
+
+            let neu = AutonomousContentQuality.humanizeProse(
+                AutonomousContentQuality.strippingInlineFormatting(
+                    AutonomousContentQuality.strippingPromptArtifacts(antwort.text)))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            // Der Ersatz muss ein Absatz bleiben – keine halbe Neufassung des Kapitels.
+            guard !neu.isEmpty,
+                  neu.wordCount >= max(8, Int(Double(original.wordCount) * 0.5)),
+                  neu.wordCount <= Int(Double(original.wordCount) * 1.8) + 20,
+                  !AutonomousContentQuality.containsMetaRequest(neu),
+                  !PublicContentGuard.disclosureViolation(in: neu),
+                  ContentSafetyFilter.isSafe(neu) else { continue }
+            absaetze[nummer - 1] = neu
+            geaendert += 1
+        }
+        guard geaendert > 0 else { return nil }
+        return absaetze.joined(separator: "\n\n")
+    }
+
     /// Repariert am Buchende die Kapitel, in denen noch Ereignisdopplungen offen sind.
     ///
     /// Warum das nötig ist: Die Dopplungsprüfung lief bisher NUR beim Schreiben. Was ein
@@ -6213,6 +6319,28 @@ final class PipelineOrchestrator: ObservableObject {
                 )
                 let job = beginJob(agent: AgentName.repairEditor, phase: .manuscriptRevision,
                                    project: project, chapter: kap.chapterNumber)
+
+                // ZUERST chirurgisch: nur die widersprüchlichen Absätze anfassen.
+                //
+                // Gemessen an Buch 7: Die Ganz-Kapitel-Neufassung behob zwar Widersprüche,
+                // führte dabei aber neue ein – „der Schlüssel gehört plötzlich Jonas",
+                // „der Pfarrer hält Linas Messer". Über drei Runden pendelten die offenen
+                // Punkte zwischen 8 und 10, statt zu fallen. Ein ganzes Kapitel neu zu
+                // schreiben, um EINEN Widerspruch zu beheben, ändert hunderte Details.
+                if let chirurgisch = await gleicheKapitelChirurgischAn(
+                    kap: kap, kanon: kanon, befund: befund, config: config
+                ) {
+                    if kap.finalText != nil { kap.finalText = chirurgisch }
+                    else if kap.revisedText != nil { kap.revisedText = chirurgisch }
+                    else { kap.draftText = chirurgisch }
+                    kap.actualWordCount = chirurgisch.wordCount
+                    kap.updatedAt = Date()
+                    kapitelBehoben += 1
+                    completeJob(job, result: "Kapitel \(kap.chapterNumber): Widerspruch absatzweise behoben")
+                    modelContext?.saveOrLog()
+                    continue
+                }
+
                 let minimumWords = max(100, Int(Double(quelle.wordCount) * 0.6))
                 let targetCeiling = kap.targetWordCount > 0
                     ? Int(Double(kap.targetWordCount) * PublicationReadiness.maximumChapterWordRatio)
