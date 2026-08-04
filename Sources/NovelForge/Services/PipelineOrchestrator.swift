@@ -3627,6 +3627,9 @@ final class PipelineOrchestrator: ObservableObject {
                     var lastUnexpectedCharacters: [String] = []
                     var lastUnexpectedArtifacts: [String] = []
                     var lastStyleTics: [String] = []
+                    // Lesbarkeit: Bandwurmsätze und Stakkato-Ketten aus dem letzten Versuch.
+                    var lastBandwuermer: [String] = []
+                    var lastStakkato = 0
                     var lastRetelling = false
                     // Bis zu 3 Schreibversuche. Provider-FATAL-Fehler pausieren das Buch
                     // (fortsetzbar); reine Inhaltsschwäche lässt es NIE scheitern.
@@ -3646,6 +3649,28 @@ final class PipelineOrchestrator: ObservableObject {
                             : "\n\nPLANVERSTOSS: Der vorige Text enthielt eine ungeplante benannte Figur oder ein zusätzliches Fundstück. Verwende ausschließlich Figuren und Elemente aus Szenenziel, Hindernis, Wendung und bisheriger Handlung. Wiederhole keine Namen oder Gegenstände aus verworfenen Versuchen."
                         let styleTicHint = lastStyleTics.isEmpty ? "" : "\n\nSTIL-TICKS AUS DEM VERSUCH (gehäufte Muster, an denen Leser KI-Prosa erkennen – reduziere sie):\n"
                             + lastStyleTics.map { "- \($0)" }.joined(separator: "\n")
+                        // Lesbarkeit: Der konkrete Satz wirkt weit besser als eine abstrakte
+                        // Regel – dasselbe Prinzip wie bei den Ablehnungsgründen der Reparatur.
+                        var lesbarkeitHint = ""
+                        if !lastBandwuermer.isEmpty {
+                            lesbarkeitHint += """
+
+
+                            ZU LANGE SCHACHTELSÄTZE (\(lastBandwuermer.count) Stück): Der Leser \
+                            kommt hier nicht zum Luftholen. Teile jeden davon in zwei bis drei \
+                            eigenständige Sätze. Beispiel aus deinem Versuch:
+                            „\(lastBandwuermer[0].truncated(to: 160))…"
+                            """
+                        }
+                        if lastStakkato >= 1 {
+                            lesbarkeitHint += """
+
+
+                            ZU VIELE KURZSÄTZE HINTEREINANDER (\(lastStakkato) Ketten): Vier oder \
+                            mehr Sätze unter sechs Wörtern in Folge wirken gehetzt. Fasse einige \
+                            davon zu einem mittleren Satz zusammen.
+                            """
+                        }
                         // Semantische Nacherzählung: Der Versuch war formal sauber, erzählte
                         // aber überwiegend bereits gezeigte Ereignisse in neuen Worten –
                         // genau die „Szene wird dreimal erzählt"-Falle, die Satzkollisions-
@@ -3660,7 +3685,7 @@ final class PipelineOrchestrator: ObservableObject {
                             """
                         let hint = attempt == 1 ? "" : (project.isNonfiction
                             ? "\n\nDer vorige Versuch war zu kurz, unvollständig oder erfüllte die geplante Abschnittsfunktion nicht. Schreibe den vollständigen Abschnitt klar und anwendbar mit 85–115 % der Zielwortzahl. Wenn Abschnittstyp oder Take-away Beispiel, Übung, Aufgabe oder Checkliste verlangen, muss dieses Element sichtbar und vollständig enthalten sein. Erfinde keine Belege oder Statistiken."
-                            : "\n\nDer vorige Versuch war zu kurz, zu lang, unklar, unbrauchbar oder klang zu schematisch. Schreibe jetzt die vollständige Szene als reinen Fließtext mit 85–115 % der Zielwortzahl, ohne Meta-Kommentare. Jeder Absatz macht Handlung, Absicht oder Folge konkret. Keine Standardfloskeln und kein deutender Zusammenfassungssatz am Absatzende.") + collisionHint + clarityHint + canonHint + genreHint + planHint + styleTicHint + retellingHint
+                            : "\n\nDer vorige Versuch war zu kurz, zu lang, unklar, unbrauchbar oder klang zu schematisch. Schreibe jetzt die vollständige Szene als reinen Fließtext mit 85–115 % der Zielwortzahl, ohne Meta-Kommentare. Jeder Absatz macht Handlung, Absicht oder Folge konkret. Keine Standardfloskeln und kein deutender Zusammenfassungssatz am Absatzende.") + collisionHint + clarityHint + canonHint + genreHint + planHint + styleTicHint + retellingHint + lesbarkeitHint
                         do {
                             let response = try await generate(
                                 prompt: basePrompt + hint,
@@ -3701,6 +3726,9 @@ final class PipelineOrchestrator: ObservableObject {
                             lastStyleTics = project.isNonfiction
                                 ? []
                                 : AutonomousContentQuality.styleTicViolations(in: response.text)
+                            lastBandwuermer = AutonomousContentQuality.schwerLesbareSaetze(
+                                in: response.text)
+                            lastStakkato = AutonomousContentQuality.stakkatoKetten(in: response.text)
                             lastRetelling = !project.isNonfiction
                                 && AutonomousContentQuality.retellingOverlap(
                                     candidate: response.text, priorTexts: priorProseTexts
@@ -3793,6 +3821,16 @@ final class PipelineOrchestrator: ObservableObject {
                                // Annahme nicht mehr – Kostenkontrolle statt Endlos-Perfektion.
                                (project.isNonfiction || attempt >= 2
                                 || AutonomousContentQuality.styleTicViolations(in: sceneText).isEmpty),
+                               // LESBARKEIT: Ein einziger Bandwurmsatz genügt, um die Szene
+                               // neu schreiben zu lassen – der Leser soll nirgends stolpern.
+                               // Gemessen an „Das Gewicht von Seide": 53 solcher Sätze, der
+                               // längste mit 70 Wörtern und 18 Einschüben; rechnerisch alle
+                               // zwei Seiten einer. Ab Versuch 3 wird die Fassung angenommen
+                               // und der Rest als Befund gemeldet – Kostenkontrolle statt
+                               // Endlosschleife, dieselbe Regel wie bei den Stil-Ticks.
+                               (attempt >= 3
+                                || (AutonomousContentQuality.schwerLesbareSaetze(in: sceneText).isEmpty
+                                    && AutonomousContentQuality.stakkatoKetten(in: sceneText) == 0)),
                                // Nacherzählung bleibt in allen drei Versuchen ein Blocker –
                                // eine „Szene noch einmal in anderen Worten" ist kein Stil-
                                // problem, sondern ein Handlungsfehler.
@@ -4082,14 +4120,14 @@ final class PipelineOrchestrator: ObservableObject {
                     // 6,6 % aller Sätze), der Rest deutlich darunter.
                     let bandwuermer = AutonomousContentQuality.schwerLesbareSaetze(in: sceneText)
                     let stakkato = AutonomousContentQuality.stakkatoKetten(in: sceneText)
-                    if bandwuermer.count >= 3 || stakkato >= 2 {
+                    if !bandwuermer.isEmpty || stakkato >= 1 {
                         var teile: [String] = []
-                        if bandwuermer.count >= 3 {
-                            teile.append("\(bandwuermer.count) Sätze über 30 Wörter mit mehr als "
-                                         + "vier Einschüben")
+                        if !bandwuermer.isEmpty {
+                            teile.append("\(bandwuermer.count) Satz/Sätze über 30 Wörter mit mehr "
+                                         + "als vier Einschüben")
                         }
-                        if stakkato >= 2 {
-                            teile.append("\(stakkato) Ketten aus vier oder mehr Kurzsätzen")
+                        if stakkato >= 1 {
+                            teile.append("\(stakkato) Kette(n) aus vier oder mehr Kurzsätzen")
                         }
                         addReport(
                             project: project,
