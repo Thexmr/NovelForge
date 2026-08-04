@@ -172,6 +172,23 @@ enum RegressionProbe {
         precondition(AutonomousContentQuality.stakkatoKetten(in: stakkato) >= 1,
                      "Kette aus vier Kurzsätzen muss erkannt werden")
 
+        // --- Dialoganteil ---------------------------------------------------------
+        // Gemessen an „Das Gewicht von Seide": 2,3 % wörtliche Rede im ganzen Buch,
+        // sieben von zwölf Kapiteln ohne ein einziges Anführungszeichen. Ein Buch aus
+        // reiner Beschreibung und Innenschau ermüdet stärker als jeder lange Satz.
+        let mitDialog = """
+        Sie stellte die Tasse ab. „Er kommt nicht", sagte sie. Erik hob den Kopf. \
+        „Woher willst du das wissen?" – „Weil er nie kommt, wenn es darauf ankommt."
+        """
+        precondition(AutonomousContentQuality.dialoganteil(in: mitDialog)
+                        >= AutonomousContentQuality.dialogUntergrenze,
+                     "Szene mit normalem Dialog darf nicht beanstandet werden")
+
+        let ohneDialog = "Der Regen prasselte gegen die Fenster. Sie sah hinaus und dachte an den Sommer."
+        precondition(AutonomousContentQuality.dialoganteil(in: ohneDialog)
+                        < AutonomousContentQuality.dialogUntergrenze,
+                     "Reine Beschreibung muss als dialogarm gelten")
+
         print("NovelForge regression probe: PASS")
     }
 }

@@ -85,6 +85,33 @@ enum AutonomousContentQuality {
         !scenePlanGenreDriftMarkers(text, genre: genre, canon: canon).isEmpty
     }
 
+    /// Anteil wörtlicher Rede am Text (0–1).
+    ///
+    /// Gemessen an „Das Gewicht von Seide": **2,3 %** über das ganze Buch, sieben von
+    /// zwölf Kapiteln ohne ein einziges Anführungszeichen. Das Buch besteht fast nur
+    /// aus Beschreibung und Innenschau – und genau das ermüdet einen Leser stärker als
+    /// jeder lange Satz. Belletristik liegt üblicherweise bei 25–40 %, ruhige
+    /// literarische Prosa selten unter 15 %.
+    ///
+    /// Gezählt werden alle im Deutschen üblichen Anführungszeichen; der Text der App
+    /// verwendet „…" nach der Typografie-Bereinigung.
+    static func dialoganteil(in text: String) -> Double {
+        guard !text.isEmpty else { return 0 }
+        let muster = "[\u{201E}\u{201C}\"\u{00BB}][^\u{201E}\u{201C}\u{201D}\"\u{00AB}\u{00BB}]{3,}[\u{201C}\u{201D}\"\u{00AB}]"
+        guard let re = try? NSRegularExpression(pattern: muster) else { return 0 }
+        let ns = text as NSString
+        let treffer = re.matches(in: text, range: NSRange(location: 0, length: ns.length))
+        let zeichen = treffer.reduce(0) { $0 + $1.range.length }
+        return Double(zeichen) / Double(ns.length)
+    }
+
+    /// Untergrenze, ab der eine Szene als dialogarm gilt.
+    ///
+    /// Bewusst niedrig angesetzt: Eine reine Beschreibungsszene ist legitim, ein
+    /// ganzes Buch daraus nicht. 12 % lässt ruhigen Passagen Raum und schlägt erst an,
+    /// wenn Figuren über Seiten hinweg schweigen.
+    static let dialogUntergrenze = 0.12
+
     /// Sätze, die den Leser abhängen: lang UND stark verschachtelt.
     ///
     /// Gemessen an „Das Gewicht von Seide" (literarischer Stil, 14.700 Wörter): 53

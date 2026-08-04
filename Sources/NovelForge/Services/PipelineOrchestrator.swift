@@ -3630,6 +3630,7 @@ final class PipelineOrchestrator: ObservableObject {
                     // Lesbarkeit: Bandwurmsätze und Stakkato-Ketten aus dem letzten Versuch.
                     var lastBandwuermer: [String] = []
                     var lastStakkato = 0
+                    var lastDialoganteil = 1.0
                     var lastRetelling = false
                     // Bis zu 3 Schreibversuche. Provider-FATAL-Fehler pausieren das Buch
                     // (fortsetzbar); reine Inhaltsschwäche lässt es NIE scheitern.
@@ -3669,6 +3670,20 @@ final class PipelineOrchestrator: ObservableObject {
                             ZU VIELE KURZSÄTZE HINTEREINANDER (\(lastStakkato) Ketten): Vier oder \
                             mehr Sätze unter sechs Wörtern in Folge wirken gehetzt. Fasse einige \
                             davon zu einem mittleren Satz zusammen.
+                            """
+                        }
+                        if !project.isNonfiction,
+                           lastDialoganteil < AutonomousContentQuality.dialogUntergrenze {
+                            lesbarkeitHint += """
+
+
+                            ZU WENIG DIALOG (\(Int(lastDialoganteil * 100)) % der Szene): Die \
+                            Figuren schweigen fast durchgehend, der Leser bekommt nur \
+                            Beschreibung und Innenschau. Lass sie MITEINANDER SPRECHEN – \
+                            wörtliche Rede in Anführungszeichen, mindestens vier bis sechs \
+                            Wechsel. Was du bisher als Gedanken oder Beschreibung erzählst, \
+                            sagen sie besser laut: knapp, konkret, mit Widerspruch. Etwa ein \
+                            Viertel der Szene soll gesprochen sein.
                             """
                         }
                         // Semantische Nacherzählung: Der Versuch war formal sauber, erzählte
@@ -3729,6 +3744,9 @@ final class PipelineOrchestrator: ObservableObject {
                             lastBandwuermer = AutonomousContentQuality.schwerLesbareSaetze(
                                 in: response.text)
                             lastStakkato = AutonomousContentQuality.stakkatoKetten(in: response.text)
+                            lastDialoganteil = project.isNonfiction
+                                ? 1.0
+                                : AutonomousContentQuality.dialoganteil(in: response.text)
                             lastRetelling = !project.isNonfiction
                                 && AutonomousContentQuality.retellingOverlap(
                                     candidate: response.text, priorTexts: priorProseTexts
@@ -3831,6 +3849,14 @@ final class PipelineOrchestrator: ObservableObject {
                                (attempt >= 3
                                 || (AutonomousContentQuality.schwerLesbareSaetze(in: sceneText).isEmpty
                                     && AutonomousContentQuality.stakkatoKetten(in: sceneText) == 0)),
+                               // DIALOG: Gemessen an „Das Gewicht von Seide" lag der Anteil
+                               // wörtlicher Rede bei 2,3 % – sieben von zwölf Kapiteln ohne
+                               // ein einziges Anführungszeichen. Ein Buch aus reiner
+                               // Beschreibung und Innenschau ermüdet stärker als jeder lange
+                               // Satz. Belletristik liegt bei 25–40 %.
+                               (project.isNonfiction || attempt >= 3
+                                || AutonomousContentQuality.dialoganteil(in: sceneText)
+                                    >= AutonomousContentQuality.dialogUntergrenze),
                                // Nacherzählung bleibt in allen drei Versuchen ein Blocker –
                                // eine „Szene noch einmal in anderen Worten" ist kein Stil-
                                // problem, sondern ein Handlungsfehler.
