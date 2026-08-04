@@ -169,8 +169,27 @@ struct KDPSalesSheetView: View {
         statusNote = nil
         Task { @MainActor in
             let result = await orchestrator.generateKDPSalesSheet(project: project)
+            // GENERIK-GATE: Die Prompts fordern Haken, Konflikt und Zugfrage – das
+            // Modell liefert trotzdem gern Floskel-Text („Ein fesselnder Roman …").
+            // Bisher stand das unbemerkt auf der Verkaufsseite. Jetzt wird der neue
+            // Text sofort gemessen; fällt er durch, gibt es EINEN zweiten Anlauf.
+            // Danach wird ehrlich gemeldet, was offen blieb – kein Endlos-Loop.
+            // (Nur bei Erfolg – nach einer Fehlermeldung wäre das Gate sinnlos.)
+            var note = result
+            if !result.hasPrefix("Fehler") {
+                let generik = KDPSalesSheet.blurbIssues(sheet.salesDescription)
+                if !generik.isEmpty {
+                    let zweitlauf = await orchestrator.generateKDPSalesSheet(project: project)
+                    let danach = zweitlauf.hasPrefix("Fehler")
+                        ? generik   // Zweitlauf gescheitert → Befund der ersten Fassung melden
+                        : KDPSalesSheet.blurbIssues(sheet.salesDescription)
+                    note = danach.isEmpty
+                        ? "\(zweitlauf) (1. Fassung generisch – im 2. Anlauf behoben: \(generik.count) Mängel)"
+                        : "\(zweitlauf) (Verkaufstext weiterhin generisch: \(danach.joined(separator: " · ")))"
+                }
+            }
             modelContext.saveOrLog()
-            statusNote = result
+            statusNote = note
             isGenerating = false
         }
     }

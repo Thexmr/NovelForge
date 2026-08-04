@@ -478,6 +478,31 @@ enum ProofService {
         checks.append(Check("Verkaufsdramaturgie (Haken, Einsatz, Einsatzverlust, Frage, Leseransprache)",
                             paragraphs.count >= 4, "\(paragraphs.count) Absätze"))
 
+        // WERBE-VERBOT in den kundensichtbaren Texten selbst. Bisher wurden nur die
+        // KEYWORDS auf Rang-/Preiswörter geprüft – stand „Bestseller" oder „kostenlos"
+        // in der Produktbeschreibung, lief sie durch, obwohl Amazon genau das im
+        // Beschreibungstext untersagt (irreführende Werbeangabe → Sperrgrund).
+        let werbeVerstoesse = KDPSalesSheet.promoViolations(in: [title, sub, desc].joined(separator: "\n"))
+        checks.append(Check("Keine Werbe-/Rangversprechen in Titel und Beschreibung",
+                            werbeVerstoesse.isEmpty,
+                            werbeVerstoesse.isEmpty
+                                ? "keine gefunden"
+                                : "verbotene Begriffe: \(werbeVerstoesse.joined(separator: ", "))"))
+
+        // GENERIK-GATE fürs Verkaufsblatt. Die Formatprüfungen oben messen Länge und
+        // Absätze – nicht, ob der Text VERKAUFT. KI-Blurbs fallen ohne Gegenwehr in
+        // Floskeln („Ein fesselnder Roman über …"), verlieren den konkreten Konflikt
+        // und enden ohne Zugfrage. Hinweis statt Blocker: Dramaturgie ist teilweise
+        // Geschmack; das Gate zählt nur maschinell eindeutige Mängel.
+        if !desc.isEmpty {
+            let generik = KDPSalesSheet.blurbIssues(desc)
+            checks.append(Check("Verkaufstext konkret (Haken, Konflikt, Zugfrage, keine Floskeln)",
+                                generik.isEmpty,
+                                generik.isEmpty ? "kein Generik-Befund"
+                                                : generik.joined(separator: " · "),
+                                required: false))
+        }
+
         let keywords = (profile?.kdpKeywords ?? "")
             .components(separatedBy: ",").map { $0.trimmingCharacters(in: CharacterSet.whitespaces) }.filter { !$0.isEmpty }
         // KDP erlaubt BIS ZU 7 Suchphrasen – 7 ist keine Pflicht. Sechs Phrasen, die das
