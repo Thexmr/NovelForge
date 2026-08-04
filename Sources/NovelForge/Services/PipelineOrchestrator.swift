@@ -4452,6 +4452,21 @@ final class PipelineOrchestrator: ObservableObject {
 
         guard !findings.isEmpty else { return 0 }
 
+        // AUDIT-PLAUSIBILITÄT: Mehr gemeldete Dopplungen als Szenen im Kapitel
+        // ist ein Zeichen eines überziehenden Audits (gemessen: 12–15 Befunde in
+        // einem 4-Szenen-Kapitel von „Wo der Wind die Briefe trägt" – daraufhin
+        // lief die Szene-2-Reparatur in jedem Lauf ins Timeout, ohne je
+        // abzuschließen). So ein Befundberg ist einzeln nicht mehr reparierbar;
+        // die Manuskriptrevision sieht das Kapitel später ganzheitlich.
+        if findings.count > scenes.count {
+            addReport(project: project, area: "Kapitel \(chapter.chapterNumber)",
+                      type: "Kapitel-Dopplung",
+                      result: "Semantische Prüfung meldet \(findings.count) Befunde in \(scenes.count) Szenen – als unplausibel verworfen, keine Einzelreparatur",
+                      severity: .warning,
+                      recommendation: "Kapitel in der Manuskriptrevision ganzheitlich auf Ereignisdopplungen prüfen.")
+            return 0
+        }
+
         let summaries = scenes.map {
             "Szene \($0.sceneNumber): \(($0.summary ?? $0.goal).truncated(to: 900))"
         }.joined(separator: "\n")
@@ -4489,7 +4504,17 @@ final class PipelineOrchestrator: ObservableObject {
                 $0.result.hasPrefix("Doppelt erzähltes Ereignis gegenüber Szene")
                     || $0.result.hasPrefix("Doppelt erzähltes Ereignis bleibt")
             }.count
-            if bisherigeAnlaeufe >= 1 {
+            // TIMEOUT-SISYPHUS-SCHUTZ: Eine Reparatur, die das Laufzeitlimit nicht
+            // übersteht (bis zu maxSceneRepairAttempts x 4 Modellaufrufe ≈ 10+ min),
+            // hinterlässt KEINEN Report – nur einen „läuft"-Job. Ohne die Jobs zu
+            // zählen startete dieselbe Reparatur in jedem Lauf von vorn
+            // (gemessen: Kapitel 3 Szene 2, zwei volle Läufe ohne Abschluss).
+            let bisherigeJobs = (project.pipelineJobs ?? []).filter {
+                $0.agentName == AgentName.repairEditor
+                    && $0.chapterNumber == chapter.chapterNumber
+                    && $0.sceneNumber == later.sceneNumber
+            }.count
+            if bisherigeAnlaeufe + bisherigeJobs >= 1 {
                 let schonOffen = dopplerReports.contains {
                     !$0.autoFixed && $0.result.hasPrefix("Doppelt erzähltes Ereignis bleibt")
                 }
