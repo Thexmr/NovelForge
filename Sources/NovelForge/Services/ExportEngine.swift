@@ -801,6 +801,15 @@ struct ExportEngine {
             "© \(year) \(authorName)",
             "Alle Rechte vorbehalten."
         ]
+        // KI-Kennzeichnung IM BUCH. Die Meldung bei KDP (aiDisclosure = „ai-generated")
+        // ist das Eine; die wahrheitsgemäße Angabe gehört auch ins Frontmatter – Amazon
+        // verlangt Transparenz über KI-erzeugte Inhalte, und ein Buch, das sie intern
+        // verschweigt, während das Konto sie deklariert, ist der klassische Widerspruch,
+        // der bei Prüfung auffliegt. Diese Zeile entsteht erst hier beim Export und
+        // steht in keinem Projektfeld – der PublicContentGuard (Produktionshinweise in
+        // Nutzertexten) wird davon nicht berührt.
+        lines.append("")
+        lines.append("Dieses Buch wurde mit KI-Unterstützung erstellt.")
         let cleanImprint = imprint.trimmingCharacters(in: .whitespacesAndNewlines)
         if !cleanImprint.isEmpty {
             lines.append("")
