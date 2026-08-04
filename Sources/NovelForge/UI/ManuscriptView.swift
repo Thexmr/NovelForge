@@ -302,7 +302,8 @@ struct ChapterDetailView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 380)
+                .labelsHidden()
+                .frame(maxWidth: 420)
 
                 Spacer()
 

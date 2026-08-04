@@ -374,7 +374,8 @@ struct DashboardView: View {
                 Text(detail)
                     .font(.caption2)
                     .foregroundStyle(StudioTheme.textMuted)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
