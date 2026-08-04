@@ -5713,9 +5713,31 @@ final class PipelineOrchestrator: ObservableObject {
             targetWords: scene.targetWordCount
         )
         var usedTokens = 0
+        // Bester Anlauf, der inhaltlich sauber war, aber den Zielkorridor knapp verfehlt hat.
+        //
+        // Ohne diese Auffanglinie war die Verdichtung alles-oder-nichts: Traf ein Versuch
+        // den Korridor nicht, landete er im Müll – und nach drei Anläufen blieb die
+        // VOLLE Ursprungsszene stehen. Gemessen an „Das Gewicht von Seide", Kapitel 3
+        // Szene 1: 753 Wörter statt 463 Ziel, dreimal verdichtet, dreimal verworfen,
+        // Ergebnis 753. Eine Fassung mit 550 Wörtern wäre deutlich näher gewesen.
+        var besterKandidat: (text: String, abstand: Int)?
+        var letzteLaenge: Int?
 
-        for attempt in 1...3 {
+        for attempt in 1...Self.maxVerdichtungsVersuche {
             do {
+                // Rückmeldung, wie weit der vorige Anlauf danebenlag. Ohne sie liefert
+                // das Modell dreimal fast dieselbe Länge – es erfährt ja nie, dass es
+                // zu wenig gekürzt hat.
+                var laengenHinweis = "Technischer Vollständigkeitsversuch \(attempt)/\(Self.maxVerdichtungsVersuche)."
+                if let letzteLaenge {
+                    let zuViel = letzteLaenge - scene.targetWordCount
+                    laengenHinweis += """
+
+                    DEIN VORIGER VERSUCH HATTE \(letzteLaenge) WÖRTER – das sind \(zuViel) zu viel.
+                    Kürze diesmal deutlich stärker: Streiche ganze Beschreibungssätze und
+                    Wiederholungen, nicht nur einzelne Wörter. Ziel bleibt \(scene.targetWordCount) Wörter.
+                    """
+                }
                 let response = try await generate(
                     prompt: """
                     Verdichte den folgenden \(project.isNonfiction ? "Sachbuchabschnitt" : "Romanabschnitt")
@@ -5730,7 +5752,7 @@ final class PipelineOrchestrator: ObservableObject {
                     Kapitel \(chapter.chapterNumber): \(chapter.title)
                     Szenenziel: \(scene.goal)
                     Wendung: \(scene.cliffhanger)
-                    Technischer Vollständigkeitsversuch \(attempt)/3.
+                    \(laengenHinweis)
 
                     TEXT:
                     \(source)
@@ -5748,21 +5770,57 @@ final class PipelineOrchestrator: ObservableObject {
                 fitted = AutonomousContentQuality.strippingInlineFormatting(fitted)
                 fitted = AutonomousContentQuality.humanizeProse(fitted)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                if AutonomousContentQuality.isWithinWordTarget(
+                letzteLaenge = fitted.wordCount
+                // Inhaltlich unbedenklich? Nur dann kommt der Text überhaupt infrage.
+                let inhaltlichSauber = AutonomousContentQuality.isAcceptableRewrite(
+                        source: source, candidate: fitted,
+                        minRatio: minimumRatio, maxRatio: 1.10,
+                        finishReason: response.finishReason)
+                    && !AutonomousContentQuality.containsMetaRequest(fitted)
+                    && !PublicContentGuard.disclosureViolation(in: fitted)
+                    && ContentSafetyFilter.isSafe(fitted)
+
+                if inhaltlichSauber,
+                   AutonomousContentQuality.isWithinWordTarget(
                        fitted, targetWords: scene.targetWordCount,
                        lowerRatio: 0.75,
-                       upperRatio: AutonomousContentQuality.sceneUpperRatio(forTargetWords: scene.targetWordCount)),
-                   AutonomousContentQuality.isAcceptableRewrite(
-                       source: source, candidate: fitted,
-                       minRatio: minimumRatio, maxRatio: 1.10,
-                       finishReason: response.finishReason),
-                   !AutonomousContentQuality.containsMetaRequest(fitted),
-                   !PublicContentGuard.disclosureViolation(in: fitted),
-                   ContentSafetyFilter.isSafe(fitted) {
+                       upperRatio: AutonomousContentQuality.sceneUpperRatio(forTargetWords: scene.targetWordCount)) {
                     return (fitted, usedTokens)
+                }
+                // Korridor verfehlt, aber inhaltlich in Ordnung: als Auffanglinie merken,
+                // sofern er dem Ziel näher kommt als alles bisher Gesehene.
+                if inhaltlichSauber {
+                    let abstand = abs(fitted.wordCount - scene.targetWordCount)
+                    if besterKandidat == nil || abstand < besterKandidat!.abstand {
+                        besterKandidat = (fitted, abstand)
+                    }
                 }
             } catch {
                 if isFatalProductionError(error) { throw error }
+            }
+        }
+
+        // FORTSCHRITTS-RATSCHE: Lieber spürbar näher am Ziel als gar nicht gekürzt.
+        //
+        // Verlangt wird ein echter Gewinn – mindestens 12 % kürzer als das Original und
+        // näher am Ziel als dieses. Sonst bleibt bewusst die Ursprungsfassung stehen;
+        // eine minimal gekürzte Version wäre den Qualitätsverlust nicht wert.
+        if let bester = besterKandidat {
+            let originalAbstand = abs(source.wordCount - scene.targetWordCount)
+            let spuerbarKuerzer = Double(bester.text.wordCount) <= Double(source.wordCount) * 0.88
+            // Nicht unter die untere Korridorgrenze rutschen: Eine Fassung, die das Ziel
+            // deutlich UNTERschreitet, wäre rein rechnerisch „näher dran", inhaltlich
+            // aber Kahlschlag. Die Ratsche darf nur kürzen, nicht ausdünnen.
+            let nichtZuKurz = Double(bester.text.wordCount) >= Double(scene.targetWordCount) * 0.75
+            if spuerbarKuerzer, nichtZuKurz, bester.abstand < originalAbstand {
+                addReport(project: project,
+                          area: "Kapitel \(chapter.chapterNumber), Szene \(scene.sceneNumber)",
+                          type: "Umfang",
+                          result: "Verdichtet auf \(bester.text.wordCount) statt \(source.wordCount) Wörter "
+                            + "(Ziel \(scene.targetWordCount)) – Korridor knapp verfehlt, Fassung dennoch übernommen.",
+                          severity: .info,
+                          recommendation: "Kapitelrevision kann weiter straffen.")
+                return (bester.text, usedTokens)
             }
         }
 
@@ -7621,6 +7679,12 @@ final class PipelineOrchestrator: ObservableObject {
     /// konkret angegangen. Gemessen an Buch 7 scheiterten die verbliebenen Fälle
     /// an genau einem Kriterium, nicht an mehreren gleichzeitig.
     static let maxSceneRepairAttempts = 4
+
+    /// Anläufe der automatischen Szenen-Verdichtung.
+    ///
+    /// Vier statt drei, weil jeder Anlauf seit „Das Gewicht von Seide" die Länge des
+    /// vorigen zurückgemeldet bekommt und dadurch gezielt nachkürzen kann statt zu raten.
+    static let maxVerdichtungsVersuche = 4
 
     /// Wie viele Kapitel die Endabnahme höchstens auf offene Ereignisdopplungen
     /// nacharbeitet. Deckel gegen unbegrenzte Nacharbeit an einem fertigen Buch;
