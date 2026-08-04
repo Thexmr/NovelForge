@@ -133,6 +133,19 @@ enum RegressionProbe {
                          "\(seiten) Seiten: zu wenige Szenen je Kapitel")
         }
 
+        // --- Rechtschreibung: Falschschreibungen aus gültigen Teilwörtern ---------
+        // „Ziffernblatt" besteht aus „Ziffern" + „Blatt" – beide korrekt, die
+        // Zusammensetzung nicht. Solche Wörter winkt jede Kompositum-Prüfung durch.
+        // Gemessen an „Das Gewicht von Seide": dreimal unbeanstandet im fertigen Text,
+        // während die Prüfung im ganzen Buch nur EINE Korrektur meldete.
+        precondition(SpellCheckService.haeufigeFalschschreibungen["ziffernblatt"] == "Zifferblatt")
+        precondition(SpellCheckService.haeufigeFalschschreibungen["standart"] == "Standard")
+        precondition(SpellCheckService.tageszeitenFehler(in: "Sie kam gestern abend zurück.")
+                        .contains { $0.korrekt == "gestern Abend" },
+                     "Kleingeschriebene Tageszeit muss erkannt werden")
+        precondition(SpellCheckService.tageszeitenFehler(in: "Sie kam gestern Abend zurück.").isEmpty,
+                     "Korrekte Schreibweise darf nicht anschlagen")
+
         print("NovelForge regression probe: PASS")
     }
 }

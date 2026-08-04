@@ -33,6 +33,53 @@ enum SpellCheckService {
         "plopp", "ratsch", "schlurf", "tock", "tack", "surr", "brumm",
     ]
 
+    /// Falschschreibungen, die aus lauter GÜLTIGEN Teilwörtern bestehen und deshalb
+    /// durch jede Kompositum-Erkennung rutschen.
+    ///
+    /// Gemessen an „Das Gewicht von Seide": Die Prüfung meldete im ganzen Buch nur
+    /// EINE Korrektur (Strähne), während „Ziffernblatt" dreimal unbeanstandet stehen
+    /// blieb – „Ziffern" und „Blatt" sind beide korrekt, die Zusammensetzung ist es
+    /// nicht (richtig: Zifferblatt). Solche Fälle findet kein Wörterbuchabgleich; sie
+    /// brauchen eine benannte Liste.
+    ///
+    /// Bewusst klein und nur eindeutige Fälle: Jeder Eintrag ist im Deutschen
+    /// unstrittig falsch, unabhängig vom Satzzusammenhang.
+    static let haeufigeFalschschreibungen: [String: String] = [
+        "ziffernblatt": "Zifferblatt",
+        "standart": "Standard",
+        "wiederspiegeln": "widerspiegeln",
+        "wiederspiegelte": "widerspiegelte",
+        "wiedersprechen": "widersprechen",
+        "wiedersprach": "widersprach",
+        "einzigste": "einzige",
+        "seperat": "separat",
+        "authenzität": "Authentizität",
+        "gallerie": "Galerie",
+        "immernoch": "immer noch",
+        "garnicht": "gar nicht",
+        "aufjedenfall": "auf jeden Fall",
+        "zumindestens": "zumindest",
+    ]
+
+    /// Kleingeschriebene Tageszeiten nach einem Zeitwort – seit der Rechtschreibreform
+    /// groß: „gestern Abend", nicht „gestern abend". Gemessen im selben Buch.
+    static func tageszeitenFehler(in text: String) -> [(fehler: String, korrekt: String)] {
+        var gefunden: [(String, String)] = []
+        let zeitwoerter = ["gestern", "heute", "morgen", "vorgestern", "übermorgen"]
+        let tageszeiten = ["abend": "Abend", "morgen": "Morgen", "mittag": "Mittag",
+                           "nachmittag": "Nachmittag", "vormittag": "Vormittag",
+                           "nacht": "Nacht"]
+        for zeit in zeitwoerter {
+            for (klein, gross) in tageszeiten {
+                let muster = "\\b\(zeit)\\s+\(klein)\\b"
+                if text.range(of: muster, options: [.regularExpression]) != nil {
+                    gefunden.append(("\(zeit) \(klein)", "\(zeit) \(gross)"))
+                }
+            }
+        }
+        return gefunden
+    }
+
     /// Prüft das Manuskript und liefert nur die Wörter, die wirklich verdächtig sind.
     ///
     /// - Parameter eigennamen: Figuren- und Ortsnamen aus der Story Bible. Sie stehen
@@ -56,12 +103,34 @@ enum SpellCheckService {
 
         let namenKlein = Set(eigennamen.map { $0.lowercased() })
         var befunde: [Befund] = []
+
+        // ZUERST die benannten Falschschreibungen – sie bestehen aus gültigen
+        // Teilwörtern und würden von der Kompositum-Prüfung sonst durchgewinkt.
+        // Sie tauchen im Wörterbuch-Durchlauf teils gar nicht auf, deshalb wird der
+        // Text hier direkt durchsucht.
+        for (falsch, richtig) in haeufigeFalschschreibungen {
+            let muster = "\\b\(NSRegularExpression.escapedPattern(for: falsch))\\w{0,3}\\b"
+            guard let re = try? NSRegularExpression(pattern: muster, options: [.caseInsensitive])
+            else { continue }
+            let anzahl = re.numberOfMatches(in: text, range: NSRange(location: 0, length: ns.length))
+            if anzahl > 0 {
+                befunde.append(Befund(wort: falsch.capitalized, anzahl: anzahl,
+                                      vorschlaege: [richtig]))
+            }
+        }
+        // Kleingeschriebene Tageszeiten („gestern abend").
+        for (fehler, korrekt) in tageszeitenFehler(in: text) {
+            befunde.append(Befund(wort: fehler, anzahl: 1, vorschlaege: [korrekt]))
+        }
+
         for (wort, anzahl) in treffer {
             let klein = wort.lowercased()
             if erlaubteWortschoepfungen.contains(klein) { continue }
             // Eigenname oder eine gebeugte Form davon („Mira" → „Miras").
             if namenKlein.contains(klein) { continue }
             if namenKlein.contains(where: { klein.hasPrefix($0) && klein.count - $0.count <= 2 }) { continue }
+            // Bereits oben als benannte Falschschreibung erfasst?
+            if haeufigeFalschschreibungen.keys.contains(where: { klein.hasPrefix($0) }) { continue }
             if istKompositum(wort, pruefer: pruefer) { continue }
 
             let vorschlaege = pruefer.guesses(forWordRange: NSRange(location: 0, length: (wort as NSString).length),
