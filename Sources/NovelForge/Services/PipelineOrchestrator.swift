@@ -4465,27 +4465,36 @@ final class PipelineOrchestrator: ObservableObject {
             // WIRKUNGSLOSIGKEITS-BREMSE: Die Reparatur-Akzeptanz prüft Qualitäts-Gates,
             // aber nicht, ob das doppelt erzählte Ereignis wirklich verschwunden ist.
             // Blieb es erhalten, meldete das nächste Audit (läuft bei jedem Resume erneut)
-            // dasselbe Szenenpaar wieder – und jede Runde verbrannte bis zu
+            // dieselbe Szene wieder – und jede Runde verbrannte bis zu
             // maxSceneRepairAttempts x 4 Modellaufrufe, ohne dass das Buch je über
             // Kapitel 1 hinauskam (gemessen: „Wo der Wind die Briefe trägt", Szenen 2+3
-            // vs. Szene 1, drei identische Befunde in Folge-Läufen, alle „behoben").
-            // Nach zwei bereits akzeptierten Reparaturen desselben Paars ist ein weiterer
-            // Anlauf mit demselben Modell und Prompt nachweislich aussichtslos: Befund
-            // offen melden (Manuskriptrevision + buchweites Doppler-Audit bleiben als
-            // spätere Instanzen) und die Produktion fortführen.
-            let paarPraefix = "Doppelt erzähltes Ereignis gegenüber Szene \(finding.earlierSceneNumber) gezielt repariert"
-            let bisherigeReparaturen = (project.qualityReports ?? []).filter {
-                $0.checkType == "Kapitel-Dopplung" && $0.autoFixed
-                    && $0.checkedArea == "Kapitel \(chapter.chapterNumber), Szene \(later.sceneNumber)"
-                    && $0.result.hasPrefix(paarPraefix)
+            // vs. Szene 1, identische Befunde in Folge-Läufen, alle „behoben"; danach
+            // rotierte der Befund durch weitere Szenenpaare desselben Kapitels).
+            // Kappe deshalb die Reparatur-Anläufe PRO SZENE (über alle Paare und
+            // Ergebnisse hinweg): Nach zwei Anläufen mit demselben Modell und Prompt
+            // ist ein weiterer nachweislich aussichtslos – Befund einmal offen melden
+            // (Manuskriptrevision + buchweites Doppler-Audit bleiben als spätere
+            // Instanzen) und die Produktion fortführen.
+            let bereich = "Kapitel \(chapter.chapterNumber), Szene \(later.sceneNumber)"
+            let dopplerReports = (project.qualityReports ?? []).filter {
+                $0.checkType == "Kapitel-Dopplung" && $0.checkedArea == bereich
+            }
+            let bisherigeAnlaeufe = dopplerReports.filter {
+                $0.result.hasPrefix("Doppelt erzähltes Ereignis gegenüber Szene")
+                    || $0.result.hasPrefix("Doppelt erzähltes Ereignis bleibt")
             }.count
-            if bisherigeReparaturen >= 2 {
-                addReport(project: project,
-                          area: "Kapitel \(chapter.chapterNumber), Szene \(later.sceneNumber)",
-                          type: "Kapitel-Dopplung",
-                          result: "Doppelt erzähltes Ereignis bleibt nach \(bisherigeReparaturen) Reparaturen weiterhin gemeldet: \(finding.event)",
-                          severity: .warning,
-                          recommendation: finding.instruction)
+            if bisherigeAnlaeufe >= 2 {
+                let schonOffen = dopplerReports.contains {
+                    !$0.autoFixed && $0.result.hasPrefix("Doppelt erzähltes Ereignis bleibt")
+                }
+                if !schonOffen {
+                    addReport(project: project,
+                              area: bereich,
+                              type: "Kapitel-Dopplung",
+                              result: "Doppelt erzähltes Ereignis bleibt nach \(bisherigeAnlaeufe) Reparatur-Anläufen weiterhin gemeldet: \(finding.event)",
+                              severity: .warning,
+                              recommendation: finding.instruction)
+                }
                 continue
             }
             let job = beginJob(agent: AgentName.repairEditor, phase: .drafting,
