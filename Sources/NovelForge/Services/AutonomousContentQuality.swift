@@ -85,6 +85,50 @@ enum AutonomousContentQuality {
         !scenePlanGenreDriftMarkers(text, genre: genre, canon: canon).isEmpty
     }
 
+    /// Sätze, die den Leser abhängen: lang UND stark verschachtelt.
+    ///
+    /// Gemessen an „Das Gewicht von Seide" (literarischer Stil, 14.700 Wörter): 53
+    /// Sätze mit über 30 Wörtern und mehr als vier Einschüben, der längste mit 70
+    /// Wörtern und 18 Einschüben – ein Satz, der über eine halbe Seite läuft und
+    /// keine Atempause lässt. Für anspruchsvolle Belletristik mag das tragen, für ein
+    /// breit verkäufliches Buch ist es die häufigste Abbruchursache.
+    ///
+    /// Beide Schwellen müssen greifen: Ein langer Satz ohne Einschübe liest sich
+    /// flüssig, ein kurzer mit drei Kommas ebenfalls. Erst die Kombination bremst.
+    static func schwerLesbareSaetze(in text: String) -> [String] {
+        saetzeAusText(text).filter { satz in
+            let woerter = satz.split(separator: " ").count
+            guard woerter > 30 else { return false }
+            let einschuebe = satz.filter { $0 == "," || $0 == "–" || $0 == "—" }.count
+            return einschuebe > 4
+        }
+    }
+
+    /// Ketten aus sehr kurzen Sätzen – das Gegenstück zum Bandwurm.
+    ///
+    /// Vier oder mehr Sätze unter sechs Wörtern hintereinander wirken gehetzt und
+    /// lassen die Szene zerhackt erscheinen. Im selben Buch: zwölf solcher Ketten.
+    static func stakkatoKetten(in text: String) -> Int {
+        var ketten = 0
+        var lauf = 0
+        for satz in saetzeAusText(text) {
+            if satz.split(separator: " ").count < 6 {
+                lauf += 1
+            } else {
+                if lauf >= 4 { ketten += 1 }
+                lauf = 0
+            }
+        }
+        if lauf >= 4 { ketten += 1 }
+        return ketten
+    }
+
+    private static func saetzeAusText(_ text: String) -> [String] {
+        text.components(separatedBy: CharacterSet(charactersIn: ".!?\u{201C}"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.count > 3 }
+    }
+
     /// Bricht die Szene die Erzählperspektive des Buches?
     ///
     /// Gemessen an „Wo wir zuletzt tanzten": 4 von 48 Szenen standen in der ICH-Form,

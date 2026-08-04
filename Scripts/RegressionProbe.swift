@@ -146,6 +146,32 @@ enum RegressionProbe {
         precondition(SpellCheckService.tageszeitenFehler(in: "Sie kam gestern Abend zurück.").isEmpty,
                      "Korrekte Schreibweise darf nicht anschlagen")
 
+        // --- Lesbarkeit -----------------------------------------------------------
+        // Bandwurmsätze und Stakkato-Ketten sind die beiden Muster, an denen ein
+        // durchschnittlicher Leser abbricht. Gemessen an „Das Gewicht von Seide":
+        // 53 Sätze über 30 Wörter mit mehr als vier Einschüben, der längste mit 70
+        // Wörtern und 18 Einschüben.
+        let bandwurm = """
+        Er stand da und sah ihre Hand zittern und wusste, dass sie etwas gehört hatte, \
+        Markus, Reutner, die Mühle, die Schulden, einen Plan, der sich bereits bildete, \
+        schwer, kalt, notwendig, doch nicht die Hälfte, die sie selbst betraf, und auch \
+        nicht das, was er ihr niemals sagen würde, nicht heute, nicht morgen, niemals.
+        """
+        precondition(AutonomousContentQuality.schwerLesbareSaetze(in: bandwurm).count == 1,
+                     "Bandwurmsatz muss erkannt werden")
+
+        let flüssig = """
+        Sie stellte die Tasse ab. Der Kaffee war kalt geworden, aber das merkte sie erst \
+        jetzt. Draußen fuhr ein Wagen vorbei, langsam, als suche der Fahrer eine Hausnummer.
+        """
+        precondition(AutonomousContentQuality.schwerLesbareSaetze(in: flüssig).isEmpty,
+                     "Flüssiger Text darf nicht als schwer lesbar gelten")
+        precondition(AutonomousContentQuality.stakkatoKetten(in: flüssig) == 0)
+
+        let stakkato = "Sie ging. Er blieb. Die Tür fiel zu. Nichts bewegte sich. Dann kam der Regen und alles wurde still."
+        precondition(AutonomousContentQuality.stakkatoKetten(in: stakkato) >= 1,
+                     "Kette aus vier Kurzsätzen muss erkannt werden")
+
         print("NovelForge regression probe: PASS")
     }
 }

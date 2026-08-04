@@ -4075,6 +4075,34 @@ final class PipelineOrchestrator: ObservableObject {
                     // im Schreib-Loop, der wirft, lässt bei einem Falsch-Positiv jeden
                     // Versuch identisch scheitern – genau so entstand in diesem Projekt
                     // eine Endlosschleife mit 143 Neustarts in einer Nacht.
+                    // Lesbarkeit festhalten: Bandwurmsätze und Stakkato-Ketten sind die
+                    // beiden Muster, an denen ein durchschnittlicher Leser abbricht.
+                    // Ab drei Bandwurmsätzen in EINER Szene wird es spürbar – gemessen
+                    // an „Das Gewicht von Seide": zwei Szenen lagen darüber (10 % und
+                    // 6,6 % aller Sätze), der Rest deutlich darunter.
+                    let bandwuermer = AutonomousContentQuality.schwerLesbareSaetze(in: sceneText)
+                    let stakkato = AutonomousContentQuality.stakkatoKetten(in: sceneText)
+                    if bandwuermer.count >= 3 || stakkato >= 2 {
+                        var teile: [String] = []
+                        if bandwuermer.count >= 3 {
+                            teile.append("\(bandwuermer.count) Sätze über 30 Wörter mit mehr als "
+                                         + "vier Einschüben")
+                        }
+                        if stakkato >= 2 {
+                            teile.append("\(stakkato) Ketten aus vier oder mehr Kurzsätzen")
+                        }
+                        addReport(
+                            project: project,
+                            area: "Kapitel \(chapter.chapterNumber), Szene \(scene.sceneNumber)",
+                            type: "Lesbarkeit",
+                            result: "Schwer lesbar: " + teile.joined(separator: ", ")
+                                + (bandwuermer.first.map { ". Beispiel: „\($0.truncated(to: 120))…“" } ?? ""),
+                            severity: .warning,
+                            recommendation: "Lange Schachtelsätze in zwei bis drei Sätze teilen; "
+                                + "Kurzsatzketten mit einem längeren Satz auflockern."
+                        )
+                    }
+
                     if AutonomousContentQuality.brichtErzaehlperspektive(
                         sceneText, perspektive: profile.narrativePerspective
                     ) {
