@@ -96,6 +96,21 @@ enum PrintCoverService {
         }
     }
 
+    /// Übersetzt das Buchformat (Project.trimSizeRaw) in das Druckcover-Format.
+    ///
+    /// Fehlte diese Übersetzung, lief jeder Wrap im Default 5×8 – auch für Bücher,
+    /// deren Buchblock in 6×9 gesetzt war. KDP misst das Cover am Buchblock und
+    /// lehnt ein Cover mit falschem Endformat ab. Unbekannte Werte fallen auf das
+    /// gängigste Format zurück (6×9 = Projekt-Default).
+    static func printTrim(forBookTrimRaw raw: String) -> TrimSize {
+        switch raw {
+        case "5x8": return .fiveByEight
+        case "5.25x8": return .fiveQuarterByEight
+        case "5.5x8.5": return .fiveHalfByEightHalf
+        default: return .sixByNine
+        }
+    }
+
     /// Schätzt die Seitenzahl aus der Wortzahl. KDP druckt nur GERADE Seitenzahlen.
     static func estimatePages(words: Int, trim: TrimSize = .fiveByEight) -> Int {
         let raw = Int(ceil(Double(words) / Double(trim.wordsPerPage))) + 6  // Titelei, Impressum

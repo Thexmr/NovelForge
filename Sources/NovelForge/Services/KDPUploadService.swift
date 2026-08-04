@@ -65,11 +65,29 @@ enum KDPUploadService {
             let bundled = res.appendingPathComponent("kdp-sidecar", isDirectory: true)
             if FileManager.default.fileExists(atPath: bundled.appendingPathComponent("index.js").path) { return bundled }
         }
-        // Entwicklungs-Fallback (Repo-Baum neben dem laufenden Binary)
-        let devCandidates = [
-            "/Users/dave/Documents/Codex/2026-06-12/gehe-in-mein-github-repo-in/NovelForge/kdp-sidecar",
-        ].map { URL(fileURLWithPath: $0) }
-        return devCandidates.first { FileManager.default.fileExists(atPath: $0.appendingPathComponent("index.js").path) }
+        // Entwicklungs-Fallback. ZUERST relativ zu DIESEM Quellbaum suchen
+        // (#filePath = …/NovelForge/Sources/NovelForge/Services/KDPUploadService.swift,
+        // vier Ebenen höher liegt die Repo-Wurzel mit kdp-sidecar/).
+        //
+        // Vorher stand hier ausschließlich ein fest verdrahteter Pfad auf ein
+        // älteres Repo-Checkout (/Users/dave/Documents/Codex/…). Der existierte
+        // noch – mit einem ALTEN Stand des Sidecars. Entwicklungsläufe benutzten
+        // also stillschweigend den veralteten Upload-Code, während man die aktuelle
+        // Version bearbeitete und sich über wirkungslose Fixes wunderte.
+        var kandidaten: [URL] = []
+        let quellDatei = URL(fileURLWithPath: #filePath)
+        let repoWurzel = quellDatei
+            .deletingLastPathComponent()   // Services
+            .deletingLastPathComponent()   // NovelForge (Target)
+            .deletingLastPathComponent()   // Sources
+            .deletingLastPathComponent()   // Repo-Wurzel
+        kandidaten.append(repoWurzel.appendingPathComponent("kdp-sidecar", isDirectory: true))
+        // Ältere Checkouts nur als letzte Reserve.
+        kandidaten.append(URL(fileURLWithPath:
+            "/Users/dave/Documents/Codex/2026-06-12/gehe-in-mein-github-repo-in/NovelForge/kdp-sidecar"))
+        return kandidaten.first {
+            FileManager.default.fileExists(atPath: $0.appendingPathComponent("index.js").path)
+        }
     }
 
     private static func nodePath() -> String? {
@@ -185,7 +203,11 @@ enum KDPUploadService {
                 $0 + ($1.finalText ?? $1.revisedText ?? $1.draftText ?? "")
                     .split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
             }
-            let seiten = PrintCoverService.estimatePages(words: woerter)
+            // Endformat des BUCHBLOCKS übernehmen. Vorher lief alles im Default 5×8 –
+            // für ein 6×9-Buch (Projekt-Default) bekam KDP damit ein Cover im falschen
+            // Endformat samt falsch gerechnetem Rücken und lehnte es ab.
+            let buchTrim = PrintCoverService.printTrim(forBookTrimRaw: project.trimSizeRaw)
+            let seiten = PrintCoverService.estimatePages(words: woerter, trim: buchTrim)
             let jpeg = cover.deletingLastPathComponent().appendingPathComponent("druckcover.jpg")
             let pdf = cover.deletingLastPathComponent().appendingPathComponent("druckcover.pdf")
             let blatt = KDPSalesSheet.make(for: project)
@@ -198,6 +220,7 @@ enum KDPUploadService {
             // eingebrannt, er erschiene auf dem Wrap sonst ein zweites Mal.
             let motiv = CoverArtService.motifURL(for: project) ?? cover
             guard let r = try? PrintCoverService.makeWrap(artworkURL: motiv, pages: seiten,
+                                                          trim: buchTrim,
                                                           texts: texte, jpegURL: jpeg, pdfURL: pdf)
             else { return nil }
             return (r.jpegURL, r.dimensions)
