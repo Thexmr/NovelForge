@@ -515,6 +515,9 @@ struct ProductionView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 12)
+                // Beide Aktionen in einer festen Spalte gleicher Breite: Die
+                // primäre Auto-Produktion und das sekundäre „Neues Buch" wirken
+                // so ausgewogen statt unterschiedlich breit untereinander.
                 VStack(alignment: .trailing, spacing: 10) {
                     if !orchestrator.isRunning {
                         Button {
@@ -523,15 +526,16 @@ struct ProductionView: View {
                             Label("Auto-Produktion starten", systemImage: "play.fill")
                         }
                         .buttonStyle(StudioPrimaryButtonStyle())
-                        .frame(width: 230)
                     }
                     Button {
                         showingNewBookSheet = true
                     } label: {
                         Label("Neues Buch", systemImage: "plus")
+                            .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.violet))
                 }
+                .frame(width: 230)
             }
 
             HStack(spacing: 10) {
