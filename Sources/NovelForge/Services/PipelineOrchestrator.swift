@@ -7906,12 +7906,23 @@ final class PipelineOrchestrator: ObservableObject {
 
     private func isSceneWritten(_ scene: StoryScene) -> Bool {
         guard let text = scene.text, !text.isEmpty else { return false }
-        guard AutonomousContentQuality.isWithinWordTarget(
-            text, targetWords: scene.targetWordCount,
-            lowerRatio: 0.55,
-            upperRatio: AutonomousContentQuality.sceneUpperRatio(forTargetWords: scene.targetWordCount)
-        ), AutonomousContentQuality.hasCompleteSentenceEnding(text),
-           !AutonomousContentQuality.containsMetaRequest(text) else {
+        // KEIN Umfang-Korridor als Lösch-Trigger beim Resume: Der Draft-Pfad
+        // speichert eine Szene nach drei gescheiterten Verdichtungsversuchen
+        // bewusst MIT Umfang-Warnung („vollständige Ursprungsszene beibehalten"
+        // – die Kapitelrevision verdichtet im nächsten Schritt). Ein Korridor-
+        // Zwang hier löschte diese vollständige Prosa beim Fortsetzen wieder
+        // (scene.text = nil) und schrieb sie deterministisch erneut zu lang:
+        // Ping-Pong, die Buchwortzahl FIEL zwischen Läufen (1896→1852→1593)
+        // statt zu wachsen. Gemessen an „Wo der Wind die Briefe trägt",
+        // Kapitel 1 Szene 4: 685/291 Wörter, Endlos-Neufassung.
+        // Übrig bleibt eine Stub-Untergrenze gegen echte Bruchstücke (z. B.
+        // Provider-Abriss nach zwei Sätzen) – die werden weiter neu geschrieben.
+        // Vollständige, sichere Prosa außerhalb des Korridors zählt als
+        // geschrieben; der Umfang-Befund bleibt als Report sichtbar.
+        let stubFloor = max(60, Int(Double(scene.targetWordCount) * 0.25))
+        guard text.wordCount >= stubFloor,
+              AutonomousContentQuality.hasCompleteSentenceEnding(text),
+              !AutonomousContentQuality.containsMetaRequest(text) else {
             return false
         }
         guard AutonomousContentQuality.clarityAssessment(text).isAcceptable,
