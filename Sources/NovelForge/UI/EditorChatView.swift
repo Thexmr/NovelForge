@@ -96,6 +96,12 @@ struct EditorChatView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Kopfbereich als Panel wie in den anderen Studioräumen (Dashboard,
+        // Agentenmonitor) – wirkt ruhiger und konsistenter.
+        .studioPanel(cornerRadius: 8)
+        .padding(.horizontal, 18)
+        .padding(.top, 14)
+        .padding(.bottom, 10)
     }
 
     private var headerControls: some View {

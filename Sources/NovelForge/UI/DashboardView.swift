@@ -226,6 +226,7 @@ struct DashboardView: View {
             }
             .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.cyan))
             .help("Produktion öffnen")
+            .accessibilityLabel("Produktion öffnen")
         }
         .padding(18)
         .studioFeaturedPanel(cornerRadius: 8)

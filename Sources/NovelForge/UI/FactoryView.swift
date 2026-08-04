@@ -301,6 +301,8 @@ struct FactoryView: View {
                             .font(.caption.weight(.semibold)).foregroundStyle(StudioTheme.textMuted)
                         Button { factory.remove(entry.id) } label: { Image(systemName: "xmark.circle") }
                             .buttonStyle(.borderless).foregroundStyle(StudioTheme.textFaint)
+                            .help("Aus Warteschlange entfernen")
+                            .accessibilityLabel("\(entry.title) aus Warteschlange entfernen")
                     }
                     .padding(.vertical, 5)
                     Divider().opacity(0.3)

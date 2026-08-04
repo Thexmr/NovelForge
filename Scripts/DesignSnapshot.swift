@@ -84,6 +84,9 @@ struct DesignSnapshot {
         log("Rendere factory …")
         render(FactoryView().frame(width: 1028, height: 840),
                name: "factory", to: outDir, container: container)
+        log("Rendere editorchat …")
+        render(EditorChatView().frame(width: 1028, height: 840),
+               name: "editorchat", to: outDir, container: container)
 
         log("FERTIG: Snapshots in \(outDir)")
         exit(0)
@@ -96,7 +99,12 @@ struct DesignSnapshot {
             .preferredColorScheme(scheme)
             .environment(\.font, .body)
         let hostingView = NSHostingView(rootView: hosted)
-        let frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        // Fenster exakt in View-Größe: NSHostingView liefert die ideale Größe
+        // (das .frame(width:height:) der Views oben), so entstehen keine
+        // schwarzen Ränder im Snapshot.
+        let fitting = hostingView.fittingSize
+        let size = NSSize(width: max(1, fitting.width), height: max(1, fitting.height))
+        let frame = NSRect(origin: .zero, size: size)
         hostingView.frame = frame
         log("\(name): Fenster …")
         // Ein unsichtbares Fenster erzwingt Layout + Material-Rendering.
