@@ -7879,7 +7879,8 @@ final class PipelineOrchestrator: ObservableObject {
         ).stufe
         return AutonomousContentQuality.szenenRhythmus(
             sceneCount: sceneCount, stufe: stufe,
-            seedKey: "\(project.id.uuidString)|rhythmus|\(chapter.chapterNumber)"
+            seedKey: "\(project.id.uuidString)|rhythmus|\(chapter.chapterNumber)",
+            targetWords: chapter.targetWordCount
         )
     }
 

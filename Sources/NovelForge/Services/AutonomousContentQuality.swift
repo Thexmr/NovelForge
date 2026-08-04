@@ -1966,7 +1966,14 @@ enum AutonomousContentQuality {
     ///
     /// Rückgabe: Gewichte je Szene (werden auf das Kapitel-Wortziel normiert)
     /// und Etiketten für den Pacing-Hinweis im Szenenplan-Prompt.
-    static func szenenRhythmus(sceneCount: Int, stufe: Int, seedKey: String)
+    ///
+    /// `targetWords` (Kapitel-Ziel) aktiviert den Kurzform-Schutz: Ergibt das
+    /// Ziel im Schnitt weniger als 600 Wörter pro Szene, werden alle Szenen
+    /// gleich lang – kleinere Klassen würden sonst Szenen unter ~250 Wörter
+    /// erzeugen, die das Umfang-Gate endlos bekämpft. Bei Langform-Kapiteln
+    /// (≥600 Wörter Ø pro Szene) bleibt der volle Rhythmus erhalten.
+    static func szenenRhythmus(sceneCount: Int, stufe: Int, seedKey: String,
+                               targetWords: Int = 0)
         -> (gewichte: [Double], etiketten: [String]) {
         guard sceneCount > 1 else {
             return sceneCount == 1 ? ([1.0], ["mittel – Fließtempo"]) : ([], [])
@@ -2012,6 +2019,16 @@ enum AutonomousContentQuality {
                 }
                 klassen[zweiteKurze] = 0
             }
+        }
+        // Kurzform-Schutz: Ergibt das Kapitel-Ziel im Schnitt weniger als 600
+        // Wörter pro Szene, würde jede Längenklasse Szenen unter ~250 Wörter
+        // erzeugen – zu wenig für eine echte Szene, und das Umfang-Gate
+        // bekämpft sie danach endlos. Kleine Kapitel bekommen daher gleich
+        // lange Szenen; der Rhythmus ist ein Langform-Merkmal (s. Kommentar).
+        let kurzform = targetWords > 0 && sceneCount > 0
+            && Double(targetWords) / Double(sceneCount) < 600
+        if kurzform {
+            klassen = [Int](repeating: 1, count: sceneCount)
         }
         let gewichte = klassen.map { klasse -> Double in
             switch klasse {
