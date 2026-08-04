@@ -425,6 +425,70 @@ async function setzeSprache(page, job) {
 }
 
 /**
+ * Klickt ein Formularelement, das ÜBER EINEN ABSCHNITT eingegrenzt wird.
+ *
+ * `klickeNachBeschriftung` sucht global auf der ganzen Seite. Das ist für die
+ * KI-Kennzeichnung gefährlich: Das Muster `^\s*Ja\s*$` passt auf JEDE Ja/Nein-
+ * Frage des Formulars (Altersfreigabe, öffentliche Domain, …), und `'text'`
+ * passt auf jede Checkbox, deren Beschriftung das Wort enthält – der Treffer
+ * war schlicht der erste im DOM, nicht notwendig der richtige.
+ *
+ * Hier wird zuerst der Abschnitt gesucht, dessen Text zum Abschnittsmuster
+ * passt (z. B. die KI-Frage), und nur darin geklickt. Gibt es keinen solchen
+ * Abschnitt, gilt das bisherige Verhalten als Rückfall.
+ */
+async function klickeInAbschnitt(page, abschnittMuster, beschriftungsMuster, nurTyp) {
+  return page.evaluate((absQuelle, bQuelle, typ) => {
+    const absRe = new RegExp(absQuelle, 'i');
+    const bRe = new RegExp(bQuelle, 'i');
+    const eingaben = [...document.querySelectorAll('input[type="radio"], input[type="checkbox"]')]
+      .filter((el) => !typ || el.type === typ);
+    const textVon = (el) => {
+      let t = '';
+      if (el.id) {
+        const lab = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+        if (lab) t = lab.innerText || '';
+      }
+      if (!t) t = (el.closest('label') || {}).innerText || '';
+      if (!t) t = (el.parentElement || {}).innerText || '';
+      return t;
+    };
+    // Den SPEZIFISCHSTEN Abschnitts-Container finden: alle Elemente, deren
+    // Text zum Abschnittsmuster passt UND die mindestens eine passende Eingabe
+    // enthalten; davon gewinnt der KÜRZESTE Text (je spezifischer der Block,
+    // desto kürzer). So scheitert kein Lockvogel: Ein übergeordnetes Element
+    // (form/body), das Frage UND Fremdfragen umschließt, verliert immer gegen
+    // den engen Block der eigentlichen Abschnittsfrage.
+    let abschnitt = null;
+    const kandidaten = document.querySelectorAll('fieldset, section, div, form, table, td, li');
+    for (const el of kandidaten) {
+      const t = (el.innerText || '');
+      if (!absRe.test(t)) continue;
+      const drin = [...el.querySelectorAll('input[type="radio"], input[type="checkbox"]')]
+        .filter((e) => !typ || e.type === typ);
+      if (!drin.length) continue;
+      if (!abschnitt || t.length < (abschnitt.innerText || '').length) abschnitt = el;
+    }
+    const pool = abschnitt
+      ? [...abschnitt.querySelectorAll('input[type="radio"], input[type="checkbox"]')]
+          .filter((e) => !typ || e.type === typ)
+      : eingaben;   // Rückfall: bisheriges globales Verhalten
+    for (const el of pool) {
+      if (!bRe.test(textVon(el))) continue;
+      if (el.checked) return 'bereits';
+      el.click();
+      return el.checked ? 'geklickt' : 'klick-ohne-wirkung';
+    }
+    return 'nicht-gefunden';
+  }, abschnittMuster instanceof RegExp ? abschnittMuster.source : String(abschnittMuster),
+     beschriftungsMuster instanceof RegExp ? beschriftungsMuster.source : String(beschriftungsMuster),
+     nurTyp || null);
+}
+
+// Textanker des KI-Offenlegungs-Abschnitts bei KDP (de/en).
+const KI_ABSCHNITT = 'künstliche\\s+intelligenz|ki[-\\s]?tools|ki[-\\s]?generiert|artificial\\s+intelligence|ai[-\\s]?generated|ai\\s+tools';
+
+/**
  * KI-Kennzeichnung ausfüllen – bei KDP ein PFLICHTFELD.
  *
  * Hier stand vorher nur ein Kommentar ("hier wird die Absicht protokolliert") und eine
@@ -435,22 +499,29 @@ async function setzeSprache(page, job) {
  *
  * Die Angabe muss der Wahrheit entsprechen: Diese Bücher entstehen mit KI, also "Ja".
  * Danach fragt KDP, WOFÜR – Text, Bilder, Übersetzung. Text und Bilder treffen zu.
+ *
+ * Alle Klicks laufen über klickeInAbschnitt: Die Ja/Nein-Frage darf nicht die
+ * ERSTE beliebige Ja/Nein-Frage der Seite treffen, und die Text-/Bilder-Häkchen
+ * keine fremde Checkbox mit „Text" in der Beschriftung.
  */
 async function setzeKiKennzeichnung(page, job) {
-  const art = String(job.aiDisclosure || 'ai-assisted');
+  const art = String(job.aiDisclosure || 'ai-generated');
   const jaNein = art === 'none' ? 'Nein' : 'Ja';
   const schritte = [];
 
-  schritte.push('Haupt:' + await klickeNachBeschriftung(page, `^\\s*${jaNein}\\s*$`, 'radio'));
+  schritte.push('Haupt:' + await klickeInAbschnitt(page, KI_ABSCHNITT, `^\\s*${jaNein}\\s*$`, 'radio'));
   await new Promise((r) => setTimeout(r, 1500));
 
   if (jaNein === 'Ja') {
     // Unterfragen erscheinen erst nach "Ja".
-    schritte.push('Text:' + await klickeNachBeschriftung(page, 'text', 'checkbox'));
-    schritte.push('Bilder:' + await klickeNachBeschriftung(page, 'bild', 'checkbox'));
+    schritte.push('Text:' + await klickeInAbschnitt(page, KI_ABSCHNITT, '^\\s*text\\b|\\btext(e|en)?\\b.*(erstellt|generiert|inhalt)', 'checkbox'));
+    schritte.push('Bilder:' + await klickeInAbschnitt(page, KI_ABSCHNITT, 'bild', 'checkbox'));
     await new Promise((r) => setTimeout(r, 1000));
     // Umfang der KI-Beteiligung: "umfangreich bearbeitet" ist für diese Bücher korrekt.
-    schritte.push('Umfang:' + await klickeNachBeschriftung(page, 'bearbeitet|umfangreich', 'radio'));
+    // WICHTIG: Das Muster darf nicht auf 'bearbeitet' allein lauten – das passt auch
+    // auf "GERINGFÜGIG bearbeitet", und der erste DOM-Treffer wäre die falsche,
+    // beschönigende Angabe (Sperrgrund, sobald Amazon sie entdeckt).
+    schritte.push('Umfang:' + await klickeInAbschnitt(page, KI_ABSCHNITT, 'umfangreich', 'radio'));
   }
   return schritte;
 }
@@ -966,7 +1037,7 @@ async function cmdUpload() {
     });
 
     // KI-Offenlegung (Pflicht bei KDP): job.aiDisclosure = 'ai-generated' | 'ai-assisted' | 'none'
-    report({ stage: 'ai-disclosure', progress: 0.56, message: `KI-Kennzeichnung: ${job.aiDisclosure || 'ai-assisted'}` });
+    report({ stage: 'ai-disclosure', progress: 0.56, message: `KI-Kennzeichnung: ${job.aiDisclosure || 'ai-generated'}` });
     {
       const schritte = await setzeKiKennzeichnung(page, job);
       const ok = schritte.some((x) => /geklickt|bereits/.test(x));
