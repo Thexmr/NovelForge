@@ -6914,6 +6914,50 @@ final class PipelineOrchestrator: ObservableObject {
 
     // MARK: - Phase 12: Export
 
+    /// Erzeugt das Titelbild, falls noch keines vorliegt – VOR dem Export.
+    ///
+    /// Ohne diesen Schritt bleibt die Buchproduktion auf halbem Weg stehen: Die
+    /// Pipeline schrieb bisher nur `Cover-Prompt.txt`, das Bild selbst entstand
+    /// ausschließlich per Knopfdruck im Verkaufsblatt. Die Buchfabrik verlangt aber
+    /// ein Cover (`FactoryView`: `coverURL != nil`), also erreichte kein autonom
+    /// produziertes Buch je den KDP-Upload. Gemessen an „Wo wir zuletzt tanzten":
+    /// fertig, exportiert, im Ordner lag nur die Prompt-Datei.
+    ///
+    /// Der Standardanbieter (Pollinations/Flux) ist kostenlos und braucht weder Konto
+    /// noch Schlüssel – die Erzeugung läuft damit vollständig ohne Zutun. Schlägt sie
+    /// fehl, wird das protokolliert, aber der Export läuft weiter: Ein Buch ohne
+    /// Titelbild ist besser als gar kein Buch.
+    private func stelleCoverSicher(project: Project) async {
+        guard CoverArtService.coverURL(for: project) == nil else { return }
+        guard CoverArtService.isReady() else {
+            addReport(project: project, area: "Cover", type: "Veröffentlichung",
+                      result: "Kein Cover-Anbieter einsatzbereit – Titelbild fehlt.",
+                      severity: .warning,
+                      recommendation: "Im Verkaufsblatt ein Cover erzeugen, sonst kein KDP-Upload.")
+            return
+        }
+        currentAgent = "Titelbild wird erzeugt …"
+        let job = beginJob(agent: AgentName.exporter, phase: .export, project: project)
+        do {
+            let ergebnis = try await CoverArtService.generateCover(for: project)
+            completeJob(job, result: "Titelbild erzeugt: \(ergebnis.url.lastPathComponent)")
+            if !ergebnis.qualityNotes.isEmpty {
+                addReport(project: project, area: "Cover", type: "Veröffentlichung",
+                          result: "Titelbild mit Anmerkungen: "
+                            + ergebnis.qualityNotes.prefix(3).joined(separator: "; "),
+                          severity: .info,
+                          recommendation: "Bei Bedarf im Verkaufsblatt neu erzeugen.")
+            }
+        } catch {
+            completeJob(job, result: "Titelbild konnte nicht erzeugt werden")
+            addReport(project: project, area: "Cover", type: "Veröffentlichung",
+                      result: "Automatische Cover-Erzeugung fehlgeschlagen: \(error.localizedDescription)",
+                      severity: .warning,
+                      recommendation: "Im Verkaufsblatt manuell erzeugen – ohne Cover kein KDP-Upload.")
+        }
+        modelContext?.saveOrLog()
+    }
+
     private func runExport(project: Project, config: ProviderConfiguration) async throws {
         // Bereits die Endabnahme ist aktive Exportarbeit. Der vorherige Status kann
         // `paused` sein; ihn erst nach allen Reparaturen zu ändern ließ Dashboard und
@@ -6927,6 +6971,7 @@ final class PipelineOrchestrator: ObservableObject {
         await runGoldenEval(project: project, config: config)
         try PublicationReadiness.validateForCompletion(project: project)
         await stelleVeroeffentlichungstexteSicher(project: project, config: config)
+        await stelleCoverSicher(project: project)
         let job = beginJob(agent: AgentName.exporter, phase: .export, project: project)
 
         do {
