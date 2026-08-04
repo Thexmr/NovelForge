@@ -118,6 +118,21 @@ enum RegressionProbe {
             briefSzene, perspektive: "Personaler Erzähler (Er/Sie)"),
             "Eingebetteter Brief mit Rahmen in dritter Person ist kein Perspektivbruch")
 
+        // --- Szenengröße ----------------------------------------------------------
+        // Ein Szenenziel unter ~400 Wörtern ist unerfüllbar: Gemessen am Testbuch
+        // schrieb das Modell bei 287–312 Wörtern Vorgabe tatsächlich 451–696 (Faktor
+        // bis 2,43). Die Folge waren 38 von 125 Warnungen eines einzigen Laufs, alle
+        // aus derselben Quelle – „Verdichtung nach drei Versuchen verworfen".
+        for seiten in [50, 110, 250, 500, 1000] {
+            let plan = LongFormProductionPlan(pageCount: seiten)
+            precondition(plan.targetWordsPerScene >= 400,
+                         "\(seiten) Seiten: Szenenziel \(plan.targetWordsPerScene) Wörter ist unerfüllbar")
+            precondition(plan.targetWordsPerScene <= 900,
+                         "\(seiten) Seiten: Szenenziel \(plan.targetWordsPerScene) Wörter ist zu groß")
+            precondition(plan.scenesPerChapter >= 2,
+                         "\(seiten) Seiten: zu wenige Szenen je Kapitel")
+        }
+
         print("NovelForge regression probe: PASS")
     }
 }

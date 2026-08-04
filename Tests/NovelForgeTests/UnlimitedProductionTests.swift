@@ -347,6 +347,8 @@ final class UnlimitedProductionTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(plan.scenesPerChapter, 4)
         XCTAssertLessThanOrEqual(plan.targetWordsPerScene, 900)
         XCTAssertGreaterThanOrEqual(plan.totalPlannedScenes, 200)
+        // Eine Szene darf nie so klein geplant werden, dass sie unerfüllbar ist.
+        XCTAssertGreaterThanOrEqual(plan.targetWordsPerScene, 400)
     }
 
     func testLongFormPlanScalesToThousandPages() {
@@ -355,9 +357,16 @@ final class UnlimitedProductionTests: XCTestCase {
 
         XCTAssertEqual(plan.targetWordCount, 250_000)
         XCTAssertEqual(plan.chapterCount, 80)
-        XCTAssertEqual(plan.scenesPerChapter, 5)
-        XCTAssertEqual(plan.totalPlannedScenes, 400)
+        // 6 statt vorher 5: Die Szenenformel zielt jetzt auf ~600 Wörter je Szene
+        // (Divisor 600 statt 750, Untergrenze 2 statt 4). Hintergrund ist die
+        // Messung am Testbuch – bei 287–312 Wörtern Vorgabe schrieb das Modell
+        // 451–696, also das 1,45- bis 2,43-fache. Die alte Untergrenze von 4
+        // erzwang bei kurzen Kapiteln 260-Wort-Ziele, die kein Modell einhält.
+        XCTAssertEqual(plan.scenesPerChapter, 6)
+        XCTAssertEqual(plan.totalPlannedScenes, 480)
         XCTAssertLessThanOrEqual(plan.targetWordsPerScene, 900)
+        // Untergrenze: Eine Szene braucht Raum für Einstieg, Konflikt und Wendung.
+        XCTAssertGreaterThanOrEqual(plan.targetWordsPerScene, 400)
 
         // 1000 wird nicht mehr auf 500 gedeckelt.
         let settings = UnlimitedSettings(
