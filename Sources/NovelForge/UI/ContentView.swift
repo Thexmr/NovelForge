@@ -115,6 +115,20 @@ struct ContentView: View {
                     .first { $0.id == id }
             }
 
+            // Fertige Bücher nachtragen, die es nie in die Warteschlange geschafft haben.
+            //
+            // `reicheFertigesBuchEin` läuft nur im Moment des Übergangs auf `completed`.
+            // Scheitert der Upload danach ein einziges Mal – etwa weil der Auflöser noch
+            // fehlte –, verschwindet der Eintrag und das Buch wird NIE wieder eingereiht.
+            // Gemessen an „Wo wir zuletzt tanzten": fertig, exportiert, und trotzdem
+            // dauerhaft draußen. Deshalb beim Start einmal nachziehen.
+            if KDPFactory.shared.enabled,
+               let fertige = try? context.fetch(FetchDescriptor<Project>()) {
+                for projekt in fertige where projekt.status == .completed {
+                    KDPFactory.shared.reicheFertigesBuchEin(projekt)
+                }
+            }
+
             ProductionRecoveryService.reclassifyCompletedManuscripts(in: modelContext)
             ProductionRecoveryService.sanitizePersistedScenes(in: modelContext)
             ProductionRecoveryService.recoverInterruptedJobs(in: modelContext)

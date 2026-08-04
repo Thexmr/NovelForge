@@ -3178,6 +3178,90 @@ final class PipelineOrchestrator: ObservableObject {
 
     // MARK: - Phase 6: Rohfassung (Szene für Szene, mit Kontinuität)
 
+    /// Plant Kapitel neu, deren Szenenplan aus Standard-Beats besteht – aber NUR, wenn
+    /// noch keine Szene des Kapitels geschrieben ist.
+    ///
+    /// Die Einschränkung ist wesentlich: Ein Kapitel, das bereits Prosa enthält, darf
+    /// seinen Plan nicht verlieren – sonst stünde geschriebener Text ohne zugehöriges
+    /// Szenenziel da, und die nachgelagerten Prüfungen (Szenenziel, Dopplung, Umfang)
+    /// hätten keine Bezugsgröße mehr.
+    private func planeGenerischeKapitelNach(project: Project, profile: BookProfile,
+                                            bible: StoryBible,
+                                            config: ProviderConfiguration) async {
+        let primaryCanon = primaryStoryCanon(project: project)
+        let characterNames = (bible.characters ?? []).map(\.name)
+        let betroffen = sortedChapters(project).filter { kapitel in
+            let szenen = sortedScenes(kapitel)
+            guard szenen.count >= 2 else { return false }
+            guard szenen.allSatisfy({ !isSceneWritten($0) }) else { return false }
+            let geplant = szenen.map {
+                PlannedScene(number: $0.sceneNumber, perspective: $0.perspective,
+                             location: $0.location, time: $0.time,
+                             goal: $0.goal, obstacle: $0.obstacle, turn: $0.cliffhanger)
+            }
+            return AutonomousContentQuality.istGenerischerSzenenplan(geplant)
+        }
+        guard !betroffen.isEmpty else { return }
+
+        for kapitel in betroffen.prefix(Self.maxEndabnahmeKapitel) {
+            try? Task.checkCancellation()
+            currentAgent = "Kapitel \(kapitel.chapterNumber): Szenenplan wird konkretisiert …"
+            let anzahl = sortedScenes(kapitel).count
+            let job = beginJob(agent: AgentName.scenePlanner, phase: .drafting,
+                               project: project, chapter: kapitel.chapterNumber)
+            do {
+                let antwort = try await generate(
+                    prompt: PromptFactory.scenePlan(
+                        bookTitle: project.title,
+                        chapterNumber: kapitel.chapterNumber, chapterTitle: kapitel.title,
+                        chapterGoal: kapitel.goal, chapterConflict: kapitel.conflict,
+                        perspective: profile.narrativePerspective,
+                        plotContext: bible.plotPoints,
+                        targetWords: kapitel.targetWordCount,
+                        scenesPerChapter: anzahl,
+                        isFinalChapter: kapitel.chapterNumber == sortedChapters(project).last?.chapterNumber,
+                        canonicalStory: canonicalStoryContext(project: project)
+                    ) + neuplanungsHinweis(
+                        grund: "nur allgemeine Standard-Beats ohne konkretes Ereignis je Szene"
+                    ),
+                    system: "Du bist ein genauer Romanszenenplaner. Du ersetzt einen zu allgemeinen Plan durch konkrete, voneinander verschiedene Ereignisse.",
+                    maxTokens: 1_400, temperature: 0.35, config: config
+                )
+                let neu = StructureParser.parseScenes(antwort.text)
+                let brauchbar = AutonomousContentQuality.hasUsableScenePlan(neu, expectedCount: anzahl)
+                    && !AutonomousContentQuality.istGenerischerSzenenplan(neu)
+                    && AutonomousContentQuality.unsupportedCanonClaims(
+                        in: antwort.text,
+                        canon: szenenplanKontext(project: project, chapter: kapitel,
+                                                 primaryCanon: primaryCanon,
+                                                 perspective: profile.narrativePerspective),
+                        characterNames: characterNames
+                    ).isEmpty
+                guard brauchbar else {
+                    completeJob(job, result: "Neuplanung erneut zu allgemein – Standard-Beats bleiben",
+                                tokens: antwort.tokensUsed ?? 0)
+                    continue
+                }
+                // Nur die Planfelder ersetzen; Szenenobjekte und Reihenfolge bleiben.
+                let szenen = sortedScenes(kapitel)
+                for (index, szene) in szenen.enumerated() where index < neu.count {
+                    let plan = neu[index]
+                    szene.goal = plan.goal
+                    szene.obstacle = plan.obstacle
+                    szene.cliffhanger = plan.turn
+                    if !plan.location.isEmpty { szene.location = plan.location }
+                    if !plan.time.isEmpty { szene.time = plan.time }
+                    szene.updatedAt = Date()
+                }
+                completeJob(job, result: "\(szenen.count) Szenenziele konkretisiert",
+                            tokens: antwort.tokensUsed ?? 0)
+            } catch {
+                completeJob(job, result: "Nachplanung nicht möglich – Standard-Beats bleiben")
+            }
+            modelContext?.saveOrLog()
+        }
+    }
+
     private func runDrafting(project: Project, config: ProviderConfiguration) async throws {
         guard let profile = project.bookProfile, let bible = project.storyBible else {
             throw AIError.systemError("Buchprofil oder Story Bible fehlt")
@@ -3188,6 +3272,24 @@ final class PipelineOrchestrator: ObservableObject {
         guard !chapters.isEmpty else {
             throw AIError.systemError("Keine Kapitel zum Schreiben vorhanden")
         }
+
+        // Noch UNGESCHRIEBENE Kapitel mit Standard-Beats hier nachplanen.
+        //
+        // Die Szenenplanung läuft nur in ihrer eigenen Phase. Wird ein Buch später in
+        // der Rohfassung fortgesetzt – der Normalfall bei langen Produktionen –, bleiben
+        // einmal entstandene generische Pläne für immer stehen. Gemessen am Testbuch
+        // „Wo der Wind die Briefe trägt": über NEUN Fortsetzungsläufe hinweg konstant
+        // acht Szenen mit „Modell lieferte keinen verwertbaren Szenenplan" (Kapitel 7
+        // viermal, 4 zweimal, 6 und 12 je einmal) – und passend dazu Ereignisdopplungen
+        // in genau diesen Kapiteln.
+        //
+        // Generische Ziele („KOMPLIKATION: ein NEUER Vorstoß") sind für alle Szenen
+        // eines Kapitels gleich; der Draft Writer hat dann kein Unterscheidungsmerkmal
+        // und erzählt dasselbe Ereignis mehrfach. Solche Doppler sind später durch KEINE
+        // Reparatur behebbar – eine Szene wurde achtmal neu geschrieben und blieb ein
+        // Doppler, weil ihr Plan mit dem der Nachbarszene identisch war.
+        await planeGenerischeKapitelNach(project: project, profile: profile,
+                                         bible: bible, config: config)
 
         let allScenes = chapters.flatMap { sortedScenes($0) }
         totalScenes = allScenes.count
@@ -3963,6 +4065,31 @@ final class PipelineOrchestrator: ObservableObject {
                     scene.text = sceneText
                     scene.status = .written
                     scene.updatedAt = Date()
+
+                    // Erzählperspektive festhalten: Eine Szene, die mitten im Buch in
+                    // die Ich-Form kippt, fällt jedem Leser auf. Eingebettete Briefe
+                    // und Tagebucheinträge sind ausgenommen (die Prüfung verlangt einen
+                    // Ich-Rahmen über die GANZE Szene, nicht nur in der Mitte).
+                    //
+                    // Bewusst nur ein Befund, KEIN throw: Ein deterministischer Prüfer
+                    // im Schreib-Loop, der wirft, lässt bei einem Falsch-Positiv jeden
+                    // Versuch identisch scheitern – genau so entstand in diesem Projekt
+                    // eine Endlosschleife mit 143 Neustarts in einer Nacht.
+                    if AutonomousContentQuality.brichtErzaehlperspektive(
+                        sceneText, perspektive: profile.narrativePerspective
+                    ) {
+                        addReport(
+                            project: project,
+                            area: "Kapitel \(chapter.chapterNumber), Szene \(scene.sceneNumber)",
+                            type: "Erzählperspektive",
+                            result: "Szene erzählt in der Ich-Form, das Buch ist als "
+                                + "\(profile.narrativePerspective) angelegt.",
+                            severity: .error,
+                            recommendation: "Szene in \(profile.narrativePerspective) "
+                                + "umschreiben; eingebettete Briefe dürfen Ich-Form behalten."
+                        )
+                    }
+
                     previousSceneText = sceneText
                     priorProseTexts.append(sceneText)
                     chapter.actualWordCount = sortedScenes(chapter).compactMap { $0.text?.wordCount }.reduce(0, +)

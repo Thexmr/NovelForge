@@ -85,6 +85,63 @@ enum AutonomousContentQuality {
         !scenePlanGenreDriftMarkers(text, genre: genre, canon: canon).isEmpty
     }
 
+    /// Bricht die Szene die Erzählperspektive des Buches?
+    ///
+    /// Gemessen an „Wo wir zuletzt tanzten": 4 von 48 Szenen standen in der ICH-Form,
+    /// obwohl das Buch als personaler Erzähler (Er/Sie) angelegt war – mitten im Buch,
+    /// in den Kapiteln 2, 6, 8 und 9. Das fällt jedem Leser sofort auf und wirkt wie
+    /// ein Anfängerfehler. Es gab dafür bis dahin keinerlei Prüfung.
+    ///
+    /// Gezählt wird nur der ERZÄHLER: Direkte Rede fällt heraus, sonst schlüge jede
+    /// Szene an, in der eine Figur „ich" sagt. Ein Ich-Roman (erste Person als
+    /// Vorgabe) wird nicht geprüft – dort ist die Ich-Form richtig.
+    static func brichtErzaehlperspektive(_ text: String, perspektive: String) -> Bool {
+        let ziel = canonNormalized(perspektive)
+        // Nur prüfen, wenn das Buch NICHT in der Ich-Form erzählt werden soll.
+        guard !ziel.contains("ich"), !ziel.contains("erste person"),
+              !ziel.contains("first person") else { return false }
+
+        // Direkte Rede entfernen: deutsche und gerade Anführungszeichen.
+        var ausserhalb = text
+        for muster in ["[\u{201E}\u{201C}][^\u{201C}\u{201D}\u{201E}]*[\u{201C}\u{201D}]",
+                       "\"[^\"]*\"", "\u{00BB}[^\u{00AB}]*\u{00AB}"] {
+            ausserhalb = ausserhalb.replacingOccurrences(
+                of: muster, with: " ", options: .regularExpression)
+        }
+        func treffer(_ pattern: String) -> Int {
+            let bereich = NSRange(ausserhalb.startIndex..<ausserhalb.endIndex, in: ausserhalb)
+            guard let re = try? NSRegularExpression(pattern: pattern) else { return 0 }
+            return re.numberOfMatches(in: ausserhalb, range: bereich)
+        }
+        let ich = treffer(#"\b(?:[Ii]ch|mich|mir|mein(?:e|er|es|em|en)?)\b"#)
+        guard ich >= 12 else { return false }
+        let dritte = treffer(#"\b(?:sie|Sie|ihr(?:e|er|es|em|en)?|er|Er|ihm|ihn)\b"#)
+        // Erzähler-Ich muss die dritte Person deutlich überlagern, nicht nur vorkommen.
+        guard Double(ich) > Double(dritte) * 0.35 else { return false }
+
+        // EINGEBETTETE Ich-Texte sind kein Perspektivbruch: Briefe, Tagebucheinträge und
+        // Zitate stehen zu Recht in der ersten Person, solange die Szene sie in dritter
+        // Person rahmt. Gemessen an „Wo wir zuletzt tanzten", Kapitel 6 Szene 3: Die
+        // Szene öffnet mit „Lena betrat den stillen Seesaal", bringt dann Jonas' Brief
+        // („Lena, ich schreibe dir im Zug nach Hamburg") und schließt wieder mit „Lena
+        // strich über die Zeilen". Ohne diese Ausnahme meldete die Prüfung genau diese
+        // – dramaturgisch starke – Szene als Fehler und hätte sie neu schreiben lassen.
+        func istDritterPerson(_ ausschnitt: String) -> Bool {
+            let bereich = NSRange(ausschnitt.startIndex..<ausschnitt.endIndex, in: ausschnitt)
+            func zahl(_ p: String) -> Int {
+                guard let re = try? NSRegularExpression(pattern: p) else { return 0 }
+                return re.numberOfMatches(in: ausschnitt, range: bereich)
+            }
+            return zahl(#"\b(?:sie|Sie|ihr(?:e|er|es|em|en)?|er|Er|ihm|ihn)\b"#)
+                > zahl(#"\b(?:[Ii]ch|mich|mir|mein(?:e|er|es|em|en)?)\b"#)
+        }
+        let kopf = String(ausserhalb.prefix(420))
+        let fuss = String(ausserhalb.suffix(420))
+        if istDritterPerson(kopf), istDritterPerson(fuss) { return false }
+
+        return true
+    }
+
     /// Besteht der Plan nur aus den generischen Notfall-Beats?
     ///
     /// Gemessen an Buch 7: Ein Drittel aller Szenen bekam Ziele wie „KOMPLIKATION:

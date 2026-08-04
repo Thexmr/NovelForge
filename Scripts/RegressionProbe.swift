@@ -83,6 +83,41 @@ enum RegressionProbe {
             genre: "Liebesroman", canon: etabliert
         ).isEmpty == false, "Neues Motiv im selben Satz muss weiterhin anschlagen")
 
+        // --- Erzählperspektive ---------------------------------------------------
+        // Eine Szene, die mitten im Buch in die Ich-Form kippt, fällt jedem Leser auf.
+        // Eingebettete Briefe sind KEIN Bruch: „Wo wir zuletzt tanzten", Kapitel 6
+        // Szene 3 rahmt Jonas' Brief korrekt in dritter Person. Ohne diese Ausnahme
+        // hätte die Prüfung eine der stärksten Szenen des Buches verworfen.
+        let durchgehendIch = """
+        Ich schob den Schlüssel in die Tasche. Der Stoff sackte nach unten, als würde er mich \
+        nach vorne ziehen. Ich blieb stehen und sah mich um. Mein Atem ging flach. Ich wusste, \
+        dass ich hier nicht bleiben konnte, und mir war klar, was mich erwartete. Ich griff nach \
+        meiner Jacke, zog sie über und trat hinaus. Mir war kalt. Ich dachte an meine Mutter und \
+        daran, was ich ihr nie gesagt hatte. Mein Weg führte mich zum Fluss, ich ging langsam.
+        """
+        precondition(AutonomousContentQuality.brichtErzaehlperspektive(
+            durchgehendIch, perspektive: "Personaler Erzähler (Er/Sie)"),
+            "Durchgehende Ich-Erzählung muss als Perspektivbruch gelten")
+        precondition(!AutonomousContentQuality.brichtErzaehlperspektive(
+            durchgehendIch, perspektive: "Ich-Erzähler (Erste Person)"),
+            "Bei Ich-Vorgabe darf die Prüfung nie anschlagen")
+
+        let briefSzene = """
+        Lena betrat den stillen Seesaal, ihre Schritte knackten auf den alten Dielen. Am Flügel \
+        setzte sie sich, wo einst ihre Noten gelegen hatten. Der Umschlag in ihrer Hand wog schwer. \
+        Sie öffnete ihn mit einem leisen Riss.
+
+        Lena, ich schreibe dir im Zug nach Hamburg. Ich habe den Brief nicht abgeschickt. \
+        Vielleicht, weil es zu spät ist. Vielleicht, weil ich Angst habe. Ich ging nicht, weil ich \
+        nicht wollte. Ich ging, weil ich nicht wusste, wie ich bleiben sollte.
+
+        Lena strich über die Zeilen, als könnte sie die Worte ungeschehen machen. Doch das Papier \
+        blieb stumm. Sie legte den Brief auf die vergilbten Notenblätter und schloss den Deckel.
+        """
+        precondition(!AutonomousContentQuality.brichtErzaehlperspektive(
+            briefSzene, perspektive: "Personaler Erzähler (Er/Sie)"),
+            "Eingebetteter Brief mit Rahmen in dritter Person ist kein Perspektivbruch")
+
         print("NovelForge regression probe: PASS")
     }
 }
