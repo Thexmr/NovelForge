@@ -82,7 +82,12 @@ enum ProofService {
                       targetPages: Int = 0) -> Report {
         let texts = chapterTexts(project)
         let words = texts.reduce(0) { $0 + wordCount($1) }
-        let pages = PrintCoverService.estimatePages(words: words)
+        // Format-abhängige Seitenschätzung. Vorher lief alles im 5×8-Default
+        // (280 Wörter/Seite), die Bücher werden aber in 6×9 gesetzt (~330 W/Seite):
+        // die Selbstprüfung wies ~18 % zu viele Seiten nach – ein 33.000-Wörter-Buch
+        // zeigte 118 statt ~100 Seiten und „erfüllte" den Zielumfang damit zu früh.
+        let buchTrim = PrintCoverService.printTrim(forBookTrimRaw: project.trimSizeRaw)
+        let pages = PrintCoverService.estimatePages(words: words, trim: buchTrim)
 
         var groups: [Group] = []
         groups.append(Group(title: "Manuskript",
