@@ -5557,7 +5557,8 @@ final class PipelineOrchestrator: ObservableObject {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 if AutonomousContentQuality.isWithinWordTarget(
                        fitted, targetWords: scene.targetWordCount,
-                       lowerRatio: 0.75, upperRatio: 1.25),
+                       lowerRatio: 0.75,
+                       upperRatio: AutonomousContentQuality.sceneUpperRatio(forTargetWords: scene.targetWordCount)),
                    AutonomousContentQuality.isAcceptableRewrite(
                        source: source, candidate: fitted,
                        minRatio: minimumRatio, maxRatio: 1.10,
@@ -7907,7 +7908,8 @@ final class PipelineOrchestrator: ObservableObject {
         guard let text = scene.text, !text.isEmpty else { return false }
         guard AutonomousContentQuality.isWithinWordTarget(
             text, targetWords: scene.targetWordCount,
-            lowerRatio: 0.55, upperRatio: 1.35
+            lowerRatio: 0.55,
+            upperRatio: AutonomousContentQuality.sceneUpperRatio(forTargetWords: scene.targetWordCount)
         ), AutonomousContentQuality.hasCompleteSentenceEnding(text),
            !AutonomousContentQuality.containsMetaRequest(text) else {
             return false

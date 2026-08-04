@@ -575,6 +575,13 @@ enum AutonomousContentQuality {
         }
     }
 
+    /// Oberer Umfang-Korridor: Bei kleinen Szenenzielen (< 300 Woerter) schreiben
+    /// Schreibmodelle natuerlicherweise 400-650 Woerter; ein enger 1.25x-Deckel
+    /// fuehrt dort nur zu Endlos-Verdichtung. Langform bleibt streng (1.25x).
+    static func sceneUpperRatio(forTargetWords targetWords: Int) -> Double {
+        targetWords < 300 ? 1.7 : 1.25
+    }
+
     static func acceptsDraftScene(_ text: String, targetWords: Int) -> Bool {
         let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty else { return false }
@@ -582,17 +589,18 @@ enum AutonomousContentQuality {
         guard hasCompleteSentenceEnding(cleaned) else { return false }
         guard !PublicContentGuard.disclosureViolation(in: cleaned) else { return false }
         let minimum = max(80, Int(Double(targetWords) * 0.55))
-        let maximum = max(minimum, Int(Double(targetWords) * 1.25))
+        let maximum = max(minimum, Int(Double(targetWords) * sceneUpperRatio(forTargetWords: targetWords)))
         return cleaned.wordCount >= minimum && cleaned.wordCount <= maximum
     }
 
     static func isWithinWordTarget(_ text: String, targetWords: Int,
                                    lowerRatio: Double = 0.75,
-                                   upperRatio: Double = 1.25) -> Bool {
+                                   upperRatio: Double? = nil) -> Bool {
         guard targetWords > 0 else { return !text.isEmpty }
+        let upper = upperRatio ?? sceneUpperRatio(forTargetWords: targetWords)
         let count = text.wordCount
         return count >= Int(Double(targetWords) * lowerRatio)
-            && count <= Int(Double(targetWords) * upperRatio)
+            && count <= Int(Double(targetWords) * upper)
     }
 
     static func isGenericPlaceholder(_ text: String) -> Bool {
