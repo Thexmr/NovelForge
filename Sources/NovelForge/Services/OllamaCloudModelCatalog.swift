@@ -24,11 +24,13 @@ enum OllamaCloudModelCatalog {
     // entfernt, weil es leeren Text liefert (reines Thinking-Modell).
     static let defaultModel = "kimi-k2.6"
 
-    /// Stärkeres „Autoren-Modell" für die eigentliche Prosa (mehr Tiefe/Ton, aber
-    /// langsamer als der Default). Wird NUR für die kreativen Schritte (Szenen,
-    /// Opening, Cliffhanger, Repair, Konzept, Plot) genutzt; Hilfsschritte
-    /// (Zusammenfassungen, Parsing, KDP) bleiben auf dem schnellen Default-Modell.
-    static let recommendedWritingModel = "mistral-large-3:675b"
+    /// Standard-„Autoren-Modell" für die eigentliche Prosa. Bewusst identisch
+    /// mit dem Default-Modell (Low-Cost-Vorgabe: ALLES läuft auf kimi-k2.6 –
+    /// die Pipeline kompensiert Modellstärke über Planung, Qualitäts-Gates und
+    /// Judges statt über teurere Modelle). Wer will, stellt in den
+    /// Einstellungen ein größeres Autoren-Modell ein (z. B. mistral-large-3).
+    /// Leer ⇒ `recommendedWritingModel`; "__standard__" ⇒ wie Standardmodell.
+    static let recommendedWritingModel = "kimi-k2.6"
 
     /// UserDefaults-Schlüssel für ein vom Nutzer gewähltes Autoren-Modell.
     /// Leer ⇒ `recommendedWritingModel`; "__standard__" ⇒ wie Standardmodell.

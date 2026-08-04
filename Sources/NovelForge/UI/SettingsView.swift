@@ -140,16 +140,16 @@ struct GeneralSettingsView: View {
 
             Section("Schreibqualität · Autoren-Modell (Prosa)") {
                 Picker("Autoren-Modell", selection: $writingModel) {
-                    Text("Beste Qualität – mistral-large-3:675b").tag("")
-                    Text("Schnell – kimi-k2.6").tag("__standard__")
+                    Text("Standard – kimi-k2.6 (schnell & günstig)").tag("")
+                    Text("Tiefer & langsamer – mistral-large-3:675b").tag("mistral-large-3:675b")
                     ForEach(OllamaCloudModelCatalog.fallbackModels.filter {
                         $0 != OllamaCloudModelCatalog.defaultModel
-                            && $0 != OllamaCloudModelCatalog.recommendedWritingModel
+                            && $0 != "mistral-large-3:675b"
                     }, id: \.self) {
                         Text($0).tag($0)
                     }
                 }
-                Text("Steuert kreative Prosa, Konzept, Struktur und Reparatur. Standard ist mistral-large-3:675b für mehr Tiefe und bessere Anweisungsbefolgung; Hilfsschritte bleiben auf kimi-k2.6. Der Schnellmodus reduziert Laufzeit. Ist ein Modell nicht verfügbar, weicht die Produktion automatisch auf kimi aus.")
+                Text("Steuert kreative Prosa, Konzept, Struktur und Reparatur. Standard ist kimi-k2.6: schnell, günstig und mit der eingebauten Qualitäts-Pipeline (Planung, Gates, Judges) auf Bestseller-Niveau getrimmt. Größere Modelle kosten mehr und verlangsamen die Produktion – der Unterschied im fertigen Buch ist klein. Ist ein Modell nicht verfügbar, weicht die Produktion automatisch auf kimi aus.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -2017,7 +2017,8 @@ final class PipelineOrchestrator: ObservableObject {
         guard config.provider == .ollamaCloud else { return fallback }
         let stored = UserDefaults.standard.string(forKey: OllamaCloudModelCatalog.writingModelDefaultsKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        // Leer = Qualitätsstandard. "__standard__" ist der bewusst gewählte Schnellmodus.
+        // Leer = empfohlenes Autoren-Modell (Standard: kimi-k2.6, Low-Cost).
+        // "__standard__" bleibt als explizite Wahl des Standardmodells kompatibel.
         if stored.isEmpty { return OllamaCloudModelCatalog.recommendedWritingModel }
         if stored == "__standard__" { return fallback }
         return OllamaCloudModelCatalog.isUsefulForLongFormCloudModel(stored) ? stored : fallback
