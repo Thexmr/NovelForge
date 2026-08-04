@@ -118,6 +118,25 @@ final class KDPFactory: ObservableObject {
            let s = try? JSONDecoder().decode(Schedule.self, from: data) { schedule = s }
         queue = ladeListe([QueueEntry].self, aus: Self.queueFile, name: "Upload-Warteschlange") ?? []
         history = ladeListe([UploadRecord].self, aus: Self.historyFile, name: "Upload-Historie") ?? []
+        Self.bereinigeAbgestuerzteUploads(&queue)
+        persist()
+    }
+
+    /// Holt Einträge zurück, die beim Beenden der App mitten im Upload steckten.
+    ///
+    /// `tick()` nimmt nur .queued/.waitingSlot/.failed – wurde die App während eines
+    /// laufenden Sidecar-Uploads beendet (Absturz, Neustart, Update), blieb der Eintrag
+    /// dauerhaft auf .uploading stehen und kam NIE wieder an die Reihe. Das Buch war
+    /// damit still aus der Fabrik verschwunden. Zurück auf .failed mit Versuchszähler:
+    /// die wachsende Wartezeit gilt, ein neuer Versuch wird eingeplant.
+    static func bereinigeAbgestuerzteUploads(_ queue: inout [QueueEntry], jetzt: Date = Date()) {
+        for i in queue.indices where queue[i].stage == .uploading {
+            queue[i].stage = .failed
+            queue[i].attempts += 1
+            queue[i].lastTriedAt = jetzt
+            queue[i].lastMessage = "Upload unterbrochen (App wurde beendet) – neuer Versuch mit Wartezeit."
+            queue[i].updatedAt = jetzt
+        }
     }
 
     /// Lädt eine gespeicherte Liste – und verwirft sie NICHT stillschweigend, wenn das
