@@ -4471,10 +4471,16 @@ final class PipelineOrchestrator: ObservableObject {
             // vs. Szene 1, identische Befunde in Folge-Läufen, alle „behoben"; danach
             // rotierte der Befund durch weitere Szenenpaare desselben Kapitels).
             // Kappe deshalb die Reparatur-Anläufe PRO SZENE (über alle Paare und
-            // Ergebnisse hinweg): Nach zwei Anläufen mit demselben Modell und Prompt
-            // ist ein weiterer nachweislich aussichtslos – Befund einmal offen melden
-            // (Manuskriptrevision + buchweites Doppler-Audit bleiben als spätere
-            // Instanzen) und die Produktion fortführen.
+            // Ergebnisse hinweg). Verschärft auf EINEN Anlauf: Über zwei Testbücher
+            // („Wo der Wind die Briefe trägt" 2x) wurde KEINE einzige akzeptierte
+            // Reparatur vom Folge-Audit als behoben bestätigt – jede „gezielt
+            // repariert"-Meldung wurde erneut gemeldet (Erfolgsquote 0 von ~8,
+            // Erzeuger/Prüfer-Patt: Der Reparatur-Prompt verlangt Szenenplan-Treue,
+            // der Plan enthält aber selbst den überlappenden Beat). Ein zweiter
+            // Anlauf mit demselben Modell und Prompt ist damit nachweislich
+            // aussichtslos – Befund einmal offen melden (Manuskriptrevision +
+            // buchweites Doppler-Audit bleiben als spätere Instanzen) und die
+            // Produktion fortführen.
             let bereich = "Kapitel \(chapter.chapterNumber), Szene \(later.sceneNumber)"
             let dopplerReports = (project.qualityReports ?? []).filter {
                 $0.checkType == "Kapitel-Dopplung" && $0.checkedArea == bereich
@@ -4483,7 +4489,7 @@ final class PipelineOrchestrator: ObservableObject {
                 $0.result.hasPrefix("Doppelt erzähltes Ereignis gegenüber Szene")
                     || $0.result.hasPrefix("Doppelt erzähltes Ereignis bleibt")
             }.count
-            if bisherigeAnlaeufe >= 2 {
+            if bisherigeAnlaeufe >= 1 {
                 let schonOffen = dopplerReports.contains {
                     !$0.autoFixed && $0.result.hasPrefix("Doppelt erzähltes Ereignis bleibt")
                 }
