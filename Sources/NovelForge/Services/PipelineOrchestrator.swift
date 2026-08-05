@@ -6894,7 +6894,19 @@ final class PipelineOrchestrator: ObservableObject {
                     // Nur übernehmen, wenn der Titel im geschriebenen Buch VORKOMMT –
                     // ein erfundener Titel enttäuscht nach dem Klick und kostet Ranking.
                     let kapitelTexte = sortedChapters(project).map { $0.finalText ?? $0.revisedText ?? $0.draftText ?? "" }
+                    // Titel anderer Bücher dürfen NIE übernommen werden: Die Prompts nennen
+                    // echte Bestseller als Muster, damit steigt die Gefahr einer Kopie.
+                    // Buchtitel genießen in Deutschland Werktitelschutz (§ 5 MarkenG).
+                    // Zusätzlich fliegen verkopfte Titel raus – „Das Gewicht von Seide"
+                    // stammte aus der bisherigen Fassung: ein Gegenstand ohne Menschen,
+                    // ohne Ort, mit schwerem Abstraktum als Kern.
+                    let bereitsVergeben = existingProjects()
+                        .map(\.title)
+                        .filter { $0 != project.title }
                     if AutonomousContentQuality.isUsableTitle(viral, genre: project.genre),
+                       !AutonomousContentQuality.istKopieBekannterTitel(
+                            viral, weitereBekannte: bereitsVergeben),
+                       !AutonomousContentQuality.titelWirktVerkopft(viral),
                        AutonomousContentQuality.titleIsCoveredByBook(viral, chapters: kapitelTexte) {
                         profile.kdpTitle = viral
                         // Schwachen/Platzhalter-Buchtitel durch den viralen Titel ersetzen.

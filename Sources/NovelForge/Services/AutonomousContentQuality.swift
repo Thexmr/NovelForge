@@ -85,6 +85,78 @@ enum AutonomousContentQuality {
         !scenePlanGenreDriftMarkers(text, genre: genre, canon: canon).isEmpty
     }
 
+    /// Titel echter, veröffentlichter Bücher – als NEGATIV-Liste.
+    ///
+    /// Diese Titel stehen als Muster in den Titel-Prompts. Genau deshalb besteht die
+    /// Gefahr, dass das Modell sie übernimmt statt sich davon inspirieren zu lassen.
+    /// Ein übernommener Titel wäre nicht nur peinlich, sondern rechtlich heikel:
+    /// Buchtitel genießen in Deutschland Werktitelschutz nach § 5 MarkenG, sobald sie
+    /// Unterscheidungskraft haben.
+    static let bekannteBuchtitel: [String] = [
+        "Ein Wiedersehen im Sommer", "Zwischen Ende und Anfang", "Das kleine Zuhause in Prag",
+        "Der kleine Dünenkiosk auf Sylt", "Sommer, Glück und Ringelblumen",
+        "Der Geschmack von Sommer und Karamell", "Warte auf mich am Meer",
+        "All das Ungesagte zwischen uns", "Unser Tag ist heute", "Die Tage mit Dir",
+        "Eine Liebe ohne Sommer", "A Taste of Cornwall", "Der Teufel trägt Prada",
+        "Das Lied der Weite", "Wo die Nächte hell sind", "Solange die Hoffnung bleibt",
+        "Als der Sommer uns gehörte", "Stolz und Vorurteil", "Der große Gatsby",
+    ]
+
+    /// Ist der Titel eine Kopie oder Fast-Kopie eines bekannten Buches?
+    ///
+    /// Verglichen werden nur die inhaltstragenden Wörter – Artikel und Präpositionen
+    /// bleiben außen vor, sonst gälte jeder Titel mit „Der … in …" als Kopie. Zwei
+    /// gemeinsame Inhaltswörter bei kurzen Titeln reichen für einen Treffer: „Ein
+    /// Wiedersehen im Winter" ist zu nah an „Ein Wiedersehen im Sommer".
+    static func istKopieBekannterTitel(_ titel: String, weitereBekannte: [String] = []) -> Bool {
+        func inhaltswoerter(_ s: String) -> Set<String> {
+            // Auch Beziehungs- und Allerweltswörter zählen hier NICHT als Merkmal:
+            // „zwischen uns" steht in Dutzenden Titeln. Ohne diese Ausnahme gälte
+            // „Was zwischen uns steht" als Kopie von „All das Ungesagte zwischen uns",
+            // obwohl beide nichts Charakteristisches teilen.
+            let fuellwoerter: Set<String> = ["der", "die", "das", "ein", "eine", "einer", "eines",
+                                             "den", "dem", "des", "und", "oder", "in", "im", "am",
+                                             "an", "auf", "bei", "von", "vom", "mit", "für", "zu",
+                                             "zur", "zum", "als", "wie", "ist", "war", "the", "of",
+                                             "a", "an",
+                                             "uns", "wir", "dir", "dich", "mich", "mein", "unser",
+                                             "zwischen", "was", "wo", "wenn", "alles", "all",
+                                             "kleine", "kleiner", "letzte", "letzten"]
+            return Set(s.folding(options: [.diacriticInsensitive], locale: .current)
+                .lowercased()
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { $0.count >= 3 && !fuellwoerter.contains($0) })
+        }
+        let kandidat = inhaltswoerter(titel)
+        guard !kandidat.isEmpty else { return false }
+
+        for bekannt in bekannteBuchtitel + weitereBekannte {
+            let referenz = inhaltswoerter(bekannt)
+            guard !referenz.isEmpty else { continue }
+            // Ein einzelnes Allerweltswort macht noch keine Kopie: „Meer", „Sommer" oder
+            // „Nacht" stehen in hunderten Liebesromantiteln. Nur wenn das gemeinsame
+            // Wort MARKANT ist (oder es mehrere gibt), ist der Titel zu nah dran.
+            let haeufigeTitelwoerter: Set<String> = [
+                "meer", "sommer", "winter", "regen", "nacht", "licht", "schatten", "herz",
+                "liebe", "haus", "weg", "himmel", "stille", "sterne", "wind", "insel",
+                "tage", "jahre", "leben", "zeit", "morgen", "abend", "hoffnung"
+            ]
+            let geteilt = kandidat.intersection(referenz)
+            let markant = geteilt.subtracting(haeufigeTitelwoerter)
+            let gemeinsam = geteilt.count
+            guard gemeinsam >= 2 || !markant.isEmpty else { continue }
+            // Überwiegen die gemeinsamen Wörter auf BEIDEN Seiten, ist es zu nah dran.
+            //
+            // Die Hälfte genügt, weil kurze Titel wenige Inhaltswörter haben: „Ein
+            // Wiedersehen im Winter" teilt mit „Ein Wiedersehen im Sommer" nur EIN
+            // Wort – aber es ist das prägende, und der Titel wäre erkennbar abgekupfert.
+            let anteilKandidat = Double(gemeinsam) / Double(kandidat.count)
+            let anteilReferenz = Double(gemeinsam) / Double(referenz.count)
+            if anteilKandidat >= 0.5 && anteilReferenz >= 0.5 { return true }
+        }
+        return false
+    }
+
     /// Klingt der Titel nach Literaturpreis-Bewerbung statt nach einem Buch, das sich
     /// verkauft?
     ///
@@ -108,9 +180,12 @@ enum AutonomousContentQuality {
         if schwereKerne.contains(where: { t.contains($0) }) { return true }
 
         // Mindestens ein Anker muss vorhanden sein.
+        // Zeitanker: Jahreszeiten, Tageszeiten – und die Zeitkonjunktionen, mit denen
+        // Verlagstitel arbeiten („Bevor der Regen kam", „Als der Sommer uns gehörte").
         let zeit = ["sommer", "winter", "frühling", "herbst", "morgen", "abend", "nacht",
                     "tag", "tage", "heute", "damals", "wiedersehen", "jahr", "stunde",
-                    "august", "juli", "juni", "september", "weihnacht"]
+                    "august", "juli", "juni", "september", "weihnacht",
+                    "bevor", "solange", "nachdem", "seit", "wenn ", "als ", "wo "]
         let beziehung = ["uns", "dir", "dich", "wir", "mich", "mein", "unser", "euch", "ihr "]
         // Führendes Leerzeichen ergänzen, damit Präpositionen auch am Titelanfang greifen
         // („Zwischen Ende und Anfang") und nicht als Wortteil („beinahe" → „am").

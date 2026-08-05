@@ -647,11 +647,26 @@ struct NewBookWizardView: View {
             do {
                 let response = try await ProviderGateway.shared.generateText(request: request, configuration: config)
                 let titles = StructureParser.parseTitleLines(response.text)
-                if titles.isEmpty {
+                // Zwei harte Filter, bevor überhaupt sortiert wird:
+                //
+                // 1. Kopien echter Buchtitel fliegen raus. Die Titel-Prompts nennen echte
+                //    Bestseller als Muster – genau deshalb besteht die Gefahr, dass das
+                //    Modell sie übernimmt. Buchtitel genießen Werktitelschutz.
+                // 2. Verkopfte Titel fliegen raus: „Das Gewicht von Seide" – ein
+                //    Gegenstand ohne Menschen, ohne Ort, mit schwerem Abstraktum. Genau
+                //    dieser Titel kam aus der bisherigen Fassung.
+                let brauchbar = titles.filter {
+                    !AutonomousContentQuality.istKopieBekannterTitel($0)
+                        && !AutonomousContentQuality.titelWirktVerkopft($0)
+                }
+                // Wenn ALLE durchfallen, lieber die ungefilterte Liste zeigen als gar
+                // nichts – der Nutzer soll nie vor einem leeren Feld stehen.
+                let anzuzeigen = brauchbar.isEmpty ? titles : brauchbar
+                if anzuzeigen.isEmpty {
                     titleError = "Keine Titel erkannt – bitte erneut versuchen."
                 } else {
                     // Stärksten Titel nach oben (gleiche Heuristik wie die Auto-Produktion).
-                    titleSuggestions = titles.sorted {
+                    titleSuggestions = anzuzeigen.sorted {
                         AutonomousContentQuality.titleViralityScore($0)
                             > AutonomousContentQuality.titleViralityScore($1)
                     }

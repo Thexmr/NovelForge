@@ -206,6 +206,21 @@ enum RegressionProbe {
                          "Verkopfter Titel „\(verkopft)" muss erkannt werden")
         }
 
+        // --- Titel: kein Abkupfern ------------------------------------------------
+        // Die Titel-Prompts nennen echte Bestseller als Muster – genau deshalb muss
+        // eine Kopie maschinell auffallen. Buchtitel geniessen Werktitelschutz.
+        for kopie in ["Ein Wiedersehen im Sommer", "Ein Wiedersehen im Winter",
+                      "Das kleine Zuhause in Wien", "Der Teufel trägt Prada"] {
+            precondition(AutonomousContentQuality.istKopieBekannterTitel(kopie),
+                         "Kopie „\(kopie)" muss blockiert werden")
+        }
+        for eigen in ["Die Nacht, in der du bliebst", "Bevor der Regen kam",
+                      "Was zwischen uns steht", "Als das Meer uns fand",
+                      "Unser letzter August in Lissabon"] {
+            precondition(!AutonomousContentQuality.istKopieBekannterTitel(eigen),
+                         "Eigenständiger Titel „\(eigen)" darf nicht blockiert werden")
+        }
+
         print("NovelForge regression probe: PASS")
     }
 }

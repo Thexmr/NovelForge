@@ -1613,8 +1613,10 @@ enum PromptFactory {
         einem Freund empfehlen, ohne sich fremdzuschämen? Ein Titel, der nach billiger
         Selfpublishing-KI klingt, ist DURCHGEFALLEN.
 
-        SO SEHEN ECHTE BESTSELLER AUS (Titel aus den aktuellen deutschen Verlagslisten –
-        NICHT übernehmen, sondern das MUSTER erkennen):
+        ⚠ DIESE TITEL SIND ECHTE, VERÖFFENTLICHTE BÜCHER. Übernimm KEINEN davon, auch
+        nicht leicht abgewandelt („Ein Wiedersehen im Winter" wäre bereits zu nah).
+        Buchtitel sind in Deutschland als Werktitel geschützt. Lerne die BAUWEISE,
+        erfinde daraus etwas Eigenes, das zu DIESER Geschichte gehört:
         „Ein Wiedersehen im Sommer" · „Zwischen Ende und Anfang" · „Das kleine Zuhause in
         Prag" · „Der kleine Dünenkiosk auf Sylt" · „Sommer, Glück und Ringelblumen" ·
         „Der Geschmack von Sommer und Karamell" · „Warte auf mich am Meer" ·
