@@ -6562,12 +6562,38 @@ final class PipelineOrchestrator: ObservableObject {
                     let targetCeiling = chapter.targetWordCount > 0
                         ? Int(Double(chapter.targetWordCount) * PublicationReadiness.maximumChapterWordRatio)
                         : Int.max
-                    let growthCeiling = max(currentText.wordCount, targetCeiling)
+
+                    // Verlangt der Befund eine ERGÄNZUNG, braucht die Reparatur Platz dafür.
+                    //
+                    // Sonst entsteht ein Patt, das sich nicht auflösen kann: „ohne
+                    // Rückverweis", „springt ohne Übergang", „wird nicht aufgelöst" – all
+                    // das lässt sich nur beheben, indem Text HINZUKOMMT. Gleichzeitig
+                    // verbot die Obergrenze jedes Wachstum, sobald ein Kapitel über dem
+                    // Zielumfang lag. Gemessen an „Das Gewicht von Seide": Kapitel 12 hatte
+                    // 1.375 Wörter bei 1.301 erlaubten – jede Ergänzung wurde verworfen,
+                    // achtmal meldete die Reparatur „Antwort unvollständig", und genau
+                    // diese vier Befunde stoppten am Ende das ganze Buch.
+                    //
+                    // Der Zuschlag ist bewusst klein: Ein Rückverweis oder Übergang braucht
+                    // ein bis zwei Sätze, keine neue Szene.
+                    let befundText = (report.result + " " + report.recommendation).lowercased()
+                    let brauchtErgaenzung = [
+                        "ohne rückverweis", "ohne verweis", "ohne übergang", "ohne überleitung",
+                        "nicht aufgelöst", "offene fäden", "offener faden", "wird nie",
+                        "fehlt der bezug", "ohne verknüpfung", "nicht eingelöst"
+                    ].contains { befundText.contains($0) }
+                    let ergaenzungsZuschlag = brauchtErgaenzung
+                        ? max(120, Int(Double(currentText.wordCount) * 0.10))
+                        : 0
+                    let growthCeiling = max(currentText.wordCount, targetCeiling) + ergaenzungsZuschlag
+
                     if AutonomousContentQuality.isAcceptableRewrite(
                            source: currentText,
                            candidate: candidate,
                            minRatio: 0.65,
-                           maxRatio: 1.15,   // Reparatur darf das Kapitel NICHT verlängern
+                           // Ohne Ergänzungsbedarf bleibt es bei 1,15 – ein Kapitel soll
+                           // durch Reparatur nicht aufgehen. Mit Bedarf etwas mehr Luft.
+                           maxRatio: brauchtErgaenzung ? 1.25 : 1.15,
                            finishReason: response.finishReason),
                        candidate.wordCount <= growthCeiling,
                        candidate.wordCount >= minimumWords,
