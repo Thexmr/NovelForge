@@ -85,6 +85,44 @@ enum AutonomousContentQuality {
         !scenePlanGenreDriftMarkers(text, genre: genre, canon: canon).isEmpty
     }
 
+    /// Klingt der Titel nach Literaturpreis-Bewerbung statt nach einem Buch, das sich
+    /// verkauft?
+    ///
+    /// Recherchiert an den aktuellen deutschen Bestsellerlisten (Rowohlt, dtv,
+    /// Droemer Knaur, Amazon): „Ein Wiedersehen im Sommer", „Warte auf mich am Meer",
+    /// „All das Ungesagte zwischen uns", „Der Geschmack von Sommer und Karamell",
+    /// „Das kleine Zuhause in Prag", „Unser Tag ist heute". Alle enthalten warme
+    /// Alltagswörter und mindestens einen von drei Ankern: einen Ort, eine Zeitangabe
+    /// oder ein Beziehungswort.
+    ///
+    /// Der Testbuch-Titel „Das Gewicht von Seide" hat keinen davon – ein Gegenstand
+    /// ohne Menschen, ohne Ort, mit einem schweren Abstraktum als Kern. Solche Titel
+    /// werden im Thumbnail überscrollt.
+    static func titelWirktVerkopft(_ titel: String) -> Bool {
+        let t = titel.lowercased()
+        guard !t.isEmpty else { return false }
+
+        // Muster „Das <Abstraktum> von/des <Stoff>" – die typische Preisjury-Konstruktion.
+        let schwereKerne = ["gewicht", "substanz", "essenz", "wesen", "fragment", "membran",
+                            "beschaffenheit", "aggregat", "resonanz", "textur", "kontur"]
+        if schwereKerne.contains(where: { t.contains($0) }) { return true }
+
+        // Mindestens ein Anker muss vorhanden sein.
+        let zeit = ["sommer", "winter", "frühling", "herbst", "morgen", "abend", "nacht",
+                    "tag", "tage", "heute", "damals", "wiedersehen", "jahr", "stunde",
+                    "august", "juli", "juni", "september", "weihnacht"]
+        let beziehung = ["uns", "dir", "dich", "wir", "mich", "mein", "unser", "euch", "ihr "]
+        // Führendes Leerzeichen ergänzen, damit Präpositionen auch am Titelanfang greifen
+        // („Zwischen Ende und Anfang") und nicht als Wortteil („beinahe" → „am").
+        let mitRand = " " + t
+        let ortSignal = [" in ", " im ", " am ", " an ", " auf ", " bei ", " zwischen ", " nach ",
+                         " über ", " unter ", " vor "]
+        let hatAnker = zeit.contains { t.contains($0) }
+            || beziehung.contains { t.contains($0) }
+            || ortSignal.contains { mitRand.contains($0) }
+        return !hatAnker
+    }
+
     /// Anteil wörtlicher Rede am Text (0–1).
     ///
     /// Gemessen an „Das Gewicht von Seide": **2,3 %** über das ganze Buch, sieben von

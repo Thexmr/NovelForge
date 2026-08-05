@@ -189,6 +189,23 @@ enum RegressionProbe {
                         < AutonomousContentQuality.dialogUntergrenze,
                      "Reine Beschreibung muss als dialogarm gelten")
 
+        // --- Titel ----------------------------------------------------------------
+        // Recherchiert an den aktuellen deutschen Bestsellerlisten: Jeder Verkaufstitel
+        // hat warme Alltagswörter und mindestens einen Anker – Ort, Zeitangabe oder
+        // Beziehungswort. „Das Gewicht von Seide" (Testbuch) hat keinen davon.
+        for bestseller in ["Ein Wiedersehen im Sommer", "Zwischen Ende und Anfang",
+                           "Das kleine Zuhause in Prag", "Warte auf mich am Meer",
+                           "All das Ungesagte zwischen uns", "Unser Tag ist heute",
+                           "Der Geschmack von Sommer und Karamell"] {
+            precondition(!AutonomousContentQuality.titelWirktVerkopft(bestseller),
+                         "Bestsellertitel „\(bestseller)" darf nicht verworfen werden")
+        }
+        for verkopft in ["Das Gewicht von Seide", "Die Farbe des Schweigens",
+                         "Der Klang von Asche", "Fragmente"] {
+            precondition(AutonomousContentQuality.titelWirktVerkopft(verkopft),
+                         "Verkopfter Titel „\(verkopft)" muss erkannt werden")
+        }
+
         print("NovelForge regression probe: PASS")
     }
 }

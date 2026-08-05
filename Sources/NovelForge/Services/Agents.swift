@@ -77,7 +77,9 @@ enum PromptFactory {
         - Direkte Ansprache (du/dich/mein/dein) erzeugt Nähe und Sofort-Spannung.
         Starke Bauarten (mischen): Bevor/Wenn/Warum/Was ...; Das Mädchen, das ...; eine Drohung oder ein Versprechen als Satz; ein Geständnis oder eine Anschuldigung in der Ich-/Du-Form; ein aufgeladenes konkretes Objekt; eine Negation (Niemand ..., Kein ...); ein Name plus Einsatz.
 
-        STRENG VERBOTEN: Genre-Wörter als Titel (Liebesroman, Erotik-Roman, Thriller); Platzhalter (Titel); kryptische Wort-Collagen oder Nonsens (z. B. Schluckauf im Erdboden); Berufs-/Ort-Klischees (Die [Beruf] von [Ort]); mehr als 6 Wörter; Tippfehler; alles, was auf zehn anderen Büchern stehen könnte.
+        WAS IN DEN AKTUELLEN DEUTSCHEN BESTSELLERLISTEN STEHT (Muster erkennen, nicht übernehmen): „Ein Wiedersehen im Sommer", „Warte auf mich am Meer", „All das Ungesagte zwischen uns", „Der Geschmack von Sommer und Karamell", „Das kleine Zuhause in Prag", „Unser Tag ist heute". Gemeinsam ist ihnen: warme Alltagswörter, ein konkreter Anker (Ort, Jahreszeit, Zeitpunkt) und eine spürbare Beziehung („uns", „mit Dir", „warte auf mich"). Jeder deiner Titel soll mindestens EINES davon enthalten – einen Ort, eine Zeitangabe oder ein Beziehungswort.
+
+        STRENG VERBOTEN: Genre-Wörter als Titel (Liebesroman, Erotik-Roman, Thriller); Platzhalter (Titel); kryptische Wort-Collagen oder Nonsens (z. B. Schluckauf im Erdboden); Berufs-/Ort-Klischees (Die [Beruf] von [Ort]); mehr als 6 Wörter; Tippfehler; alles, was auf zehn anderen Büchern stehen könnte. VERBOTEN sind außerdem abstrakte Objekt-Metaphern nach dem Muster „Das [abstraktes Nomen] von [Material]" – etwa „Das Gewicht von Seide" oder „Die Farbe des Schweigens". Solche Titel klingen nach Literaturpreis-Bewerbung und werden im Amazon-Thumbnail überscrollt.
 
         Antworte exakt in diesem Format:
         KANDIDATEN:
@@ -1611,22 +1613,39 @@ enum PromptFactory {
         einem Freund empfehlen, ohne sich fremdzuschämen? Ein Titel, der nach billiger
         Selfpublishing-KI klingt, ist DURCHGEFALLEN.
 
-        NUTZE VERSCHIEDENE BEWÄHRTE FORMEN (nicht acht Varianten derselben Masche):
-        - Bildstarke Nomen-Wendung: ein konkretes, emotionales Bild in 2–4 Wörtern
-          (Form-Beispiele, NICHT übernehmen: „Das Lied der Weite", „Wo die Nächte hell sind").
-        - Stilles Versprechen / Sehnsucht: „Solange …", „Bevor …", „Als wir …"
-          (Form-Beispiele: „Solange die Hoffnung bleibt", „Als der Sommer uns gehörte").
-        - Ein einzelnes starkes Wort, evtl. mit knapper Ergänzung.
-        - Eine kurze, offene Zeile – aber HÖCHSTENS ZWEI der acht Titel dürfen so gebaut sein.
+        SO SEHEN ECHTE BESTSELLER AUS (Titel aus den aktuellen deutschen Verlagslisten –
+        NICHT übernehmen, sondern das MUSTER erkennen):
+        „Ein Wiedersehen im Sommer" · „Zwischen Ende und Anfang" · „Das kleine Zuhause in
+        Prag" · „Der kleine Dünenkiosk auf Sylt" · „Sommer, Glück und Ringelblumen" ·
+        „Der Geschmack von Sommer und Karamell" · „Warte auf mich am Meer" ·
+        „All das Ungesagte zwischen uns" · „Unser Tag ist heute" · „Die Tage mit Dir"
+
+        WAS DIESE TITEL GEMEINSAM HABEN – halte dich daran:
+        - WARME, SINNLICHE ALLTAGSWÖRTER: Sommer, Zuhause, Geschmack, Karamell, Meer, Tage,
+          Wiedersehen. Wörter, die jeder kennt und die sofort ein Gefühl auslösen.
+        - EIN KONKRETER ANKER: ein Ort (Prag, Sylt, am Meer), eine Jahreszeit (Sommer) oder
+          eine Zeitangabe (Tage, heute, Wiedersehen). Der Leser sieht sofort etwas vor sich.
+        - BEZIEHUNG SICHTBAR: „zwischen uns", „mit Dir", „unser", „warte auf mich" – die
+          zwei Menschen sind im Titel spürbar, nicht nur ein Gegenstand.
+        - Wärme statt Schwere. Diese Titel klingen einladend, nicht bedeutungsschwanger.
 
         HARTE VERBOTE:
+        - KEINE abstrakten Objekt-Metaphern nach dem Muster „Das [abstraktes Nomen] von
+          [Material]" – etwa „Das Gewicht von Seide", „Die Farbe des Schweigens", „Der
+          Klang von Asche". Das klingt nach Literaturpreis-Bewerbung, nicht nach einem Buch,
+          das jemand im Urlaub kauft. Solche Titel sind DURCHGEFALLEN.
+        - KEINE schweren, kalten oder verkopften Substantive als Kern (Gewicht, Substanz,
+          Wesen, Essenz, Fragment, Membran, Schweigen als Hauptwort).
         - KEINE reißerischen Aussage-Sätze im Reihen-Stil („Er stirbt, wenn ich bleibe",
-          „Mein Ex heiratet meine Schwester"). Das klingt nach KI und Groschenheft, nicht
-          nach Verlag. Höchstens zwei kurze offene Zeilen insgesamt, und diese müssen elegant sein.
+          „Mein Ex heiratet meine Schwester"). Das klingt nach Groschenheft.
         - KEINE kryptischen, prätentiösen oder paradoxen Wort-Collagen.
         - KEINE Berufs-/Ort-Klischees („Die Bäckerin von …"), keine Anführungszeichen,
           keine Erklärungen, keine zwei austauschbaren Allerweltstitel.
         - 2–6 Wörter, als Amazon-KDP-Thumbnail sofort lesbar, nur Alltagswörter.
+
+        PRÜFE JEDEN TITEL SELBST: Enthält er mindestens EINES davon – einen Ort, eine
+        Jahreszeit/Zeitangabe, oder ein Beziehungswort (uns, dir, wir, mich)? Wenn nicht,
+        ersetze ihn. Reine Gegenstands-Titel ohne Menschen und ohne Ort verkaufen nicht.
 
         Jeder Titel soll neugierig machen und ein Gefühl auslösen – aber durch BILD und
         SEHNSUCHT, nicht durch Schock. Passe die Titel zum Inhalt oben.
