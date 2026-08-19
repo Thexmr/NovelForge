@@ -391,6 +391,17 @@ enum PublicationReadiness {
                         + numberList(aiLikeChapters) + "."
                 )
             }
+
+            let antiGlaetteChapters = snapshots.filter {
+                !AutonomousContentQuality.antiGlaetteFindings(in: $0.text).isEmpty
+            }.map { $0.chapter.chapterNumber }
+            if !antiGlaetteChapters.isEmpty {
+                issues.append(
+                    "Übererklärende oder künstlich gerundete Endfassung in Kapiteln: "
+                        + numberList(antiGlaetteChapters)
+                        + ". Sichtbare Handlung nicht nachträglich deuten und keine Erkenntnis-Haken behaupten."
+                )
+            }
         }
 
         if project.isNonfiction {

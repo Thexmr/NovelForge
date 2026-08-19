@@ -403,7 +403,7 @@ enum AutonomousContentQuality {
             (#"(T(ü|u)r|T(ü|u)re)[^.!?]{0,40}(fiel|schloss|klickte)"#, "Tuer faellt ins Schloss"),
             (#"nicht\s+[^,.!?]{2,40},\s*sondern"#, "Antithese nicht-X-sondern-Y")
         ]
-        var treffer: [(String, String)] = []
+        var treffer: [(satz: String, grund: String)] = []
         for satz in saetzeAusText(text) {
             let ns = satz as NSString
             let ganz = NSRange(location: 0, length: ns.length)
@@ -416,7 +416,90 @@ enum AutonomousContentQuality {
                 }
             }
         }
+        // Nur wiederkehrende Deutungsformeln und bewusst ausgestellte Schlusssätze
+        // gehen in die Satz-Chirurgie. Ein einzelner klarer Gedanke bleibt legitime
+        // Figurenperspektive; die Häufung macht Prosa dagegen wie kommentierte KI-Ausgabe.
+        let antiGlaette = antiGlaetteFindings(in: text)
+        for finding in antiGlaette where !treffer.contains(where: { $0.satz == finding.satz }) {
+            treffer.append(finding)
+        }
         return treffer
+    }
+
+    /// Findet Deutungssätze, die eine vorher bereits sichtbare Handlung oder Reaktion
+    /// nachträglich auslegen. Einzelne Einordnungen sind normale Erzählstimme; erst ein
+    /// wiederkehrendes Muster wird als KI-typische Glätte gewertet.
+    static func uebererklaerendeDeutungssaetze(in text: String) -> [(satz: String, grund: String)] {
+        let muster: [(String, String)] = [
+            (#"\b(?:das|dies)\s+(?:war|ist)\s+(?:der|die|das)\s+(?:punkt|moment|art|weise|grund)\b"#,
+             "Erklärsatz deutet die Szene nachträglich aus"),
+            (#"\b(?:sie|er)\s+(?:wusste|merkte|spürte),?\s+dass\s+(?:das|dies)\b"#,
+             "Erklärsatz benennt eine bereits gezeigte Bedeutung"),
+            (#"\b(?:das|dies)\s+(?:zeigte|bedeutete|machte klar),?\s+(?:dass|wie)\b"#,
+             "Erklärsatz kommentiert statt die Folge auszuspielen"),
+            (#"\b(?:es|das)\s+war\s+(?:nicht|mehr)\s+nur\b"#,
+             "Bedeutungssteigerung wird behauptet statt konkret gezeigt")
+        ]
+        var treffer: [(satz: String, grund: String)] = []
+        for satz in saetzeAusText(text) {
+            let ns = satz as NSString
+            let range = NSRange(location: 0, length: ns.length)
+            for (regex, grund) in muster {
+                guard let re = try? NSRegularExpression(pattern: regex, options: [.caseInsensitive])
+                else { continue }
+                if re.firstMatch(in: satz, range: range) != nil {
+                    treffer.append((satz, grund))
+                    break
+                }
+            }
+        }
+        return treffer
+    }
+
+    /// Findet ausschließlich im Schlussfenster einer Passage künstlich aufgerufene
+    /// Erkenntnis- oder Fragenformeln. Ein ruhiges, konkretes Ende bleibt erlaubt;
+    /// blockiert werden nur sichtbare "Bedeutungs-Schleifen" wie "plötzlich stand da
+    /// eine Frage", die einen Haken behaupten statt eine Folge zu erzeugen.
+    static func kuenstlichRundeSchlusssaetze(in text: String) -> [(satz: String, grund: String)] {
+        let absatzEnde = text.components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.wordCount >= 3 }
+            .suffix(2)
+            .joined(separator: " ")
+        guard !absatzEnde.isEmpty else { return [] }
+        let muster: [(String, String)] = [
+            (#"\b(?:stand|lag|blieb)\s+(?:dort\s+)?(?:plötzlich\s+)?(?:eine|die)\s+(?:frage|erkenntnis|wahrheit)\b"#,
+             "Künstlich ausgestellter Erkenntnis-Haken am Szenenende"),
+            (#"\b(?:frage|erkenntnis|wahrheit)\s*,?\s+die\s+(?:sie|er|niemand)\s+(?:nicht|nie)\s+(?:mehr\s+)?(?:loswurde|weg(?:bekam|bekommen)|ignorieren)\b"#,
+             "Künstlich ausgestellter Erkenntnis-Haken am Szenenende"),
+            (#"\bwas\s+geschah\s+mit\b"#,
+             "Rhetorische Bedeutungsfrage statt konkreter Szenenfolge"),
+            (#"\b(?:zweite chance|neuer anfang)\b[^.!?]{0,70}\b(?:frage|bedeutete|bedeuten)\b"#,
+             "Thema wird am Szenenende erklärt statt durch Handlung offen gelassen")
+        ]
+        var treffer: [(satz: String, grund: String)] = []
+        for satz in saetzeAusText(absatzEnde) {
+            let ns = satz as NSString
+            let range = NSRange(location: 0, length: ns.length)
+            for (regex, grund) in muster {
+                guard let re = try? NSRegularExpression(pattern: regex, options: [.caseInsensitive])
+                else { continue }
+                if re.firstMatch(in: satz, range: range) != nil {
+                    treffer.append((satz, grund))
+                    break
+                }
+            }
+        }
+        return treffer
+    }
+
+    /// Gemeinsame, konservative Anti-Glätte-Diagnose. Eine Szene darf reflektieren;
+    /// befundet wird erst die Häufung von Nachdeutungen oder ein sichtbar gebauter
+    /// Erkenntnis-Haken. Alle nachgelagerten Gates nutzen genau diese Schnittstelle.
+    static func antiGlaetteFindings(in text: String) -> [(satz: String, grund: String)] {
+        let deutungen = uebererklaerendeDeutungssaetze(in: text)
+        return kuenstlichRundeSchlusssaetze(in: text)
+            + (deutungen.count >= 2 ? deutungen : [])
     }
 
     static func fehlendeSatzvarianz(in text: String) -> String? {
@@ -623,6 +706,12 @@ enum AutonomousContentQuality {
         if soundsLikeAI(sample) {
             issues.append(
                 "Der Romananfang enthaelt zu viele formelhafte oder maschinell wirkende Wendungen."
+            )
+        }
+        let antiGlaette = antiGlaetteFindings(in: sample)
+        if !antiGlaette.isEmpty {
+            issues.append(
+                "Der Romananfang erklärt sichtbare Handlung nachträglich oder baut einen künstlichen Erkenntnis-Haken. Lass die konkrete Folge stehen, statt ihre Bedeutung auszuformulieren."
             )
         }
         // Ein einzelner langer Satz oder eine kurze Stakkato-Passage kann als bewusstes
@@ -4289,6 +4378,18 @@ enum AutonomousContentQuality {
             if n > tick.budget {
                 violations.append("\(tick.hinweis) (\(n)x im Text)")
             }
+        }
+
+        // 1e) Übererklären und sichtbare Schlusshaken. Nicht jeder Gedanke ist ein
+        // Fehler; zwei Deutungssätze in derselben Passage oder eine demonstrativ
+        // ausformulierte Erkenntnis am Ende klingen jedoch nach kommentierter KI-Prosa.
+        let deutungen = uebererklaerendeDeutungssaetze(in: text)
+        if deutungen.count >= 2 {
+            violations.append("Übererklärende Deutungssätze gehäuft (\(deutungen.count)×): Handlung und Dialog nicht nachträglich auslegen, sondern die konkrete Folge stehen lassen.")
+        }
+        let rundeEnden = kuenstlichRundeSchlusssaetze(in: text)
+        if !rundeEnden.isEmpty {
+            violations.append("Künstlich ausgestellter Szenenabschluss: \(rundeEnden.prefix(2).map(\.grund).joined(separator: " | ")).")
         }
 
         // 2) Körper-Beat-Lexeme: zusammen budgetiert auf ~1 je 300 Wörter.

@@ -1264,7 +1264,13 @@ enum PromptFactory {
           wird kein Dialog erzwungen. Wo gesprochen wird, steht die Rede korrekt in deutschen
           Anfuehrungszeichen.
         - SUBTEXT STATT ERKLAERUNG: Zeige Spannung durch das, was eine Figur tut, verschweigt oder
-          falsch beantwortet. Benenne danach nicht noch die Bedeutung der Geste.
+          falsch beantwortet. Benenne danach nicht noch die Bedeutung der Geste. Kein nachträglicher
+          Deutungssatz wie „Das zeigte, dass …“, „Sie wusste, dass das …“ oder „Es war nicht nur …“.
+          Der Leser darf eine sichtbare Folge selbst verstehen.
+        - UNPERFEKTE ALLTAGSREDE: Nicht jede Replik braucht Witz, Subtext oder eine Pointe. Menschen
+          wechseln das Thema, antworten praktisch, reden aneinander vorbei oder lassen einen Gedanken
+          liegen. Die Knappheit und Präzision entsteht aus Absicht, nicht aus einer permanenten
+          Schlagfertigkeitsmaschine.
         - SINNE MIT AUSWAHL: Nutze pro Moment ein praezises Detail, das Orientierung, Figur oder
           Handlung traegt. Kein Inventar aus Sehen, Hoeren, Riechen und Fuehlen; kein Wetter als
           automatische Gefuehlsmetapher.
@@ -1290,7 +1296,10 @@ enum PromptFactory {
           aussprechen wuerde.
         - ABSATZ UND ENDE: Absatzwechsel folgen Handlung, Gedanke oder Sprecher. Enden duerfen
           offen oder ruhig sein, aber nie das eben Gezeigte deuten, moralisieren oder poetisch
-          zusammenfassen.
+          zusammenfassen. Keine künstlich ausgestellte Erkenntnis („Da stand plötzlich eine Frage“,
+          „Was geschah mit …?“) und keine Themenformel über zweite Chancen, Neuanfänge oder Wahrheit.
+          Schließe stattdessen mit einer konkreten Handlung, einem belastbaren Detail, einer Entscheidung
+          oder der unmittelbaren Folge.
         - KANONTREUE: Namen, Beziehungen, Alter, Orte, Besitz, Wissen und Zeitfolge bleiben
           unveraendert. Fuehre keine benannte Figur und keine Vorgeschichte ein, die nicht im
           Szenenplan oder bisherigen Buch belegt ist.
@@ -1367,8 +1376,13 @@ enum PromptFactory {
         6. ZURUECKHALTUNG: Gefuehle duerfen knapp benannt oder konkret gezeigt werden.
            Bilder, Koerperreaktionen, Sinnesdetails und Absatzhaken nur, wenn dieser Moment
            sie braucht. Kein Pflicht-Effekt und keine Deutung nach einer bereits klaren Geste.
+           Nach sichtbarer Handlung nie einen Satz anhängen, der ihre Bedeutung erklärt.
+           Nicht jede Replik braucht Witz oder Subtext; funktionale, unvollkommene Alltagsrede
+           schafft den Kontrast, den starke Dialogmomente brauchen.
         7. SZENENENDE: Spiele genau die geplante Wendung aus. Der letzte Satz darf schlicht,
            offen, warm, hart oder ruhig sein. Er muss passen, nicht sichtbar konstruiert wirken.
+           Verwende keine rhetorische Bedeutungsfrage und keine ausgesprochene Erkenntnis über
+           „zweite Chancen“, „Neuanfänge“ oder „Wahrheit“. Zeige die Folge als konkreten Vorgang.
         Gib ausschliesslich fertige Prosa aus und pruefe vor der Ausgabe still Anschluss,
         Zeitform, Namensdichte, Figurenwissen, Wiederholungen und Vollstaendigkeit.
         """
@@ -2111,6 +2125,7 @@ enum PromptFactory {
         mehrfach oder strukturell auftreten:
 
         - ERKLÄR-SÄTZE: Dialog oder Handlung wird doppelt gedeutet („sagte sie, weil sie Angst hatte", „er ging hinaus, um sich zu beruhigen")
+        - KÜNSTLICHER DEUTUNGS-HAKEN: Ein Szenenende behauptet eine Erkenntnis oder eine rhetorische Frage („Da stand plötzlich eine Frage", „Was geschah mit …?"), statt die Folge konkret auszuspielen
         - EMOTIONS-DOPPELUNG: Ein Gefühl wird benannt UND gezeigt UND kommentiert
         - BEDEUTUNGSSCHWANGERE LEERE: „irgendetwas stimmte nicht", „etwas an ihm war anders" – ohne dass es je konkret wird
         - GESTELZTE GESTEN: Reaktionen, die kein echter Mensch so macht (ständiges Augenbrauen-Heben, Lächeln ohne Grund, choreografierte Körperbetonung)

@@ -65,8 +65,38 @@ struct ChapterScorecardProbe {
         require(weak.verdict == .revise, "Formelcluster passiert den Lektoratsmodus")
         require(weak.prose < 0.75, "Formelcluster senkt den Prosa-Score nicht")
 
+        let explained = String(repeating:
+            "Mara schob den Koffer unter die Bank. Das zeigte, dass sie niemanden mehr an sich heranlassen wollte. ",
+            count: 8)
+        let explainedFindings = AutonomousContentQuality.antiGlaetteFindings(in: explained)
+        require(explainedFindings.count >= 2,
+                "wiederholte Deutungssätze werden nicht als Anti-Glätte-Befund erkannt")
+        let explainedCard = ChapterEditorialScorecard.evaluate(
+            chapterNumber: 3, text: explained,
+            goal: "Mara sichert den Koffer vor dem Zug.",
+            conflict: "Ein Fremder versperrt ihr den Weg.",
+            targetWordCount: explained.wordCount, scenes: [scene(text: explained)]
+        )
+        require(explainedCard.verdict == .revise,
+                "übererklärende Prosa passiert den Lektoratsmodus")
+
+        let roundEnding = String(repeating:
+            "Mara maß den Abstand zum Gleis und zog den Koffer dichter an sich. ", count: 10)
+            + "Was geschah mit dem Koffer, wenn der Zug längst fort war?"
+        require(!AutonomousContentQuality.kuenstlichRundeSchlusssaetze(in: roundEnding).isEmpty,
+                "künstlicher Erkenntnis-Haken am Szenenende wird nicht erkannt")
+        let roundCard = ChapterEditorialScorecard.evaluate(
+            chapterNumber: 4, text: roundEnding,
+            goal: "Mara sichert den Koffer vor dem Zug.",
+            conflict: "Ein Fremder versperrt ihr den Weg.",
+            targetWordCount: roundEnding.wordCount, scenes: [scene(text: roundEnding)]
+        )
+        require(roundCard.verdict == .revise,
+                "künstlicher Erkenntnis-Haken passiert den Lektoratsmodus")
+
         print("ChapterScorecardProbe OK: klar=\(Int((clean.overall * 100).rounded())) %, "
                 + "statisch=\(Int((staticChapter.momentum * 100).rounded())) %, "
-                + "formelhaft=\(Int((weak.overall * 100).rounded())) %")
+                + "formelhaft=\(Int((weak.overall * 100).rounded())) %, "
+                + "anti-glätte blockiert")
     }
 }

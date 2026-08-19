@@ -10871,6 +10871,7 @@ final class PipelineOrchestrator: ObservableObject {
                 || $0.contains("Romananfang nicht freigabefaehig")
                 || $0.contains("Figurenname in kurzen Absaetzen")
                 || $0.contains("Maschinell oder formelhaft wirkende Endfassung")
+                || $0.contains("Übererklärende oder künstlich gerundete Endfassung")
                 || $0.contains("Beschädigte Dialogtypografie")
         }
     }
@@ -11551,6 +11552,7 @@ final class PipelineOrchestrator: ObservableObject {
             }
             if issues.contains(where: {
                 $0.contains("Maschinell oder formelhaft wirkende Endfassung")
+                    || $0.contains("Übererklärende oder künstlich gerundete Endfassung")
             }) {
                 try await runAIStyleCleanup(project: project, config: config)
             }
@@ -11970,7 +11972,8 @@ final class PipelineOrchestrator: ObservableObject {
         for chapter in chapters {
             try Task.checkCancellation()
             guard let source = chapter.bestText, !source.isEmpty,
-                  AutonomousContentQuality.soundsLikeAI(source) else { continue }
+                  (AutonomousContentQuality.soundsLikeAI(source)
+                    || !AutonomousContentQuality.antiGlaetteFindings(in: source).isEmpty) else { continue }
 
             let otherTexts = chapters.compactMap { other -> String? in
                 guard other.id != chapter.id else { return nil }
@@ -11990,6 +11993,7 @@ final class PipelineOrchestrator: ObservableObject {
             let repairPhrases = AutonomousContentQuality.clarityRepairPhrases(
                 in: source, maxResults: 20
             )
+            let antiGlaetteFindings = AutonomousContentQuality.antiGlaetteFindings(in: source)
             let job = beginJob(
                 agent: AgentName.repairEditor, phase: .manuscriptRevision,
                 project: project, chapter: chapter.chapterNumber
@@ -12014,12 +12018,16 @@ final class PipelineOrchestrator: ObservableObject {
 
                     Gemessene Ursache: \(AutonomousContentQuality.circumlocutionCount(source))
                     vage Umschreibungen, \(AutonomousContentQuality.aiTellCount(source))
-                    formelhafte Wendungen. Auffaellige Ausdruecke:
+                    formelhafte Wendungen, \(antiGlaetteFindings.count) übererklärende oder
+                    künstlich gerundete Stellen. Auffaellige Ausdruecke:
                     \(repairPhrases.map { "- \($0)" }.joined(separator: "\n"))
+                    \(antiGlaetteFindings.prefix(5).map { "- \($0.grund): \($0.satz.truncated(to: 180))" }.joined(separator: "\n"))
 
                     Ersetze vage Benennungsvermeidung durch das konkrete Objekt, die konkrete
                     Absicht oder die sichtbare Handlung. Streiche deutende Nachsaetze,
-                    Vergleichsketten und Emotions-Doppelungen. Bewahre ALLE Ereignisse,
+                    rhetorische Erkenntnis-Haken, Vergleichsketten und Emotions-Doppelungen.
+                    Lasse einen bereits klaren Dialog, Blick oder Vorgang ohne nachträgliche
+                    Erklärung stehen. Bewahre ALLE Ereignisse,
                     Informationen, Entscheidungen, Dialogaussagen, Reihenfolge, Perspektive,
                     Zeitform, Szenentrenner und den letzten Anschluss. Keine neue Figur, kein
                     neuer Gegenstand, keine neue Erinnerung. Umfang nahezu gleich halten.
@@ -12081,6 +12089,9 @@ final class PipelineOrchestrator: ObservableObject {
                 }
                 if AutonomousContentQuality.soundsLikeAI(candidate) {
                     reasons.append("Formelhafte oder vage Prosa ist weiterhin zu dicht.")
+                }
+                if !AutonomousContentQuality.antiGlaetteFindings(in: candidate).isEmpty {
+                    reasons.append("Die Fassung erklärt sichtbare Handlung noch nachträglich oder setzt einen künstlichen Erkenntnis-Haken.")
                 }
                 if !AutonomousContentQuality.clarityAssessment(candidate).isAcceptable {
                     reasons.append("Referenzen oder Vergleichsketten sind weiterhin unklar.")
