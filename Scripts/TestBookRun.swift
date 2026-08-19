@@ -16,7 +16,9 @@ import SwiftUI
 struct TestBookRun {
     static func main() async {
         let env = ProcessInfo.processInfo.environment
-        guard let apiKey = env["NF_OLLAMA_KEY"], !apiKey.isEmpty else {
+        guard let apiKey = env["NF_OLLAMA_KEY"]
+                ?? KeychainService.getAPIKey(for: .ollamaCloud),
+              !apiKey.isEmpty else {
             print("FEHLER: NF_OLLAMA_KEY nicht gesetzt")
             exit(2)
         }
@@ -45,6 +47,9 @@ struct TestBookRun {
             exit(2)
         }
         let context = ModelContext(container)
+        ProductionRecoveryService.repairLegacyCharacterCanon(in: context)
+        ProductionRecoveryService.sanitizePersistedScenes(in: context)
+        ProductionRecoveryService.recoverInterruptedJobs(in: context)
 
         let orchestrator = PipelineOrchestrator.shared
         orchestrator.configure(with: context)
@@ -59,8 +64,11 @@ struct TestBookRun {
         // weiterproduziert (die Pipeline-Phasen sind idempotent). Nur bei
         // NF_TEST_FRESH=1 oder leerem Store wird ein neues Testbuch angelegt.
         let existing = (try? context.fetch(FetchDescriptor<Project>())) ?? []
+        let wantedTitle = env["NF_TEST_TITLE"]
         let project: Project
-        if let resumed = existing.first {
+        if let resumed = existing.first(where: {
+            wantedTitle == nil || $0.title == wantedTitle
+        }) {
             project = resumed
             print("RESUME vorhandenes Projekt: \(project.title) | Status: \(project.status.rawValue)")
         } else {
@@ -76,6 +84,8 @@ struct TestBookRun {
             )
             neu.tropes = "Second Chance, Kleinstadt, Rückkehr in die Heimat"
             neu.spiceLevel = 1
+            neu.imprint = "NovelForge Testlauf\nLokaler Qualitaetstest\nAlle Rechte vorbehalten."
+            neu.authorBio = "NovelForge Testautor fuer die isolierte Produktionspruefung."
             let signature = NarrativeSignature.make(
                 seed: NarrativeSignature.stableSeed("\(neu.id.uuidString)|\(neu.title)|\(genre)")
             )
@@ -83,10 +93,10 @@ struct TestBookRun {
                 povOverride: "Personaler Erzähler (Er/Sie)", tenseOverride: "Präteritum"
             )
             let bookProfile = BookProfile(
-                premise: "Mara kehrt nach zehn Jahren auf die Nordseeinsel zurück, um den "
-                    + "heruntergekommenen Leuchtturm ihres Vaters zu verkaufen – und trifft "
-                    + "auf Jonas, ihre Jugendliebe, der den Turm ausgerechnet mit den Briefen "
-                    + "sanieren will, die sie ihm damals nie gegeben hat.",
+                premise: "Eine Grafikdesignerin kehrt nach zehn Jahren auf die Nordseeinsel "
+                    + "zurück, um den heruntergekommenen Leuchtturm ihres Vaters zu verkaufen "
+                    + "und trifft dort ihre Jugendliebe wieder. Er will den Turm ausgerechnet "
+                    + "mit den Briefen sanieren, die sie ihm damals nie gegeben hat.",
                 theme: "Heimat, zweite Chancen, loslassen",
                 targetAudience: "Leserinnen 25–55",
                 tonality: "warm, hoffnungsvoll",

@@ -6,6 +6,51 @@ import SwiftData
 @MainActor
 final class LogicTests: XCTestCase {
 
+    func testKDPStatusRequiresTruthfulCompleteResult() throws {
+        let complete = Data(#"{"ok":true,"draftUrl":"https://kdp.amazon.com/de_DE/title-setup/kindle/123/details","probleme":[]}"#.utf8)
+        let result = try KDPUploadService.interpretStatus(
+            data: complete, exitCode: 0, dryRun: false
+        )
+        XCTAssertTrue(result.isComplete)
+        XCTAssertFalse(result.isDryRun)
+        XCTAssertEqual(result.draftURL.flatMap(URL.init(string:))?.host, "kdp.amazon.com")
+
+        let incomplete = Data(#"{"ok":false,"draftUrl":"https://kdp.amazon.com/de_DE/title-setup/kindle/123/details","probleme":["Cover fehlt"]}"#.utf8)
+        let incompleteResult = try KDPUploadService.interpretStatus(
+            data: incomplete, exitCode: 0, dryRun: false
+        )
+        XCTAssertFalse(incompleteResult.isComplete)
+        XCTAssertEqual(incompleteResult.offenePunkte, ["Cover fehlt"])
+    }
+
+    func testKDPOfflinePreflightMustProveItStayedOffline() throws {
+        let data = Data(#"{"ok":true,"offline":true,"draftUrl":null,"probleme":[]}"#.utf8)
+        let result = try KDPUploadService.interpretStatus(
+            data: data, exitCode: 0, dryRun: true
+        )
+        XCTAssertTrue(result.isComplete)
+        XCTAssertTrue(result.isDryRun)
+        XCTAssertNil(result.draftURL)
+
+        let ambiguous = Data(#"{"ok":true,"probleme":[]}"#.utf8)
+        XCTAssertThrowsError(try KDPUploadService.interpretStatus(
+            data: ambiguous, exitCode: 0, dryRun: true
+        ))
+    }
+
+    func testKDPStatusRejectsMissingInvalidOrFailedStatus() {
+        XCTAssertThrowsError(try KDPUploadService.interpretStatus(
+            data: nil, exitCode: 0, dryRun: false
+        ))
+        XCTAssertThrowsError(try KDPUploadService.interpretStatus(
+            data: Data("kein json".utf8), exitCode: 0, dryRun: false
+        ))
+        let failed = Data(#"{"ok":false,"error":"Nicht bei KDP eingeloggt."}"#.utf8)
+        XCTAssertThrowsError(try KDPUploadService.interpretStatus(
+            data: failed, exitCode: 1, dryRun: false
+        ))
+    }
+
     /// In-Memory-SwiftData-Container für Tests, die echte @Model-Beziehungen
     /// brauchen (z.B. project.bookProfile). Ohne Container trappt das Setzen
     /// einer Relationship.
@@ -107,6 +152,16 @@ final class LogicTests: XCTestCase {
 
         XCTAssertTrue(PublicationReadiness.completionBlockingIssues(project: project).isEmpty)
         XCTAssertTrue(PublicationReadiness.cachedCompletionBlockingIssues(project: project).isEmpty)
+
+        chapter.finalText = Array(repeating: "Wort", count: 96).joined(separator: " ")
+            + " Der Standart war nähmlich falsch. Ende."
+        chapter.updatedAt = chapter.updatedAt.addingTimeInterval(1)
+        XCTAssertTrue(PublicationReadiness.completionBlockingIssues(project: project)
+            .contains { $0.contains("Eindeutige Rechtschreibfehler") })
+        XCTAssertTrue(PublicationReadiness.exportBlockingIssues(project: project)
+            .contains { $0.contains("Eindeutige Rechtschreibfehler") })
+        chapter.finalText = Array(repeating: "Wort", count: 99).joined(separator: " ") + " Ende."
+        chapter.updatedAt = chapter.updatedAt.addingTimeInterval(1)
 
         chapter.finalText = "[Diese Szene muss noch ausgeschrieben werden – bitte im Manuskript neu erzeugen.]"
         chapter.updatedAt = chapter.updatedAt.addingTimeInterval(1)
@@ -540,6 +595,90 @@ final class LogicTests: XCTestCase {
                 in: repaired, allowedContext: allowed
             ).isEmpty
         )
+    }
+
+    func testDraftPersistenceTreatsHeuristicCanonFindingsAsRepairWarnings() {
+        let scene = String(repeating:
+            "Karin wartet unter dem Vordach, bis ihr Schwager den Ring vom Boden aufhebt. ",
+            count: 8
+        ) + "Dann gehen beide schweigend ins Haus."
+
+        XCTAssertTrue(
+            AutonomousContentQuality.hardDraftPersistenceIssues(
+                scene,
+                targetWords: 200,
+                allowedNames: ["Karin Esser"],
+                forbiddenNames: ["liv", "voss"]
+            ).isEmpty,
+            "Rollenwoerter und ungeplante Requisiten duerfen einen vollstaendigen Entwurf nicht verwerfen"
+        )
+    }
+
+    func testDraftPersistenceStillBlocksNamesFromEarlierBooks() {
+        let scene = String(repeating:
+            "Karin wartet im Flur und hört Liv Voss im Nebenzimmer sprechen. ",
+            count: 8
+        ) + "Dann schließt sie leise die Tür."
+
+        XCTAssertTrue(
+            AutonomousContentQuality.hardDraftPersistenceIssues(
+                scene,
+                targetWords: 200,
+                allowedNames: ["Karin Esser"],
+                forbiddenNames: ["liv", "voss"]
+            ).contains(where: { $0.contains("Namen aus frueheren Buechern") }),
+            "Ein wirklich wiederverwendeter Katalogname muss die Speicherung weiterhin blockieren"
+        )
+    }
+
+    func testDraftPersistenceDoesNotConfuseTechnicalNounWithOldSurname() {
+        let scene = String(repeating:
+            "Karin prüfte den Brenner im Leuchtturm und drehte die Gaszufuhr vorsichtig zu. ",
+            count: 8
+        ) + "Danach schloss sie die Wartungsklappe."
+
+        XCTAssertTrue(
+            AutonomousContentQuality.hardDraftPersistenceIssues(
+                scene,
+                targetWords: 200,
+                allowedNames: ["Karin Esser"],
+                forbiddenNames: ["brenner", "liv", "voss"]
+            ).isEmpty
+        )
+    }
+
+    func testKinshipRoleIsNotExtractedAsACharacterName() {
+        XCTAssertFalse(
+            CharacterCanonAudit.personNames(
+                in: "Ihr Schwager wartete vor der Tür und rief später noch einmal an."
+            ).contains(where: { $0.localizedCaseInsensitiveContains("Schwager") })
+        )
+    }
+
+    func testEmotionNounIsNotExtractedAsACharacterName() {
+        let names = CharacterCanonAudit.personNames(
+            in: "Konflikt: Neid"
+        )
+
+        XCTAssertFalse(
+            names.contains(where: { $0.localizedCaseInsensitiveContains("Neid") }),
+            "Ein Gefühlsbegriff darf die Plotplanung nicht als erfundene Figur stoppen"
+        )
+    }
+
+    func testLocalWordOveruseDoesNotMergeUnrelatedFourLetterPrefixes() {
+        let natural = """
+        Eine Schwester wartete unter dem Vordach. Nach einer Stunde wurde das schwere Tor
+        geöffnet. Ihr Schwager schwieg, während eine Schwalbe unter dem Sims verschwand.
+        Nach dem Essen trug eine Angestellte schwere Kisten unter die Treppe. Die Schwester
+        nahm ihre Handschuhe und ging nach draußen. Eine Lampe hing über ihrer Hand.
+        """
+
+        let findings = AutonomousContentQuality.localContentWordOveruse(in: natural)
+        XCTAssertFalse(findings.contains(where: { $0.hasPrefix("schw") }))
+        XCTAssertFalse(findings.contains(where: { $0.hasPrefix("eine") }))
+        XCTAssertFalse(findings.contains(where: { $0.hasPrefix("nach") }))
+        XCTAssertFalse(findings.contains(where: { $0.hasPrefix("unte") }))
     }
 
     func testRecoveryPolicyOnlyAutoResumesAppInterruptions() {
@@ -1375,6 +1514,36 @@ final class LogicTests: XCTestCase {
         )
     }
 
+    func testGoldenEvalReleasePolicyRequiresSevenAndExplicitApproval() {
+        XCTAssertEqual(
+            QualityReleasePolicy.goldenEvalDecision(score: 7, approved: true),
+            .release
+        )
+        XCTAssertEqual(
+            QualityReleasePolicy.goldenEvalDecision(score: 6, approved: true),
+            .repair
+        )
+        XCTAssertEqual(
+            QualityReleasePolicy.goldenEvalDecision(score: 8, approved: false),
+            .repair
+        )
+    }
+
+    func testGoldenEvalReleasePolicyRejectsIncompleteEvaluation() {
+        XCTAssertEqual(
+            QualityReleasePolicy.goldenEvalDecision(score: nil, approved: true),
+            .invalid
+        )
+        XCTAssertEqual(
+            QualityReleasePolicy.goldenEvalDecision(score: 8, approved: nil),
+            .invalid
+        )
+        XCTAssertEqual(
+            QualityReleasePolicy.goldenEvalDecision(score: 11, approved: true),
+            .invalid
+        )
+    }
+
     // MARK: - Bestseller-Runde (Figurenstimmen, Gefühlsbogen, Beziehungstemperatur)
 
     /// Sprechweise und markantes Äußeres werden aus der FIGUR-Zeile geparst.
@@ -1407,5 +1576,227 @@ final class LogicTests: XCTestCase {
         XCTAssertTrue(AutonomousContentQuality.isRomanceGenre("Dark Romance"))
         XCTAssertTrue(AutonomousContentQuality.isRomanceGenre("Liebesroman"))
         XCTAssertFalse(AutonomousContentQuality.isRomanceGenre("Psychothriller"))
+    }
+
+    // MARK: - Deep POV: Filterwörter
+
+    /// Filterwörter schieben eine Wahrnehmungsinstanz zwischen Leser und Figur und
+    /// sind der stärkste Deep-POV-Verräter.
+    func testFilterwoerterFindetWahrnehmungsinstanz() {
+        let text = "Sie sah, dass er die Tür schloss. Er spürte, wie die Kälte kam. "
+            + "Sie konnte hören, wie der Motor ansprang. Es schien ihr, als sei alles vorbei."
+        let treffer = AutonomousContentQuality.filterwoerter(in: text)
+        XCTAssertEqual(treffer.count, 4, "Gefunden: \(treffer.map(\.stelle))")
+    }
+
+    /// Direkt erzählte Prosa darf NICHT anschlagen. Ein falsch-positives Gate erzwingt
+    /// eine Neufassung – und die macht den Text nachweislich schlechter.
+    func testFilterwoerterMeldetTiefePerspektiveNicht() {
+        let text = "Er schloss die Tür. Kälte kroch ihm in den Nacken. Der Motor sprang an, "
+            + "zweimal, dann Stille. Sie wusste, dass es zu spät war."
+        let treffer = AutonomousContentQuality.filterwoerter(in: text)
+        XCTAssertTrue(treffer.isEmpty, "Falsch positiv: \(treffer.map(\.stelle))")
+    }
+
+    // MARK: - Bilderflut
+
+    /// Belegt am ausgelieferten Buch: acht Vergleiche auf 350 Wörtern, jeder brav in
+    /// einem eigenen Satz. `gestapelteBilder` sucht zwei Bilder im SELBEN Satz und ist
+    /// deshalb strukturell blind – genau die Lücke, die diese Prüfung schließt.
+    func testVergleichsDichteFindetVerteilteBilderflut() {
+        let text = """
+        Der Summton brach ab, als würde ein Stecker gezogen. Drei Männer in zivilen \
+        Windjacken, die wie Uniformen ausgesehen hätten, wäre der Stoff nicht so billig \
+        gewesen. Der mittlere, kurz, mit einem Gesicht wie abgenutzte Möbelpolsterung, \
+        zog einen Ausweis hervor. Der Mann neben ihr trat mit, synchron, wie bei einem \
+        langsamen Tanz. Er lachte, ein Geräusch wie aus einem defekten Ventilator. \
+        Schwarze Erde mit Glitzern, die im Regen wie Glassplitter aussahen.
+        """
+        let ergebnis = AutonomousContentQuality.vergleichsDichte(in: text)
+        XCTAssertGreaterThanOrEqual(ergebnis.anzahl, 5, "Fundstellen: \(ergebnis.stellen)")
+        XCTAssertGreaterThan(ergebnis.anzahl, ergebnis.budget)
+        XCTAssertTrue(AutonomousContentQuality.gestapelteBilder(in: text).isEmpty,
+                      "Die bestehende Prüfung ist hier blind – das belegt die Lücke")
+    }
+
+    /// Nüchterne Prosa mit „wie immer“ und Nebensatz-„wie“ darf nicht anschlagen.
+    func testVergleichsDichteMeldetNuechternePassageNicht() {
+        let text = "Sie zog die Tür zu. Der Schlüssel klemmte, wie immer. Zweimal drehen, "
+            + "dann ruckeln, dann noch mal drehen. Sie hatte es Tom hundertmal erklärt, "
+            + "und Tom hatte hundertmal genickt und nichts repariert. Draußen regnete es. "
+            + "Sie wusste, wie das ausgeht."
+        let ergebnis = AutonomousContentQuality.vergleichsDichte(in: text)
+        XCTAssertEqual(ergebnis.anzahl, 0, "Falsch positiv: \(ergebnis.stellen)")
+    }
+
+    /// Dieselbe Stelle darf nur EINMAL zählen, auch wenn mehrere Muster greifen.
+    func testVergleichsDichteZaehltUeberlappungNurEinmal() {
+        let ergebnis = AutonomousContentQuality.vergleichsDichte(in: "Der Raum wirkte wie eine Bühne.")
+        XCTAssertEqual(ergebnis.anzahl, 1, "Fundstellen: \(ergebnis.stellen)")
+    }
+
+    /// Beide neuen Prüfungen hängen im bestehenden Draft-Loop: `styleTicViolations`
+    /// meldet sie als weiches Signal und wirft nie (Anti-Hänger-Regel).
+    func testStyleTicViolationsMeldetFilterwoerterUndBilder() {
+        let satz = "Sie sah, dass er ging, und der Raum wirkte wie eine Bühne ohne Publikum. "
+        let befunde = AutonomousContentQuality.styleTicViolations(in: String(repeating: satz, count: 20))
+        XCTAssertTrue(befunde.contains { $0.contains("Filterwörter") }, "Befunde: \(befunde)")
+        XCTAssertTrue(befunde.contains { $0.contains("Vergleiche") }, "Befunde: \(befunde)")
+    }
+
+    // MARK: - Rechtschreibung nach der Reform 1996
+
+    /// Modelle sind auf viel Deutsch von vor 1996 trainiert und schreiben gelegentlich
+    /// „daß“ oder „muß“ – in einem Buch von 2026 ein sichtbarer Rechtschreibfehler.
+    func testVeralteteRechtschreibungWirdKorrigiert() {
+        let alt = "Er wußte, daß sie es muß. Ein bißchen Streß, das Schloß am Fluß. Sie läßt es."
+        XCTAssertGreaterThanOrEqual(SpellCheckService.veralteteRechtschreibung(in: alt).count, 8)
+        let neu = SpellCheckService.korrigiereVeralteteRechtschreibung(alt)
+        XCTAssertFalse(neu.contains("daß"))
+        XCTAssertFalse(neu.contains("muß"))
+        XCTAssertFalse(neu.contains("wußte"))
+        XCTAssertTrue(neu.contains("dass"))
+        XCTAssertTrue(neu.contains("wusste"))
+    }
+
+    /// SICHERHEITSNETZ: Wörter, in denen das scharfe S korrekt ist (langer Vokal oder
+    /// Diphthong), dürfen NIE verändert werden. Ohne diesen Test wäre die Korrektur
+    /// gefährlicher als das Problem.
+    func testKorrektesScharfesSBleibtUnveraendert() {
+        let korrekt = "Auf der Straße war es heiß. Sie saß am Fuß der großen Eiche, vergaß "
+            + "den Gruß und aß ein süßes Stück. Er ließ sie in Maßen weiß werden."
+        XCTAssertEqual(SpellCheckService.korrigiereVeralteteRechtschreibung(korrekt), korrekt)
+        XCTAssertTrue(SpellCheckService.veralteteRechtschreibung(in: korrekt).isEmpty)
+    }
+
+    /// Der Schreibpfad muss die Korrektur ebenfalls anwenden, nicht nur der Export.
+    func testHumanizeProseKorrigiertAltschreibung() {
+        let ergebnis = AutonomousContentQuality.humanizeProse("Er wußte, daß sie kommt.")
+        XCTAssertFalse(ergebnis.contains("wußte"))
+        XCTAssertFalse(ergebnis.contains("daß"))
+    }
+
+    // MARK: - Erzähltakt und Figurenbogen
+
+    /// Scene & Sequel: Der Nachklang ist der Takt, in dem Gefühl entsteht.
+    func testScenePlanKenntNachklangTakt() {
+        let plan = StructureParser.parseScenes("""
+        SZENE|1|Mira|Imkerei|Morgen|Sie will die Stöcke öffnen|Polizei sperrt ab|Abweisung|Szene
+        SZENE|2|Mira|Auto|Mittag|-|-|Sie entscheidet sich|Nachklang
+        """)
+        XCTAssertEqual(plan.count, 2)
+        XCTAssertTrue(plan[1].istNachklang)
+        XCTAssertFalse(plan[0].istNachklang)
+    }
+
+    /// Pläne ohne Takt-Feld müssen weiter lesbar bleiben (Altbestand).
+    func testScenePlanOhneTaktBleibtLesbar() {
+        let plan = StructureParser.parseScenes(
+            "SZENE|1|Tom|Küche|Abend|Er will reden|Sie schweigt|Er geht")
+        XCTAssertEqual(plan.count, 1)
+        XCTAssertFalse(plan[0].istNachklang)
+    }
+
+    /// Want gegen Need: Ohne die Trennung erlebt die Figur etwas, wird aber nichts.
+    func testFigurTrenntZielVonInneremBrauchen() {
+        let figuren = StructureParser.parseCharacters(
+            "FIGUR|Mira|Protagonistin|34|Imkerin|Sie will die Wahrheit beweisen|Verlassenwerden"
+            + "|Misstrauen|knapp|-|Schwester von Zofia|Zofia verschwand 2019"
+            + "|Sie muss aufhören, sich schuldig zu fühlen")
+        XCTAssertEqual(figuren.count, 1)
+        XCTAssertTrue(figuren[0].goal.contains("beweisen"))
+        XCTAssertTrue(figuren[0].innerNeed.contains("schuldig"))
+        XCTAssertNotEqual(figuren[0].goal, figuren[0].innerNeed)
+    }
+
+    /// Figurenzeilen ohne das neue Feld bleiben lesbar.
+    func testFigurOhneInneresBrauchenBleibtLesbar() {
+        let figuren = StructureParser.parseCharacters(
+            "FIGUR|Tom|Nebenfigur|40|Lehrer|Ruhe|Streit|träge|breit|-|Nachbar|keine")
+        XCTAssertEqual(figuren.count, 1)
+        XCTAssertEqual(figuren[0].innerNeed, "")
+    }
+
+    // MARK: - Telemetrie
+
+    /// Jeder Befund wird als JSONL-Zeile mitgeschrieben – aber ohne Manuskripttext.
+    func testTelemetrieSchreibtUndWertetAus() throws {
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("nf_telemetrie_test_\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        for pruefung in ["Bilderflut", "Bilderflut", "Satzreparatur"] {
+            ProductionTelemetry.anhaengen(.init(
+                zeit: "2026-08-09T12:00:00Z", lauf: "test", projekt: "Testbuch",
+                phase: "Rohfassung", bereich: "K1/S1", pruefung: pruefung,
+                schwere: "Warnung", ergebnis: "Befund"), in: tmp)
+        }
+        let datei = tmp.appendingPathComponent("test.jsonl")
+        let haeufig = ProductionTelemetry.haeufigkeiten(inDatei: datei)
+        XCTAssertEqual(haeufig.first?.pruefung, "Bilderflut")
+        XCTAssertEqual(haeufig.first?.anzahl, 2)
+    }
+
+    // MARK: - Budget-Logik der Satz-Chirurgie
+
+    /// Ein bis zwei Bilder sind erwünscht – nur die überzähligen gehen in die Reparatur.
+    func testUeberzaehligeBilderLaesstBudgetStehen() {
+        let text = "Er lachte wie ein Ventilator. Sie ging wie eine Katze. "
+            + "Der Regen fiel wie Blei. Die Tür schlug wie ein Schuss. "
+            + "Das Licht flackerte wie ein Herzschlag."
+        let alle = AutonomousContentQuality.vergleichsDichte(in: text)
+        let ueber = AutonomousContentQuality.ueberzaehligeBilder(in: text)
+        XCTAssertGreaterThan(alle.anzahl, ueber.count,
+                             "Das Budget muss die ersten Bilder stehen lassen")
+        XCTAssertFalse(ueber.isEmpty, "Überzählige Bilder müssen gemeldet werden")
+    }
+
+    /// Die Obergrenze hält den Reparatur-Prompt bezahlbar und die Runde endlich.
+    func testReparierbareStilSaetzeIstGedeckelt() {
+        let text = String(repeating: "Er lachte wie ein Ventilator. ", count: 60)
+        let treffer = AutonomousContentQuality.reparierbareStilSaetze(in: text, hoechstens: 12)
+        XCTAssertLessThanOrEqual(treffer.count, 12)
+    }
+
+    /// Buchweite Kennzahl für das Freigabe-Gate.
+    func testStilKennzahlenRechnetJe1000Woerter() {
+        let kennzahlen = AutonomousContentQuality.stilKennzahlen(
+            inChapters: ["Er lachte wie ein Ventilator."])
+        XCTAssertGreaterThan(kennzahlen.bilder, 0)
+        XCTAssertGreaterThan(kennzahlen.woerter, 0)
+    }
+
+    // MARK: - Typografie im Export
+
+    /// Der Satzfehler aus einem ausgelieferten Buch: 31 öffnende deutsche und 31 GERADE
+    /// schließende Anführungszeichen – sichtbar auf jeder Dialogzeile.
+    func testAnfuehrungszeichenWerdenVereinheitlicht() {
+        let roh = "\u{201E}Sie ist drin.\u{22} Ein Mann: \u{22}Lass sie.\u{22}"
+        let sauber = AutonomousContentQuality.vereinheitlicheAnfuehrungszeichen(roh)
+        XCTAssertFalse(sauber.contains("\u{22}"), "Gerade Zoll-Zeichen übrig: \(sauber)")
+        XCTAssertTrue(sauber.contains("\u{201E}"), "Öffnendes Zeichen fehlt: \(sauber)")
+        XCTAssertTrue(sauber.contains("\u{201C}"), "Schließendes Zeichen fehlt: \(sauber)")
+    }
+
+    // MARK: - Freigabe gegen gehämmerte Reaktionsformeln
+
+    func testFormulaicReactionGateBlocksClustersButAllowsPurposefulRepeats() {
+        let formulaic = String(repeating:
+            "Mara drehte sich um. Sie schüttelte den Kopf. Mara schloss die Augen. "
+                + "Mara spürte, wie sich etwas in ihr verschob. ", count: 7)
+        let findings = AutonomousContentQuality.blockingFormulaicReactionPhrases(
+            inChapters: [formulaic]
+        )
+        XCTAssertTrue(findings.contains("drehte sich um"))
+        XCTAssertTrue(findings.contains("schüttelte den Kopf"))
+        XCTAssertTrue(findings.contains("schloss die Augen"))
+        XCTAssertTrue(findings.contains("spürte, wie sich"))
+
+        // Sechs Wiederholungen liegen bewusst innerhalb der konservativen Mindesttoleranz.
+        let purposeful = String(repeating: "Mara drehte sich um. ", count: 6)
+        XCTAssertTrue(AutonomousContentQuality.blockingFormulaicReactionPhrases(
+            inChapters: [purposeful]
+        ).isEmpty)
     }
 }

@@ -17,14 +17,16 @@ import XCTest
 @MainActor
 final class ReadinessLoopTests: XCTestCase {
 
-    func testNurDieDreiBehebbarenArtenRechtfertigenEineWiederholung() {
-        // Genau diese drei kann die Reparatur anfassen.
+    func testBehebbareArtenRechtfertigenEineWiederholung() {
+        // Jede hier aufgeführte Meldung hat einen konkreten, begrenzten Reparaturpfad.
         XCTAssertTrue(PipelineOrchestrator.hatReparierbareBeanstandung(
             ["Offene Qualitätsbefunde: 2 kritisch, 1 Fehler."]))
         XCTAssertTrue(PipelineOrchestrator.hatReparierbareBeanstandung(
             ["Kapitel 12 liegt über Zielumfang."]))
         XCTAssertTrue(PipelineOrchestrator.hatReparierbareBeanstandung(
             ["3 wiederholte ganze Sätze im Manuskript."]))
+        XCTAssertTrue(PipelineOrchestrator.hatReparierbareBeanstandung(
+            ["Mechanisch wiederholte Reaktionsformeln im Manuskript: drehte sich um."]))
     }
 
     func testUnbehebbaresLoestKeineWiederholungAus() {

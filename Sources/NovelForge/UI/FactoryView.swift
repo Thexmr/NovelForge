@@ -291,7 +291,8 @@ struct FactoryView: View {
                             Text(entry.title).font(.callout.weight(.medium))
                             Text(entry.lastMessage).font(.caption2).foregroundStyle(StudioTheme.textMuted)
                                 .fixedSize(horizontal: false, vertical: true)
-                            if entry.stage == .draftReady, let u = entry.draftURL, let url = URL(string: u) {
+                            if (entry.stage == .draftReady || entry.stage == .draftNeedsAttention),
+                               let u = entry.draftURL, let url = URL(string: u) {
                                 Link("Entwurf in KDP öffnen → Preis prüfen & veröffentlichen", destination: url)
                                     .font(.caption2)
                             }
@@ -320,6 +321,7 @@ struct FactoryView: View {
         case .waitingSlot: Image(systemName: "hourglass").foregroundStyle(StudioTheme.amber)
         case .uploading: StudioLiveIndicator(color: StudioTheme.cyan)
         case .draftReady: Image(systemName: "checkmark.seal.fill").foregroundStyle(StudioTheme.lime)
+        case .draftNeedsAttention: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(StudioTheme.amber)
         case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(StudioTheme.amber)
         }
     }

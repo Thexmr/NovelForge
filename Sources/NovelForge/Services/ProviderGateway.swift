@@ -6,6 +6,17 @@ import Foundation
 actor ProviderGateway {
     static let shared = ProviderGateway()
 
+    /// Ein kompletter Szenen- oder Kapitelentwurf darf mehrere Minuten dauern,
+    /// besonders bei Cloud-Modellen mit hoher Auslastung. Die frühere Grenze von
+    /// fünf Minuten verwandelte eine noch arbeitende Generierung in einen
+    /// Netzwerkfehler und ließ dieselbe Phase wiederholt von vorn beginnen.
+    ///
+    /// Die Zeitgrenzen sind bewusst endlich: Ein wirklich verlorener Request
+    /// wird weiterhin als retrybarer Providerfehler behandelt; nur langsame,
+    /// aber aktive Langform-Anfragen erhalten ausreichend Zeit.
+    static let longFormRequestTimeout: TimeInterval = 15 * 60
+    static let longFormResourceTimeout: TimeInterval = 30 * 60
+
     private let urlSession: URLSession
     private let maxRetries = 5
     private var unavailableOllamaCloudModels = Set<String>()
@@ -14,8 +25,8 @@ actor ProviderGateway {
 
     init() {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 300
-        config.timeoutIntervalForResource = 600
+        config.timeoutIntervalForRequest = Self.longFormRequestTimeout
+        config.timeoutIntervalForResource = Self.longFormResourceTimeout
         self.urlSession = URLSession(configuration: config)
     }
 
@@ -226,7 +237,9 @@ actor ProviderGateway {
         case 404:
             throw AIError.modelUnavailable
         case 429:
-            throw AIError.rateLimitExceeded
+            throw ProductionStabilityPolicy.classifyTooManyRequests(
+                message: decodeErrorMessage(from: data)
+            )
         case 500...599:
             throw AIError.providerUnavailable
         default:
@@ -300,7 +313,9 @@ actor ProviderGateway {
         case 413:
             throw AIError.contextTooLong
         case 429:
-            throw AIError.rateLimitExceeded
+            throw ProductionStabilityPolicy.classifyTooManyRequests(
+                message: decodeErrorMessage(from: data)
+            )
         case 500...599:
             throw AIError.providerUnavailable
         default:
@@ -331,6 +346,21 @@ actor ProviderGateway {
         var options: [String: Any] = ["temperature": request.temperature]
         if let maxTokens = request.maxTokens {
             options["num_predict"] = maxTokens
+        }
+        // Wiederholungs-Strafe gegen die Lieblingswort-Schleife. Ein Modell, das
+        // „kalkweiß" einmal als atmosphärisch erkannt hat, greift immer wieder danach –
+        // gemessen 84-mal in einem einzigen Buch. `repeat_penalty` senkt die
+        // Wahrscheinlichkeit bereits verwendeter Wörter direkt beim Erzeugen, also
+        // schon bevor die nachgelagerte Prüfung überhaupt anschlägt.
+        //
+        // Nur für kreative Prosa: Bei Analyse- und Formataufgaben (niedrige
+        // Temperatur) würde die Strafe erzwungene Wiederholungen wie Feldnamen oder
+        // Formatlabels zerstören.
+        if request.temperature >= 0.6 {
+            options["repeat_penalty"] = 1.18
+            options["repeat_last_n"] = 512
+            options["frequency_penalty"] = 0.4
+            options["presence_penalty"] = 0.3
         }
         // Thinking deaktivieren: Reasoning-Modelle (Kimi, Qwen, DeepSeek …) verbrauchen
         // sonst das gesamte num_predict-Budget für Denkschritte und liefern ein
@@ -381,10 +411,16 @@ actor ProviderGateway {
                 )
             case 401, 403:
                 throw AIError.apiKeyInvalid
+            case 402:
+                throw ProductionStabilityPolicy.classifyPaymentRequired(
+                    message: decodeErrorMessage(from: data)
+                )
             case 404:
                 throw AIError.modelUnavailable
             case 429:
-                throw AIError.rateLimitExceeded
+                throw ProductionStabilityPolicy.classifyTooManyRequests(
+                    message: decodeErrorMessage(from: data)
+                )
             case 500...599:
                 throw AIError.providerUnavailable
             default:
@@ -479,8 +515,14 @@ actor ProviderGateway {
             return names
         case 401, 403:
             throw AIError.apiKeyInvalid
+        case 402:
+            throw ProductionStabilityPolicy.classifyPaymentRequired(
+                message: decodeErrorMessage(from: data)
+            )
         case 429:
-            throw AIError.rateLimitExceeded
+            throw ProductionStabilityPolicy.classifyTooManyRequests(
+                message: decodeErrorMessage(from: data)
+            )
         case 500...599:
             throw AIError.providerUnavailable
         default:

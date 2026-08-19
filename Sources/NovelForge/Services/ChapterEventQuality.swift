@@ -31,6 +31,44 @@ enum ChapterEventDuplicateParser {
                                          event: parts[3], instruction: instruction)
         }
     }
+
+    /// Ein Lektor meldet dieselbe Szenenpaar-Dopplung oft in mehreren Facetten
+    /// (Bestellung, Ortswechsel, Entscheidung). Fuer die Reparatur ist das EIN Auftrag:
+    /// Drei Zeilen fuer Szene 1 -> 2 duerfen nicht als drei unabhaengige Szenenfehler
+    /// gelten und dadurch die Plausibilitaetssperre ausloesen.
+    static func consolidated(_ findings: [ChapterEventDuplicate],
+                             validSceneNumbers: Set<Int>) -> [ChapterEventDuplicate] {
+        struct Pair: Hashable {
+            let later: Int
+            let earlier: Int
+        }
+
+        var order: [Pair] = []
+        var events: [Pair: [String]] = [:]
+        var instructions: [Pair: [String]] = [:]
+        for finding in findings {
+            guard validSceneNumbers.contains(finding.laterSceneNumber),
+                  validSceneNumbers.contains(finding.earlierSceneNumber),
+                  finding.laterSceneNumber > finding.earlierSceneNumber else { continue }
+            let pair = Pair(later: finding.laterSceneNumber,
+                            earlier: finding.earlierSceneNumber)
+            if events[pair] == nil { order.append(pair) }
+            if events[pair]?.contains(finding.event) != true {
+                events[pair, default: []].append(finding.event)
+            }
+            if instructions[pair]?.contains(finding.instruction) != true {
+                instructions[pair, default: []].append(finding.instruction)
+            }
+        }
+        return order.map { pair in
+            ChapterEventDuplicate(
+                laterSceneNumber: pair.later,
+                earlierSceneNumber: pair.earlier,
+                event: events[pair, default: []].joined(separator: "; "),
+                instruction: instructions[pair, default: []].joined(separator: " ")
+            )
+        }
+    }
 }
 
 struct ChapterSceneReference: Equatable, Hashable {

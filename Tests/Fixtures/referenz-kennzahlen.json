@@ -1,0 +1,130 @@
+{
+  "zweck": "Referenzwerte aus gemeinfreier, menschengeschriebener deutscher Erzählprosa. Grundlage für Schwellenwerte statt Schätzung.",
+  "rechtslage": "Alle Autoren mindestens 70 Jahre verstorben (spätestens 1955) – gemeinfrei in Deutschland. Quelle: Project Gutenberg. Es sind KEINE Texte gespeichert, nur Kennzahlen.",
+  "einschraenkung": "Die Texte stammen aus 1900–1930. Strukturelle Kennzahlen (Bilddichte, Filterwörter) sind epochenstabil und übertragbar. NICHT übertragbar sind Wortschatz-Kennzahlen und die Prüfung auf altmodische Wendungen – dafür darf dieser Korpus nicht verwendet werden.",
+  "stand": "2026-08-09",
+  "buecher": 13,
+  "woerter_gesamt": 1119025,
+  "bilder_je_1000_woerter": {
+    "min": 1.4,
+    "p25": 2.0,
+    "median": 2.5,
+    "p75": 3.8,
+    "p90": 5.34,
+    "max": 6.9,
+    "mittel": 3.22
+  },
+  "filterwoerter_je_1000_woerter": {
+    "min": 0.1,
+    "median": 0.3,
+    "p90": 0.4,
+    "max": 0.5,
+    "mittel": 0.28
+  },
+  "einzelwerte": [
+    {
+      "id": "17142",
+      "genre": "Novelle",
+      "woerter": 35332,
+      "bilder": 1.9,
+      "filter": 0.4,
+      "quelle": "Schnitzler, Die griechische Tänzerin"
+    },
+    {
+      "id": "18148",
+      "genre": "Novelle",
+      "woerter": 37226,
+      "bilder": 2.5,
+      "filter": 0.2,
+      "quelle": "Schnitzler, Casanovas Heimfahrt"
+    },
+    {
+      "id": "25204",
+      "genre": "Novelle",
+      "woerter": 7385,
+      "bilder": 3.7,
+      "filter": 0.3,
+      "quelle": "Schnitzler, Der Mörder"
+    },
+    {
+      "id": "34811",
+      "genre": "Literarisch",
+      "woerter": 234578,
+      "bilder": 1.6,
+      "filter": 0.1,
+      "quelle": "Th. Mann, Buddenbrooks"
+    },
+    {
+      "id": "47341",
+      "genre": "Unterhaltung",
+      "woerter": 106231,
+      "bilder": 3.8,
+      "filter": 0.2,
+      "quelle": "Ganghofer, Das Schweigen im Walde"
+    },
+    {
+      "id": "48618",
+      "genre": "Unterhaltung",
+      "woerter": 100877,
+      "bilder": 3.6,
+      "filter": 0.3,
+      "quelle": "Ganghofer, Der Klosterjäger"
+    },
+    {
+      "id": "50285",
+      "genre": "Thriller",
+      "woerter": 74690,
+      "bilder": 3.9,
+      "filter": 0.4,
+      "quelle": "Jacques, Dr. Mabuse"
+    },
+    {
+      "id": "64414",
+      "genre": "Unterhaltung",
+      "woerter": 59289,
+      "bilder": 2.0,
+      "filter": 0.1,
+      "quelle": "Ganghofer, Der Jäger von Fall"
+    },
+    {
+      "id": "76376",
+      "genre": "Thriller",
+      "woerter": 100504,
+      "bilder": 6.9,
+      "filter": 0.5,
+      "quelle": "Jacques, Piraths Insel"
+    },
+    {
+      "id": "76382",
+      "genre": "Abenteuer",
+      "woerter": 150650,
+      "bilder": 1.4,
+      "filter": 0.2,
+      "quelle": "May, Durchs wilde Kurdistan"
+    },
+    {
+      "id": "76486",
+      "genre": "Thriller",
+      "woerter": 48563,
+      "bilder": 5.7,
+      "filter": 0.4,
+      "quelle": "Jacques, Der Hafen"
+    },
+    {
+      "id": "77073",
+      "genre": "Unterhaltung",
+      "woerter": 76596,
+      "bilder": 2.5,
+      "filter": 0.3,
+      "quelle": "v. Harbou, Die Flucht der Beate Hoyermann"
+    },
+    {
+      "id": "78125",
+      "genre": "Liebesroman",
+      "woerter": 87104,
+      "bilder": 2.4,
+      "filter": 0.2,
+      "quelle": "v. Polenz, Liebe ist ewig"
+    }
+  ]
+}

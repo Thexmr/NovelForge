@@ -10,6 +10,16 @@ enum KDPUploadService {
         /// Pflichtfelder, die der Sidecar NICHT setzen konnte (Cover, Kategorie, …).
         /// Der Entwurf ist gespeichert, aber unvollständig – der Nutzer muss nachbessern.
         let offenePunkte: [String]
+        let isComplete: Bool
+        let isDryRun: Bool
+    }
+
+    private struct SidecarStatus: Decodable {
+        let ok: Bool?
+        let offline: Bool?
+        let draftUrl: String?
+        let probleme: [String]?
+        let error: String?
     }
 
     enum SidecarError: LocalizedError {
@@ -102,6 +112,64 @@ enum KDPUploadService {
         return FileManager.default.fileExists(atPath: dir.appendingPathComponent("node_modules").path)
     }
 
+    /// Converts the sidecar's status into a result without turning an incomplete
+    /// draft or a stale/missing status file into a successful upload.
+    static func interpretStatus(data: Data?, exitCode: Int32,
+                                dryRun: Bool) throws -> UploadResult {
+        guard let data else {
+            throw SidecarError.failed("KDP-Sidecar hat keine Statusdatei erzeugt.")
+        }
+        let status: SidecarStatus
+        do {
+            status = try JSONDecoder().decode(SidecarStatus.self, from: data)
+        } catch {
+            throw SidecarError.failed("KDP-Sidecar lieferte einen unlesbaren Status.")
+        }
+        if let message = status.error?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !message.isEmpty {
+            if message.localizedCaseInsensitiveContains("eingeloggt") {
+                throw SidecarError.notLoggedIn
+            }
+            throw SidecarError.failed(message)
+        }
+        guard exitCode == 0 else {
+            throw SidecarError.failed("KDP-Sidecar endete mit Fehlercode \(exitCode).")
+        }
+
+        let problems = status.probleme ?? []
+        if dryRun {
+            guard status.offline == true else {
+                throw SidecarError.failed(
+                    "KDP-Testlauf hat nicht bestätigt, dass er vollständig offline blieb."
+                )
+            }
+            guard status.ok == true, problems.isEmpty else {
+                throw SidecarError.failed(
+                    "KDP-Offline-Prüfung nicht bestanden: " + problems.joined(separator: " · ")
+                )
+            }
+            return UploadResult(
+                draftURL: nil, offenePunkte: [], isComplete: true, isDryRun: true
+            )
+        }
+
+        guard let rawURL = status.draftUrl,
+              let url = URL(string: rawURL),
+              url.scheme == "https",
+              url.host == "kdp.amazon.com" else {
+            throw SidecarError.failed("KDP-Sidecar hat keine gültige Entwurfsadresse bestätigt.")
+        }
+        guard status.ok == true || !problems.isEmpty else {
+            throw SidecarError.failed("KDP-Sidecar meldete einen unbestätigten Uploadzustand.")
+        }
+        return UploadResult(
+            draftURL: rawURL,
+            offenePunkte: problems,
+            isComplete: status.ok == true && problems.isEmpty,
+            isDryRun: false
+        )
+    }
+
     // MARK: - Prozess-Ausführung
 
     @discardableResult
@@ -170,6 +238,13 @@ enum KDPUploadService {
                             dryRun: Bool = false,
                             progress: @escaping (String) -> Void) async throws -> UploadResult {
         guard sidecarReady else { throw SidecarError.depsMissing }
+
+        // Auch bei bereits vorhandener EPUB gilt immer der aktuelle Freigabestand.
+        // Sonst koennte eine alte Exportdatei Rechtschreib-, Kanon- oder
+        // Kontinuitaetsfehler des inzwischen geaenderten Projekts umgehen.
+        try await MainActor.run {
+            try PublicationReadiness.validateForExport(project: project)
+        }
 
         // EPUB + Cover: fehlen sie, werden sie JETZT erzeugt – die Fabrik soll autonom
         // arbeiten und nicht abbrechen, nur weil vorher niemand exportiert hat.
@@ -267,7 +342,14 @@ enum KDPUploadService {
         if let sicht = visionConfig() { vollstaendigerJob["ai"] = sicht }
         let jobURL = appSupport.appendingPathComponent("kdp_job_\(project.id.uuidString).json")
         let statusURL = appSupport.appendingPathComponent("kdp_status_\(project.id.uuidString).json")
+        // Ein Status aus einem früheren Lauf darf nie als Ergebnis des aktuellen
+        // Prozesses gelesen werden.
+        try? FileManager.default.removeItem(at: statusURL)
         try JSONSerialization.data(withJSONObject: vollstaendigerJob, options: .prettyPrinted).write(to: jobURL)
+        defer {
+            try? FileManager.default.removeItem(at: jobURL)
+            try? FileManager.default.removeItem(at: statusURL)
+        }
 
         var args = ["upload", "--job", jobURL.path, "--status", statusURL.path,
                     "--profile", chromeProfile.path]
@@ -279,32 +361,37 @@ enum KDPUploadService {
         if dryRun { args.append("--dry-run") }
 
         let code = try await runSidecar(args, onLine: progress)
-        // Status-Datei auswerten.
-        var draftURL: String?
-        var offenePunkte: [String] = []
-        if let data = try? Data(contentsOf: statusURL),
-           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            draftURL = obj["draftUrl"] as? String
-            offenePunkte = (obj["probleme"] as? [String]) ?? []
-            if let err = obj["error"] as? String, code != 0 {
-                if err.contains("eingeloggt") { throw SidecarError.notLoggedIn }
-                throw SidecarError.failed(err)
-            }
-        }
-        if code != 0 { throw SidecarError.failed("Sidecar endete mit Fehlercode \(code).") }
-        return UploadResult(draftURL: draftURL, offenePunkte: offenePunkte)
+        return try interpretStatus(
+            data: try? Data(contentsOf: statusURL), exitCode: code, dryRun: dryRun
+        )
     }
 
     private static func latestEPUB(for project: Project) -> URL? {
         guard let dir = try? ExportEngine.exportDirectory(for: project) else { return nil }
+        let manuscriptUpdatedAt = ([project.updatedAt] + (project.chapters ?? []).map(\.updatedAt))
+            .max() ?? project.updatedAt
         let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey]))
             ?? []
-        return files.filter { $0.pathExtension.lowercased() == "epub" }
+        return files.filter { file in
+            guard file.pathExtension.lowercased() == "epub" else { return false }
+            let exportedAt = (try? file.resourceValues(
+                forKeys: [.contentModificationDateKey]
+            ).contentModificationDate) ?? nil
+            return isExportFresh(
+                exportedAt: exportedAt,
+                manuscriptUpdatedAt: manuscriptUpdatedAt
+            )
+        }
             .sorted { (a, b) in
                 let da = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
                 let db = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
                 return da > db
             }
             .first
+    }
+
+    static func isExportFresh(exportedAt: Date?, manuscriptUpdatedAt: Date) -> Bool {
+        guard let exportedAt else { return false }
+        return exportedAt >= manuscriptUpdatedAt
     }
 }

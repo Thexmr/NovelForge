@@ -204,6 +204,14 @@ final class BookProfile: NovelForgePersistentModel {
                                     defaultValue: ""),
             Schema.PropertyMetadata(name: "sourceManifest", keypath: \BookProfile.sourceManifest,
                                     defaultValue: ""),
+            Schema.PropertyMetadata(name: "authorStoryBrief", keypath: \BookProfile.authorStoryBrief,
+                                    defaultValue: ""),
+            Schema.PropertyMetadata(name: "storyRequirements", keypath: \BookProfile.storyRequirements,
+                                    defaultValue: ""),
+            Schema.PropertyMetadata(name: "storyBriefAnalysis", keypath: \BookProfile.storyBriefAnalysis,
+                                    defaultValue: ""),
+            Schema.PropertyMetadata(name: "storyBriefMode", keypath: \BookProfile.storyBriefMode,
+                                    defaultValue: false),
             Schema.PropertyMetadata(name: "project", keypath: \BookProfile.project,
                                     metadata: Schema.Relationship(inverse: \Project.bookProfile)),
         ]
@@ -236,6 +244,13 @@ final class BookProfile: NovelForgePersistentModel {
     @PersistedValue var researchNotes: String = ""
     /// JSON-kodiertes `ResearchBundle`; URLs und Quellentypen bleiben strukturiert prüfbar.
     @PersistedValue var sourceManifest: String = ""
+    /// Bytegetreue Vorgabe des Nutzers; wird bei späteren Analysen nie überschrieben.
+    @PersistedValue var authorStoryBrief: String = ""
+    /// Verbindlicher Auftrag, der in alle handlungsverändernden Prompts einfließt.
+    @PersistedValue var storyRequirements: String = ""
+    /// Für Resume und UI gespeicherte Genre-/Titel-/Prämissenanalyse.
+    @PersistedValue var storyBriefAnalysis: String = ""
+    @PersistedValue var storyBriefMode: Bool = false
     
     @PersistedToOne var project: Project? = nil
     
@@ -259,6 +274,10 @@ final class BookProfile: NovelForgePersistentModel {
         self.researchQuery = ""
         self.researchNotes = ""
         self.sourceManifest = ""
+        self.authorStoryBrief = ""
+        self.storyRequirements = ""
+        self.storyBriefAnalysis = ""
+        self.storyBriefMode = false
     }
 
     required init(backingData: any BackingData<BookProfile>) {

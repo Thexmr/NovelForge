@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 echo "▸ Release-Build …"
-swift build -c release
+swift build -c release -Xswiftc -num-threads -Xswiftc 4
 
 APP="build/NovelForge.app"
 rm -rf "$APP"
@@ -41,7 +41,8 @@ if [ -d "kdp-sidecar" ]; then
 
   echo "▸ Bündle KDP-Sidecar …"
   mkdir -p "$APP/Contents/Resources/kdp-sidecar"
-  cp kdp-sidecar/index.js kdp-sidecar/package.json "$APP/Contents/Resources/kdp-sidecar/" 2>/dev/null || true
+  cp kdp-sidecar/index.js kdp-sidecar/upload-core.js kdp-sidecar/package.json \
+    "$APP/Contents/Resources/kdp-sidecar/" 2>/dev/null || true
   if [ -d "kdp-sidecar/node_modules" ]; then
     cp -R kdp-sidecar/node_modules "$APP/Contents/Resources/kdp-sidecar/node_modules"
     echo "  ✓ Sidecar einsatzbereit ($(find kdp-sidecar/node_modules -maxdepth 1 -type d | wc -l | tr -d ' ') Pakete)"
@@ -72,9 +73,9 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>2.2.0</string>
+    <string>2.2.8</string>
     <key>CFBundleVersion</key>
-    <string>46</string>
+    <string>78</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
     <key>LSMinimumSystemVersion</key>

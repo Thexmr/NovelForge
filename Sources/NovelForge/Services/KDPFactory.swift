@@ -42,6 +42,7 @@ final class KDPFactory: ObservableObject {
         case waitingSlot     // fertig, aber Drossel/aus → wartet auf Slot
         case uploading       // Sidecar läuft gerade
         case draftReady      // Entwurf in KDP, Nutzer muss Preis prüfen + veröffentlichen
+        case draftNeedsAttention // Entwurf gespeichert, Pflichtfelder noch offen
         case failed          // Upload fehlgeschlagen (erneut versuchbar)
     }
 
@@ -260,6 +261,12 @@ final class KDPFactory: ObservableObject {
     func reicheFertigesBuchEin(_ project: Project) -> Bool {
         guard enabled else { return false }
         guard !isQueued(project.id) else { return false }
+        // Der Fabrikmodus darf nicht allein dem Status „completed" vertrauen:
+        // Erst die vollständige Endabnahme trennt einen technisch fertigen Text
+        // von einem wirklich freigabefähigen KDP-Entwurf.
+        guard (try? PublicationReadiness.validateForCompletion(project: project)) != nil else {
+            return false
+        }
         return enqueue(project: project,
                        priceEUR: Self.standardPreisEUR,
                        // KDP-Definition: „AI-generated" = die KI hat den Inhalt
@@ -345,6 +352,22 @@ final class KDPFactory: ObservableObject {
             update(next.id) { $0.lastMessage = "Projekt nicht gefunden – übersprungen." }
             return
         }
+        // Auch manuell eingereihte oder aus einem älteren Programmstand
+        // wiederhergestellte Jobs dürfen nie an der Endabnahme vorbeiuploaden.
+        // Sie bleiben mit wachsender Wartezeit in der Queue und werden nach einer
+        // Produktionsreparatur automatisch erneut geprüft, ohne KDP zu berühren.
+        do {
+            try PublicationReadiness.validateForCompletion(project: project)
+        } catch {
+            update(next.id) {
+                $0.stage = .failed
+                $0.attempts += 1
+                $0.lastTriedAt = Date()
+                $0.lastMessage = "Qualitätsfreigabe offen – KDP-Entwurf wird erst nach Reparatur erneut geprüft: "
+                    + ((error as? AIError)?.errorDescription ?? error.localizedDescription)
+            }
+            return
+        }
         isDispatching = true
         update(next.id) { $0.stage = .uploading; $0.lastMessage = "Upload läuft …" }
         do {
@@ -355,14 +378,14 @@ final class KDPFactory: ObservableObject {
                 })
             history.append(UploadRecord(id: UUID(), projectID: next.projectID, title: next.title, uploadedAt: Date()))
             update(next.id) {
-                $0.stage = .draftReady
+                $0.stage = result.isComplete ? .draftReady : .draftNeedsAttention
                 $0.attempts = 0
                 $0.lastTriedAt = Date()
                 $0.draftURL = result.draftURL
                 // Offene Pflichtfelder ehrlich anzeigen statt pauschal "fertig".
                 // Vorher meldete der Sidecar hier immer Erfolg; ein Entwurf mit
                 // fehlendem Cover sah aus wie ein vollständiger.
-                $0.lastMessage = result.offenePunkte.isEmpty
+                $0.lastMessage = result.isComplete
                     ? "Entwurf in KDP – Preis prüfen und veröffentlichen."
                     : "Entwurf gespeichert, aber \(result.offenePunkte.count) Pflichtfeld(er) offen: "
                         + result.offenePunkte.prefix(4).joined(separator: " · ")

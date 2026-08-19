@@ -130,16 +130,32 @@ struct ContentView: View {
             }
 
             ProductionRecoveryService.reclassifyCompletedManuscripts(in: modelContext)
+            ProductionRecoveryService.repairLegacyCharacterCanon(in: modelContext)
             ProductionRecoveryService.sanitizePersistedScenes(in: modelContext)
             ProductionRecoveryService.recoverInterruptedJobs(in: modelContext)
-            if let project = ProductionRecoveryService.automaticResumeCandidate(
-                in: modelContext
-            ) {
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 800_000_000)
-                    guard !orchestrator.isRunning, project.status == .paused else { return }
+            starteSelbstheilungsWache()
+        }
+    }
+
+    /// Holt abgerissene Produktionen zurück – nicht nur beim App-Start, sondern
+    /// dauerhaft. Buch 10 riss bei laufender App nach 13 Sekunden ab und lag danach
+    /// stundenlang unangetastet, weil die Prüfung ausschließlich beim Start lief.
+    /// Eine von Hand gedrückte Pause bleibt unberührt: `shouldAutoResume` erkennt
+    /// nur unfreiwillige Abrisse.
+    @MainActor
+    private func starteSelbstheilungsWache() {
+        let context = modelContext
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            while !Task.isCancelled {
+                let orchestrator = PipelineOrchestrator.shared
+                if !orchestrator.isRunning,
+                   let project = ProductionRecoveryService.automaticResumeCandidate(
+                    in: context
+                   ) {
                     orchestrator.resumePipeline(project: project)
                 }
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
             }
         }
     }

@@ -42,20 +42,20 @@ final class ParserTests: XCTestCase {
 
     // MARK: - StructureParser (Kapitel)
 
-    func testChapterParserParsesAndRenumbers() {
+    func testChapterParserParsesAndPreservesExplicitNumbers() {
         let text = """
         Hier ist der Kapitelplan:
         KAPITEL|1|Der Anfang|Held einführen|Innerer Zweifel
         - KAPITEL|2|Die Reise|Aufbruch wagen|Der Sturm
-        KAPITEL|9|Lückenhafte Nummer|Wird renummeriert|Egal
+        KAPITEL|9|Lückenhafte Nummer|Bleibt sichtbar|Egal
         """
         let chapters = StructureParser.parseChapters(text)
         XCTAssertEqual(chapters.count, 3)
         XCTAssertEqual(chapters[0].title, "Der Anfang")
         XCTAssertEqual(chapters[0].goal, "Held einführen")
         XCTAssertEqual(chapters[1].conflict, "Der Sturm")
-        // Modell-Nummern können lückenhaft sein – der Parser nummeriert fortlaufend.
-        XCTAssertEqual(chapters[2].number, 3)
+        // Die Pipeline muss die Lücke erkennen können, statt Kapitel 9 als 3 zu speichern.
+        XCTAssertEqual(chapters[2].number, 9)
     }
 
     func testChapterParserIgnoresGarbage() {

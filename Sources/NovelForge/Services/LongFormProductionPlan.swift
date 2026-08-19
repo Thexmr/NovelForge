@@ -51,6 +51,20 @@ struct LongFormProductionPlan {
         chapterCount * scenesPerChapter
     }
 
+    /// Once prose exists, the dominant persisted chapter rhythm is part of the
+    /// manuscript contract. New sizing rules apply only to new books.
+    static func effectiveScenesPerChapter(defaultCount: Int,
+                                          persistedCounts: [Int],
+                                          hasWrittenProse: Bool) -> Int {
+        guard hasWrittenProse else { return max(1, defaultCount) }
+        let counts = persistedCounts.filter { $0 > 0 }
+        guard !counts.isEmpty else { return max(1, defaultCount) }
+        let frequencies = Dictionary(grouping: counts, by: { $0 }).mapValues(\.count)
+        return frequencies.max { lhs, rhs in
+            lhs.value == rhs.value ? lhs.key < rhs.key : lhs.value < rhs.value
+        }?.key ?? max(1, defaultCount)
+    }
+
     static func draftMaxTokens(forTargetWords words: Int) -> Int {
         min(8000, max(1800, words * 4))
     }

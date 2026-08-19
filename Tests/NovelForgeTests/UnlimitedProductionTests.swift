@@ -440,6 +440,15 @@ final class UnlimitedProductionTests: XCTestCase {
         ))
     }
 
+    func testStabilityPolicyRegeneratesRejectedContentWithoutManualResume() {
+        let rejection = AIError.contentQualityRejected(
+            "Plotplanung: nicht vorgegebener oder veraenderter Personenname"
+        )
+
+        XCTAssertTrue(ProductionStabilityPolicy.shouldResumeInterruptedBook(after: rejection))
+        XCTAssertFalse(ProductionStabilityPolicy.shouldPauseForUserAction(after: rejection))
+    }
+
     func testReadinessShortfallRemainsRetryableForAutonomousProduction() {
         let error = AIError.systemError(
             "\(PipelineOrchestrator.readinessShortfallMarker): Offene Qualitätsbefunde: 1 kritisch, 0 Fehler."

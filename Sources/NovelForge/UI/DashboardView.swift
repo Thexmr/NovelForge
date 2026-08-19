@@ -706,6 +706,25 @@ struct ProjectDetailView: View {
         QualityScores.cached(for: project)
     }
 
+    private var chapterScorecards: [ChapterEditorialScorecard] {
+        (project.chapters ?? [])
+            .sorted { $0.chapterNumber < $1.chapterNumber }
+            .compactMap { chapter in
+                guard (chapter.bestText ?? "").wordCount >= 120 else { return nil }
+                return ChapterEditorialScorecard.evaluate(chapter: chapter)
+            }
+    }
+
+    private var editorialReadiness: Double {
+        guard !chapterScorecards.isEmpty else { return 0 }
+        return chapterScorecards.map(\.overall).reduce(0, +) / Double(chapterScorecards.count)
+    }
+
+    private var momentumReadiness: Double {
+        guard !chapterScorecards.isEmpty else { return 0 }
+        return chapterScorecards.map(\.momentum).reduce(0, +) / Double(chapterScorecards.count)
+    }
+
     private var isRunningThisProject: Bool {
         orchestrator.isRunning && orchestrator.currentProject?.id == project.id
     }
@@ -829,6 +848,31 @@ struct ProjectDetailView: View {
                     QualityMetricRow(label: "Stil", score: displayedScores.style)
                     QualityMetricRow(label: "Konsistenz", score: displayedScores.consistency)
                     QualityMetricRow(label: "KDP-Format", score: displayedScores.kdp)
+                }
+
+                if !chapterScorecards.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Kapitellektorat")
+                            .font(.headline)
+                        QualityMetricRow(label: "Durchschnittliche Kapitelreife", score: editorialReadiness)
+                        QualityMetricRow(label: "Sog und Szenenfortschritt", score: momentumReadiness)
+                        let revisionCandidates = chapterScorecards.filter { $0.verdict != .ready }
+                        if revisionCandidates.isEmpty {
+                            Text("Alle bewertbaren Kapitel bestehen den aktuellen Lektoratsgrenzwert.")
+                                .font(.caption)
+                                .foregroundStyle(StudioTheme.textMuted)
+                        } else {
+                            ForEach(Array(revisionCandidates.prefix(3).enumerated()), id: \.offset) { _, card in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Kapitel \(card.chapterNumber): \(card.verdict.rawValue)")
+                                        .font(.caption.weight(.semibold))
+                                    Text(card.findings.prefix(2).joined(separator: " · "))
+                                        .font(.caption2)
+                                        .foregroundStyle(StudioTheme.textMuted)
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if !visibleReports.isEmpty {

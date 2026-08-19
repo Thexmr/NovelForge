@@ -64,9 +64,9 @@ struct NarrativeSignature: Equatable {
         "Eröffnung mit einer beiläufig gesetzten Vorausdeutung",
     ]
     static let rhythmOptions = [
-        "Kurze, treibende Sätze; harte Schnitte",
-        "Lange, fließende Perioden mit eingeschobenen kurzen Akzenten",
-        "Stark wechselnder Rhythmus, oft stakkatohaft in Spannungsmomenten",
+        "Kurze und mittlere, treibende Sätze mit klaren Übergängen",
+        "Ruhig fließende, leicht lesbare Sätze mit gezielten kurzen Akzenten",
+        "Abwechslungsreicher, natürlicher Rhythmus; in Spannungsmomenten knapper",
         "Ruhiger, beobachtender Rhythmus mit präzisen Details",
     ]
     static let densityOptions = [
@@ -88,7 +88,7 @@ struct NarrativeSignature: Equatable {
         "Nüchtern und beobachtend, die Wertung dem Leser überlassen",
         "Emotional nah, fast unter der Haut der Figur",
         "Leicht ironisch-distanziert, mit trockenem Unterton",
-        "Poetisch verdichtet, aber nie überladen",
+        "Bildhaft und emotional, aber klar, modern und leicht verständlich",
     ]
     static let motifOptions = [
         "Ein wiederkehrendes konkretes Objekt als stiller Bedeutungsträger",

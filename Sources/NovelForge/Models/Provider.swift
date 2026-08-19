@@ -137,6 +137,7 @@ enum AIError: Error, LocalizedError, Equatable {
     case fileTooLarge
     case contextTooLong
     case baseURLMissing
+    case contentQualityRejected(String)
     case systemError(String)
     case unknown
 
@@ -154,7 +155,8 @@ enum AIError: Error, LocalizedError, Equatable {
              (.baseURLMissing, .baseURLMissing),
              (.unknown, .unknown):
             return true
-        case (.systemError(let lhsMsg), .systemError(let rhsMsg)):
+        case (.contentQualityRejected(let lhsMsg), .contentQualityRejected(let rhsMsg)),
+             (.systemError(let lhsMsg), .systemError(let rhsMsg)):
             return lhsMsg == rhsMsg
         default:
             return false
@@ -183,6 +185,8 @@ enum AIError: Error, LocalizedError, Equatable {
             return "Eingabe überschreitet das Kontextfenster des Modells"
         case .baseURLMissing:
             return "Basis-URL fehlt für diesen Provider"
+        case .contentQualityRejected(let msg):
+            return "Qualitaetsfassung abgelehnt: \(msg)"
         case .systemError(let msg):
             return "Fehler: \(msg)"
         case .unknown:
@@ -212,6 +216,8 @@ enum AIError: Error, LocalizedError, Equatable {
             return "Wählen Sie ein Modell mit größerem Kontextfenster."
         case .baseURLMissing:
             return "Hinterlegen Sie die Basis-URL des Providers in den Einstellungen."
+        case .contentQualityRejected:
+            return "NovelForge erzeugt diese Fassung nach einer kurzen Wartezeit automatisch neu."
         case .systemError:
             return "Versuchen Sie es erneut. Bleibt der Fehler bestehen, starten Sie die App neu."
         case .unknown:

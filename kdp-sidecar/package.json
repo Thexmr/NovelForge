@@ -4,7 +4,11 @@
   "description": "Autonomer KDP-eBook-Entwurf-Upload für NovelForge (Browser-Automation, stoppt vor Veröffentlichen).",
   "type": "module",
   "bin": { "nf-kdp": "index.js" },
-  "scripts": { "login": "node index.js login", "upload": "node index.js upload" },
+  "scripts": {
+    "login": "node index.js login",
+    "upload": "node index.js upload",
+    "test": "node --test"
+  },
   "dependencies": {
     "puppeteer-core": "^24.10.0",
     "puppeteer-extra": "^3.3.6",

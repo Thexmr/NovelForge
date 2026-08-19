@@ -17,6 +17,7 @@
 import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
+import { offlinePreflight, validateUploadJob } from './upload-core.js';
 
 const require = createRequire(import.meta.url);
 
@@ -871,6 +872,17 @@ async function cmdUpload() {
   const job = JSON.parse(fs.readFileSync(args.job, 'utf8'));
   const dryRun = !!args['dry-run'];
   report({ stage: 'start', progress: 0.02, message: `Upload-Entwurf: „${job.title}"${dryRun ? ' (Testlauf)' : ''}` });
+
+  const validationIssues = validateUploadJob(job);
+  if (dryRun) {
+    const result = offlinePreflight(job);
+    report(result);
+    if (!result.ok) process.exitCode = 1;
+    return;
+  }
+  if (validationIssues.length) {
+    throw new Error('Uploadauftrag ungültig: ' + validationIssues.join(' · '));
+  }
 
   const browser = await launch(args.profile, args.chrome, { headless: false });
   try {

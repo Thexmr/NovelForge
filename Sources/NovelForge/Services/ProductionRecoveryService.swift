@@ -3,12 +3,42 @@ import OSLog
 import SwiftData
 
 enum ProductionRecoveryPolicy {
+    /// Beschriftung für einen Lauf, der ohne Nutzeraktion abgerissen ist. Nur dieser
+    /// Text (und die App-Beendet-Meldungen) erlaubt automatisches Fortsetzen – eine
+    /// von Hand gedrückte Pause bleibt weiterhin unangetastet liegen.
+    static let involuntaryStopMarker =
+        "Die Produktion wurde unerwartet unterbrochen. Der gespeicherte Stand ist vollständig und wird automatisch fortgesetzt."
+
     static func shouldAutoResume(result: String?, projectStatus: ProjectStatus) -> Bool {
-        guard projectStatus == .paused else { return false }
+        // `failed` gehört dazu: ein abgerissener Lauf landete bisher dort und war
+        // damit endgültig tot, obwohl jede geschriebene Szene noch vorhanden war.
+        guard projectStatus == .paused || projectStatus == .failed else { return false }
         let reason = result?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if reason == involuntaryStopMarker { return true }
         return (reason.hasPrefix("Die App wurde während ")
                 || reason.hasPrefix("Die App wurde zwischen "))
             && reason.contains("gespeicherte Stand ist vollständig")
+    }
+
+    /// Höchstzahl automatischer Neuanläufe eines fehlgeschlagenen Buchs.
+    ///
+    /// Buch 11 lag mit 48 fertigen Szenen und 31.362 Wörtern still, weil ein einzelnes
+    /// Kapitel scheiterte. Ein Buch mit echtem Fortschritt bekommt deshalb weitere
+    /// Anläufe – aber nicht unbegrenzt, sonst dreht ein dauerhaft kaputtes Projekt
+    /// endlos im Kreis und verbrennt Kontingent.
+    static let maxAutoNeustarts = 4
+
+    /// Darf ein hart fehlgeschlagenes Projekt erneut angefahren werden?
+    /// Bedingung: es ist bereits substanzieller Text vorhanden und die Zahl der
+    /// bisherigen Fehlversuche liegt unter der Grenze.
+    static func shouldRetryFailed(wordCount: Int, previousFailures: Int) -> Bool {
+        wordCount >= 500 && previousFailures < maxAutoNeustarts
+    }
+
+    static func failuresSinceLastProgress(failureDates: [Date],
+                                          progressDates: [Date]) -> Int {
+        guard let lastProgress = progressDates.max() else { return failureDates.count }
+        return failureDates.filter { $0 > lastProgress }.count
     }
 
     /// Ein aktiver Phasenstatus kann nach einem frischen Prozessstart nicht echt
@@ -218,6 +248,119 @@ enum ProductionRecoveryService {
         return changed
     }
 
+    /// Heilt Figurenkanon-Altlasten frueherer Parser ueber ALLE gespeicherten Quellen.
+    /// Eine Teilreparatur waere schlimmer als keine: Expose, Kapitelplan und Prosa
+    /// muessen danach denselben Namen tragen.
+    @discardableResult
+    static func repairLegacyCharacterCanon(in modelContext: ModelContext) -> Int {
+        let projects: [Project]
+        do {
+            projects = try modelContext.fetch(FetchDescriptor<Project>())
+        } catch {
+            Logger(subsystem: "com.novelforge.app", category: "recovery")
+                .error("Figurenkanon konnte nicht geladen werden: \(error.localizedDescription, privacy: .public)")
+            return 0
+        }
+
+        var changedProjects = 0
+        for project in projects where !project.isNonfiction {
+            guard let bible = project.storyBible else { continue }
+            let characters = bible.characters ?? []
+            let relationships = Dictionary(
+                uniqueKeysWithValues: characters.map { ($0.name, $0.relationships) }
+            )
+            let replacements = CharacterCanonAudit.legacyPossessiveAliasReplacements(
+                characterNames: characters.map(\.name),
+                relationshipsByName: relationships
+            )
+            let invalidProfiles = characters.filter { character in
+                if CharacterCanonAudit.isLocationCharacterRole(character.role) { return true }
+                let parts = character.name.split(whereSeparator: { !$0.isLetter }).map(String.init)
+                guard parts.count == 2, parts[1].lowercased().hasSuffix("s") else {
+                    return false
+                }
+                let stale = String(parts[1].dropLast())
+                return replacements.keys.contains(where: {
+                    $0.caseInsensitiveCompare(stale) == .orderedSame
+                })
+            }
+            guard !replacements.isEmpty || !invalidProfiles.isEmpty else { continue }
+
+            func renamed(_ text: String) -> String {
+                CharacterCanonAudit.replacingNames(in: text, replacements: replacements)
+            }
+            if let profile = project.bookProfile {
+                profile.premise = renamed(profile.premise)
+                profile.logline = profile.logline.map(renamed)
+                profile.synopsis = profile.synopsis.map(renamed)
+                profile.kdpDescription = renamed(profile.kdpDescription)
+                profile.coverPrompts = renamed(profile.coverPrompts)
+            }
+            bible.timeline = renamed(bible.timeline)
+            bible.plotPoints = renamed(bible.plotPoints)
+            bible.openQuestions = renamed(bible.openQuestions)
+            bible.resolvedQuestions = renamed(bible.resolvedQuestions)
+            bible.terms = renamed(bible.terms)
+            for character in characters where !invalidProfiles.contains(where: { $0.id == character.id }) {
+                character.name = renamed(character.name)
+                character.goal = renamed(character.goal)
+                character.fear = renamed(character.fear)
+                character.weakness = renamed(character.weakness)
+                character.development = renamed(character.development)
+                character.relationships = renamed(character.relationships)
+                character.importantFacts = renamed(character.importantFacts)
+            }
+            for chapter in project.chapters ?? [] {
+                chapter.title = renamed(chapter.title)
+                chapter.goal = renamed(chapter.goal)
+                chapter.conflict = renamed(chapter.conflict)
+                chapter.perspectiveCharacter = chapter.perspectiveCharacter.map(renamed)
+                chapter.draftText = chapter.draftText.map(renamed)
+                chapter.revisedText = chapter.revisedText.map(renamed)
+                chapter.finalText = chapter.finalText.map(renamed)
+                chapter.summary = chapter.summary.map(renamed)
+                for scene in chapter.scenes ?? [] {
+                    scene.perspective = renamed(scene.perspective)
+                    scene.location = renamed(scene.location)
+                    scene.involvedCharacters = renamed(scene.involvedCharacters)
+                    scene.goal = renamed(scene.goal)
+                    scene.obstacle = renamed(scene.obstacle)
+                    scene.emotionalChange = renamed(scene.emotionalChange)
+                    scene.newInformation = renamed(scene.newInformation)
+                    scene.cliffhanger = renamed(scene.cliffhanger)
+                    scene.text = scene.text.map(renamed)
+                    scene.summary = scene.summary.map(renamed)
+                }
+            }
+            for character in invalidProfiles {
+                bible.characters?.removeAll { $0.id == character.id }
+                modelContext.delete(character)
+            }
+            bible.updatedAt = Date()
+            project.updatedAt = Date()
+
+            let report = QualityReport(
+                checkedArea: "Buchkanon",
+                checkType: "Historische Figurenkorrektur",
+                result: "Inkonsistente Alias- und Ortsprofile automatisch bereinigt: "
+                    + (replacements.map { "\($0.key) -> \($0.value)" }
+                        + invalidProfiles.map(\.name)).sorted().joined(separator: ", "),
+                severity: .info,
+                recommendation: "Alle Kanonquellen und vorhandenen Texte verwenden wieder dieselben Figuren."
+            )
+            report.autoFixed = true
+            report.project = project
+            if project.qualityReports == nil { project.qualityReports = [] }
+            project.qualityReports?.append(report)
+            modelContext.insert(report)
+            changedProjects += 1
+        }
+        if changedProjects > 0 {
+            modelContext.saveOrLog("Historischen Figurenkanon repariert")
+        }
+        return changedProjects
+    }
+
     /// Nur ein durch App-Abbruch unterbrochener NEUESTER Projektjob darf automatisch
     /// fortgesetzt werden. Eine manuelle Pause bleibt dadurch immer respektiert.
     static func automaticResumeCandidate(in modelContext: ModelContext) -> Project? {
@@ -232,6 +375,32 @@ enum ProductionRecoveryService {
             Logger(subsystem: "com.novelforge.app", category: "recovery")
                 .error("Auto-Fortsetzung konnte Jobs nicht laden: \(error.localizedDescription, privacy: .public)")
             return nil
+        }
+
+        // Fehlgeschlagene Bücher mit echtem Fortschritt zuerst: Buch 11 lag mit 48
+        // fertigen Szenen still, weil ein einzelnes Kapitel scheiterte. Die Prüfung
+        // läuft bewusst über die Projekte statt über den jeweils neuesten Job – der
+        // letzte Job eines Projekts ist nicht zwangsläufig der fehlgeschlagene, und
+        // genau daran lief die Erkennung vorher vorbei.
+        if let projekte = try? modelContext.fetch(FetchDescriptor<Project>()) {
+            for project in projekte where project.status == .failed {
+                let jobs = project.pipelineJobs ?? []
+                guard jobs.contains(where: { $0.status == .failed }) else { continue }
+                let wörter = (project.chapters ?? []).reduce(0) { summe, kapitel in
+                    summe + (kapitel.finalText ?? kapitel.revisedText ?? kapitel.draftText ?? "").wordCount
+                        + (kapitel.scenes ?? []).reduce(0) { $0 + ($1.text ?? "").wordCount }
+                }
+                let fehlversuche = ProductionRecoveryPolicy.failuresSinceLastProgress(
+                    failureDates: jobs.filter { $0.status == .failed }.map(\.createdAt),
+                    progressDates: jobs.filter {
+                        $0.status == .completed && $0.agentName == AgentName.draftWriter
+                    }.map(\.createdAt)
+                )
+                if ProductionRecoveryPolicy.shouldRetryFailed(wordCount: wörter,
+                                                              previousFailures: fehlversuche) {
+                    return project
+                }
+            }
         }
 
         var seenProjects = Set<UUID>()

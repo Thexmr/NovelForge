@@ -71,6 +71,8 @@ enum PublicationReadiness {
         var truncated: [Int] = []
         var contaminated: [Int] = []
         var sourceReview: [Int] = []
+        var definiteSpelling: [(chapter: Int, examples: [String])] = []
+        var brokenDialogue: [Int] = []
         var publicIssues = PublicContentGuard.blockingIssues(
             project: project,
             includeChapters: false
@@ -88,6 +90,15 @@ enum PublicationReadiness {
             if AutonomousContentQuality.containsMetaRequest(snapshot.text)
                 || AutonomousContentQuality.containsPromptArtifacts(snapshot.text) {
                 contaminated.append(chapterNumber)
+            }
+            let spellingIssues = SpellCheckService.eindeutigeFehler(
+                in: snapshot.chapter.title + "\n" + snapshot.text
+            )
+            if !spellingIssues.isEmpty {
+                definiteSpelling.append((chapterNumber, Array(spellingIssues.prefix(3))))
+            }
+            if !AutonomousContentQuality.brokenDialogueTypography(in: snapshot.text).isEmpty {
+                brokenDialogue.append(chapterNumber)
             }
             if project.isNonfiction && NonfictionSafety.requiresSourceReview(snapshot.text) {
                 sourceReview.append(chapterNumber)
@@ -109,9 +120,64 @@ enum PublicationReadiness {
         if !sourceReview.isEmpty {
             issues.append("Quellenprüfung noch offen in Kapiteln: \(numberList(sourceReview)).")
         }
+        if !definiteSpelling.isEmpty {
+            let chapters = definiteSpelling.map(\.chapter)
+            let examples = definiteSpelling.flatMap(\.examples).prefix(4).joined(separator: ", ")
+            issues.append(
+                "Eindeutige Rechtschreibfehler in Kapiteln \(numberList(chapters)): \(examples)."
+            )
+        }
+        if !brokenDialogue.isEmpty {
+            issues.append(
+                "Beschädigte Dialogtypografie in Kapiteln: \(numberList(brokenDialogue))."
+            )
+        }
 
         if !publicIssues.isEmpty {
             issues.append("Produktionshinweise in: \(publicIssues.joined(separator: ", ")).")
+        }
+
+        if !project.isNonfiction {
+            let bibleNames = (project.storyBible?.characters ?? []).map(\.name)
+            let canonText = [
+                project.bookProfile?.premise ?? "",
+                project.bookProfile?.logline ?? "",
+                project.bookProfile?.synopsis ?? "",
+                project.storyBible?.plotPoints ?? ""
+            ].filter { !$0.isEmpty }.joined(separator: "\n")
+            let required = CharacterCanonAudit.personNames(in: canonText)
+            let missing = CharacterCanonAudit.missingRequiredNames(
+                required: required, candidateNames: bibleNames
+            )
+            if !missing.isEmpty {
+                issues.append(
+                    "Figurenbibel widerspricht Praemisse oder Plot; fehlend: "
+                        + missing.joined(separator: ", ") + "."
+                )
+            }
+
+            let knownParts = Set(bibleNames.flatMap(CharacterCanonAudit.nameParts))
+            let locationParts = Set((project.storyBible?.locations ?? []).flatMap {
+                CharacterCanonAudit.nameParts($0.name)
+            })
+            let manuscriptParts = CharacterCanonAudit.actingCharacterNameParts(
+                narrativeTexts: snapshots.map(\.text), minimumOccurrences: 2
+            )
+            let manuscriptPlaces = CharacterCanonAudit.catalogPlaceNameParts(
+                narrativeTexts: snapshots.map(\.text), minimumOccurrences: 1
+            )
+            let unexpected = manuscriptParts.filter { part in
+                !knownParts.contains(part)
+                    && !locationParts.contains(part)
+                    && !manuscriptPlaces.contains(part)
+                    && !(part.hasSuffix("s") && knownParts.contains(String(part.dropLast())))
+            }.sorted()
+            if !unexpected.isEmpty {
+                issues.append(
+                    "Wiederholt auftretende Figuren ohne Eintrag in der Story Bible: "
+                        + unexpected.prefix(8).joined(separator: ", ") + "."
+                )
+            }
         }
         return issues
     }
@@ -149,6 +215,182 @@ enum PublicationReadiness {
         let seriousRepeats = AutonomousContentQuality.blockingRepeatedSentences(inChapters: texts)
         if !seriousRepeats.isEmpty {
             issues.append("Mehrfach wiederholte ganze Sätze gefunden (\(seriousRepeats.count)); Revision erforderlich.")
+        }
+        // STIL ALS FREIGABE-KRITERIUM.
+        //
+        // Bis hierher wurde Stil zwar gemessen, aber nie erzwungen: Auf Szenen-Ebene
+        // gibt jeder Stilblocker ab Versuch 2 frei (Anti-Hänger-Regel, richtig so), und
+        // buchweit gab es gar kein Kriterium. Ergebnis, gemessen an einem
+        // ausgelieferten Buch mit aktiven Prüfungen: 7,5 Bilder je 1000 Wörter bei
+        // erlaubten 2,5, dazu 203 Antithesen.
+        //
+        // DIE SCHWELLEN SIND GEMESSEN, NICHT GESCHÄTZT.
+        //
+        // Grundlage: 13 gemeinfreie deutsche Romane und Novellen, 1.119.025 Wörter,
+        // menschengeschrieben (Schnitzler, Ganghofer, Norbert Jacques, Karl May,
+        // Thea von Harbou, Thomas Mann u. a.; alle Autoren mind. 70 Jahre verstorben).
+        // Einzelwerte in `Tests/Fixtures/referenz-kennzahlen.json`.
+        //
+        //   Bilder je 1000 Wörter   Median 2,5 · p75 3,8 · p90 5,3 · Maximum 6,9
+        //   Filterwörter je 1000 W. Median 0,3 · p90 0,4 · Maximum 0,5
+        //
+        // Bilder: Die Referenzwerte oben beschreiben, was üblich IST – nicht, was hier
+        // gewollt ist. Vorgabe des Autors ist bewusst kargere Prosa als bei den
+        // Klassikern: höchstens EIN Bild je zehn Druckseiten (0,4 je 1000 Wörter).
+        //
+        // Drei Stufen, absichtlich gestaffelt:
+        //   Ziel im Draft-Prompt   0,4 je 1000  (Prävention, kostet nichts)
+        //   Satz-Chirurgie ab      0,8 je 1000  (räumt Häufungen ab, nicht Einzelbilder)
+        //   Freigabe blockiert ab  5,5 je 1000  (dieser Wert)
+        //
+        // Die Freigabe MUSS über dem Chirurgie-Schwellwert liegen, sonst kann die
+        // Reparatur ihr eigenes Gate nie erreichen – das war das 329-Runden-Patt.
+        //
+        // WARUM HIER 4,0 UND NICHT 1,0 STEHT. Der Wert stand auf 1,0 und war damit
+        // strenger als JEDER der 13 Referenzromane: Der niedrigste liegt bei 1,4
+        // (Buddenbrooks 1,6). Ein Gate, das Thomas Mann ablehnt, lehnt jedes Buch ab.
+        // Gemessen an 34 fertigen Titeln dieses Programms (5,9 Mio. Wörter,
+        // `Scripts/BuchScanProbe.swift`): Spanne 2,8–7,8, Mittel 4,8. Kein einziges
+        // hätte abgeschlossen werden können – die Produktion wäre in der Endabnahme
+        // stehengeblieben, und zwar ohne erreichbaren Ausweg.
+        //
+        // Das ist genau das Muster, an dem dieses Projekt zweimal gescheitert ist: ein
+        // Grenzwert, der aus dem gewünschten ZIEL abgeleitet wurde statt aus dem, was
+        // ein gutes Buch erreicht.
+        //
+        // WARUM NICHT 4,0. Der erste Korrekturversuch stand auf 4,0 und hätte 24 der 34
+        // Titel geblockt – auch solche innerhalb des professionellen Bandes (Referenz
+        // p75 3,8, p90 5,3). Ein Gate darf nicht die Ästhetik durchsetzen; das ist die
+        // Aufgabe des Prompts. Es darf nur die Katastrophe abfangen. Sonst greift genau
+        // die Reparatur, von der Regel 4 sagt, dass sie den Text schlechter macht.
+        //
+        // Deshalb 5,5: knapp über p90 der Referenz (5,3), unter deren Maximum (6,9).
+        // Das blockiert 7 der 34 Titel – die Bilderflut mit 7,8 und das ausgelieferte
+        // Buch mit 7,5 –, lässt aber jeden Roman durch, den ein Lektor akzeptieren
+        // würde. Das Ziel bleibt unverändert bei 0,4 und steht im Draft-Prompt, wo es
+        // die Prosa formt, ohne etwas zu blockieren.
+        //
+        // Filterwörter: vorher stand hier 2,0 – das VIERFACHE des gemessenen Maximums,
+        // das Gate hätte nie ausgelöst. Jetzt 1,0, also doppelter Sicherheitsabstand
+        // zum schlechtesten Referenzwert.
+        //
+        // Ein alter, fortgesetzter Titel wird über die Stall-Erkennung pausiert statt
+        // endlos repariert – die Freigabe kann also nie zum Patt werden.
+        let stil = AutonomousContentQuality.stilKennzahlen(inChapters: texts)
+        if stil.bilder > 5.5 {
+            issues.append(String(
+                format: "Bilderflut im Manuskript (%.1f je 1000 Wörter, Freigabe bis 5,5; "
+                    + "Ziel im Schreibprompt: ein Bild je zehn Seiten).", stil.bilder))
+        }
+        if stil.filter > 1.0 {
+            issues.append(String(
+                format: "Zu viele Filterwörter im Manuskript (%.1f je 1000 Wörter, erlaubt 1,0; "
+                    + "Median guter Romane: 0,3).", stil.filter))
+        }
+
+        let repeatedPhrases = AutonomousContentQuality.blockingRepeatedPhrases(
+            inChapters: texts
+        )
+        if !repeatedPhrases.isEmpty {
+            let examples = repeatedPhrases.prefix(3).joined(separator: " | ")
+            issues.append(
+                "Überstrapazierte Formulierungen im Manuskript (\(repeatedPhrases.count)): "
+                    + examples + "."
+            )
+        }
+
+        // Ein einzelnes Wegdrehen oder Augen-Schliessen ist normale Prosa. Die Freigabe
+        // blockiert erst sichtbar gehämmerte Reaktionsformeln über das ganze Buch hinweg.
+        // Der Reparaturpfad verwendet dieselben Treffer und arbeitet absatzweise, damit
+        // das Gate keine neue Endlosschleife oder eine Kapitel-Neufassung erzwingt.
+        let formulaicReactions = AutonomousContentQuality.blockingFormulaicReactionPhrases(
+            inChapters: texts
+        )
+        if !formulaicReactions.isEmpty {
+            issues.append(
+                "Mechanisch wiederholte Reaktionsformeln im Manuskript: "
+                    + formulaicReactions.prefix(4).joined(separator: " | ") + "."
+            )
+        }
+
+        if !project.isNonfiction {
+            let characters = project.storyBible?.characters ?? []
+            let explicitProtagonists = characters.filter {
+                let role = $0.role.folding(
+                    options: [.caseInsensitive, .diacriticInsensitive], locale: .current
+                ).lowercased()
+                return role.contains("protagon") || role.contains("hauptfigur")
+            }.map(\.name)
+            let protagonistNames = explicitProtagonists.isEmpty
+                ? Array(characters.map(\.name).prefix(1))
+                : explicitProtagonists
+            if let firstText = texts.first {
+                let openingIssues = AutonomousContentQuality.finalOpeningIssues(
+                    in: firstText,
+                    protagonistNames: protagonistNames
+                )
+                if !openingIssues.isEmpty {
+                    issues.append(
+                        "Romananfang nicht freigabefaehig: "
+                            + openingIssues.prefix(3).joined(separator: " ")
+                    )
+                }
+            }
+
+            // Ein sauber exportierbares Manuskript ist noch kein lesenswertes Buch.
+            // Jeder ausgeschriebene Abschnitt muss daher das Kapitellektorat bestehen:
+            // Prosa, konkrete Szenen, Sog/Weiterentwicklung und Dialog dürfen nicht
+            // nur im Durchschnitt gut aussehen, während einzelne Kapitel still stehen.
+            let weakEditorialChapters = snapshots.compactMap { snapshot -> (Int, ChapterEditorialScorecard)? in
+                let card = ChapterEditorialScorecard.evaluate(chapter: snapshot.chapter)
+                return card.verdict == .ready ? nil : (snapshot.chapter.chapterNumber, card)
+            }
+            if !weakEditorialChapters.isEmpty {
+                let details = weakEditorialChapters.prefix(4).map { number, card in
+                    "K\(number): Sog \(Int((card.momentum * 100).rounded())) %, Gesamt \(Int((card.overall * 100).rounded())) %"
+                }.joined(separator: "; ")
+                issues.append(
+                    "Kapitellektorat nicht freigabefaehig – Szenenziel, Widerstand, Wendung und Folge sind in mindestens einem Kapitel zu schwach: \(details)."
+                )
+            }
+
+            let nameOveruse = AutonomousContentQuality.characterNameOveruseFindings(
+                inChapters: texts,
+                characterNames: characters.map(\.name)
+            )
+            if !nameOveruse.isEmpty {
+                let examples = nameOveruse.prefix(4).map {
+                    "\($0.characterName) in Kapitel \(chapters[$0.chapterIndex].chapterNumber)"
+                }.joined(separator: ", ")
+                issues.append(
+                    "Figurenname in kurzen Absaetzen zu oft wiederholt: \(examples)."
+                )
+            }
+
+            if let tense = project.bookProfile?.tense,
+               !tense.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let tenseBreaks = snapshots.filter {
+                    !AutonomousContentQuality.narrativeTenseIssuesAcrossSections(
+                        in: $0.text, expectedTense: tense
+                    ).isEmpty
+                }.map { $0.chapter.chapterNumber }
+                if !tenseBreaks.isEmpty {
+                    issues.append(
+                        "Zeitform im Erzaehltext gebrochen in Kapiteln: "
+                            + numberList(tenseBreaks) + "."
+                    )
+                }
+            }
+
+            let aiLikeChapters = snapshots.filter {
+                AutonomousContentQuality.soundsLikeAI($0.text)
+            }.map { $0.chapter.chapterNumber }
+            if !aiLikeChapters.isEmpty {
+                issues.append(
+                    "Maschinell oder formelhaft wirkende Endfassung in Kapiteln: "
+                        + numberList(aiLikeChapters) + "."
+                )
+            }
         }
 
         if project.isNonfiction {
