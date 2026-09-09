@@ -272,7 +272,7 @@ struct KDPMarketingView: View {
             .frame(minWidth: 440, maxWidth: .infinity)
         }
         .background(StudioBackground())
-        .navigationTitle("Veröffentlichung")
+        .navigationTitle("Titel & Verkaufstext")
     }
 }
 

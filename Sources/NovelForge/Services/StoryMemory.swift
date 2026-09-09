@@ -198,12 +198,13 @@ enum StoryMemory {
     static func namensKollisionen(_ neueNamen: [String], vergeben: Set<String>) -> [String] {
         // Auch die Klangkerne der vergebenen Namen sperren.
         let vergebeneKerne = Set(vergeben.map(namensKern))
+        let dauerhaftGesperrteKerne = Set(verbrauchteNamen.map(namensKern))
         var treffer: [String] = []
         // Klangkern → der Namensteil, der ihn belegt hat. Als Menge reichte es nicht:
         // siehe die Familien-Ausnahme weiter unten.
         var imBuch: [String: String] = [:]
         for name in neueNamen {
-            for teil in name.split(separator: " ") {
+            for (teilIndex, teil) in name.split(separator: " ").enumerated() {
                 // DIAKRITIKA FALTEN – sonst greift die Sperre ins Leere.
                 //
                 // `CharacterCanonAudit.nameParts` speichert gefaltet („grażyna" wird zu
@@ -218,12 +219,20 @@ enum StoryMemory {
                     .trimmingCharacters(in: CharacterSet.letters.inverted)
                 guard n.count >= 3 else { continue }
                 let kern = namensKern(n)
-                if vergeben.contains(n) {
+                // Katalogweit einmalig bleibt der Vorname. Ein gewöhnlicher Nachname
+                // darf in einem anderen Buch erneut vorkommen; sonst erzwingt lange
+                // Dauerproduktion zwangsläufig immer exotischere Familiennamen. Die
+                // gemessenen Wiederholungstäter (Voss, Brenner usw.) bleiben unabhängig
+                // von ihrer Position dauerhaft gesperrt.
+                let gegenKatalogPruefen = teilIndex == 0 || verbrauchteNamen.contains(n)
+                if gegenKatalogPruefen, vergeben.contains(n) {
                     treffer.append("\(name) (\"\(teil)\" schon vergeben)")
                     break
                 }
                 // Klangvariante eines Namens aus einem früheren Buch.
-                if kern.count >= 3, vergebeneKerne.contains(kern) {
+                let gesperrteKerne = teilIndex == 0
+                    ? vergebeneKerne : dauerhaftGesperrteKerne
+                if kern.count >= 3, gesperrteKerne.contains(kern) {
                     treffer.append("\(name) (\"\(teil)\" klingt wie ein bereits vergebener Name)")
                     break
                 }
@@ -309,8 +318,14 @@ enum StoryMemory {
     /// wo das Modell von allein nie hinkäme.
     static func namensraumBrief(fuerBuchNummer nummer: Int, vergeben: Set<String>) -> String {
         let raum = namensraum(fuerBuchNummer: nummer)
-        let freieVor = raum.vornamen.filter { !vergeben.contains($0.lowercased()) }
-        let freieNach = raum.nachnamen.filter { !vergeben.contains($0.lowercased()) }
+        let freieVor = raum.vornamen.filter {
+            NamensGenerator.istUnauffaelligerAutomatikname($0)
+                && !vergeben.contains($0.lowercased())
+        }
+        let freieNach = raum.nachnamen.filter {
+            NamensGenerator.istUnauffaelligerAutomatikNachname($0)
+                && !vergeben.contains($0.lowercased())
+        }
         guard freieVor.count >= 3, freieNach.count >= 3 else { return "" }
         return """
         NAMENSRAUM DIESES BUCHS: \(raum.region).

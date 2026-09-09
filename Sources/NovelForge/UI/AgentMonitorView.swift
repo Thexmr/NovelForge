@@ -136,7 +136,7 @@ struct AgentMonitorView: View {
         }
         .background(StudioBackground())
         .animation(Motion.standard, value: filteredJobs.count)
-        .navigationTitle("Agenten-Monitor")
+        .navigationTitle("Arbeitsprotokoll")
     }
 
     private var monitorHeader: some View {
@@ -370,7 +370,7 @@ struct ExportView: View {
             .frame(minWidth: 440, maxWidth: .infinity)
         }
         .background(StudioBackground())
-        .navigationTitle("Export")
+        .navigationTitle("Dateien exportieren")
     }
 }
 

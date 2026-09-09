@@ -413,6 +413,47 @@ final class UnlimitedProductionTests: XCTestCase {
                                                                                consecutiveFailures: 1))
     }
 
+    func testStorageGuardBlocksOnlyBelowTheSafetyThreshold() {
+        XCTAssertNil(ProductionStorageGuard.blockingError(
+            availableBytes: ProductionStorageGuard.minimumFreeBytes
+        ))
+        XCTAssertNil(ProductionStorageGuard.blockingError(availableBytes: 8 * 1_073_741_824))
+
+        let blocked = ProductionStorageGuard.blockingError(
+            availableBytes: ProductionStorageGuard.minimumFreeBytes - 1
+        )
+        XCTAssertNotNil(blocked)
+        XCTAssertTrue(ProductionStorageGuard.isStorageFailure(
+            blocked ?? AIError.systemError("kein Speicherfehler")
+        ))
+        XCTAssertTrue(ProductionStorageGuard.isStorageFailureMessage("database or disk is full"))
+        XCTAssertTrue(ProductionStorageGuard.isStorageFailureMessage("No space left on device"))
+        XCTAssertFalse(ProductionStorageGuard.isStorageFailureMessage("Modell antwortet nicht"))
+    }
+
+    /// Ein voller Datentraeger beendete frueher die Dauerproduktion und verlangte einen
+    /// manuellen Neustart – auch dann noch, wenn Minuten spaeter wieder Platz frei war.
+    /// Er zaehlt jetzt als voruebergehende Stoerung: warten, dann weiterschreiben.
+    func testFullDiskPausesButNeverEndsAutonomousProduction() {
+        guard let storageError = ProductionStorageGuard.blockingError(
+            availableBytes: 327 * 1_048_576
+        ) else {
+            return XCTFail("Speichermangel unter 1 GB muss einen Fehler liefern")
+        }
+
+        XCTAssertFalse(ProductionStabilityPolicy.shouldHaltUnlimitedProduction(
+            after: storageError, consecutiveFailures: 1
+        ), "Speichermangel darf die Dauerproduktion nicht mehr beenden")
+        XCTAssertFalse(ProductionStabilityPolicy.shouldHaltUnlimitedProduction(
+            after: storageError, consecutiveFailures: 30
+        ))
+        XCTAssertFalse(ProductionStabilityPolicy.shouldPauseForUserAction(after: storageError),
+                       "Freier Speicher entsteht ohne Konto- oder Konfigurationsaenderung")
+        XCTAssertTrue(ProductionStabilityPolicy.shouldResumeInterruptedBook(after: storageError),
+                      "Dasselbe Buch muss automatisch fortgesetzt werden")
+        XCTAssertGreaterThan(ProductionStorageGuard.recheckInterval, 0)
+    }
+
     func testStabilityPolicyUsesCappedBackoffForTransientBookFailures() {
         XCTAssertEqual(ProductionStabilityPolicy.retryDelay(forConsecutiveFailures: 0), 0)
         XCTAssertEqual(ProductionStabilityPolicy.retryDelay(forConsecutiveFailures: 1), 5)
@@ -446,6 +487,10 @@ final class UnlimitedProductionTests: XCTestCase {
         )
 
         XCTAssertTrue(ProductionStabilityPolicy.shouldResumeInterruptedBook(after: rejection))
+        XCTAssertFalse(ProductionStabilityPolicy.shouldResumeInterruptedBook(
+            after: rejection,
+            consecutiveFailures: ProductionStabilityPolicy.maxContentQualityRestarts
+        ))
         XCTAssertFalse(ProductionStabilityPolicy.shouldPauseForUserAction(after: rejection))
     }
 

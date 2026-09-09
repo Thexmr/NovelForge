@@ -86,6 +86,11 @@ struct ChapterEditorialScorecard: Equatable {
             let reasons = Array(Set(antiGlaette.prefix(3).map(\.grund))).sorted().joined(separator: " | ")
             findings.append("Übererklärende oder künstlich gerundete Prosa: " + reasons + ".")
         }
+        let teenReadability = AutonomousContentQuality.teenReadabilityIssues(in: trimmed)
+        if !teenReadability.isEmpty {
+            prose -= min(0.30, 0.15 * Double(teenReadability.count))
+            findings.append(contentsOf: teenReadability.prefix(2))
+        }
         prose = bounded(prose)
 
         // Szenenhandwerk: Ein Kapitel braucht Ziel und Konflikt; jede geplante Szene
@@ -187,7 +192,8 @@ struct ChapterEditorialScorecard: Equatable {
 
         let overall = bounded(prose * 0.35 + sceneCraft * 0.25 + momentum * 0.25 + dialogue * 0.15)
         let verdict: Verdict = overall >= passThreshold && prose >= 0.75
-            && sceneCraft >= 0.70 && momentum >= 0.75 && antiGlaette.isEmpty ? .ready : .revise
+            && sceneCraft >= 0.70 && momentum >= 0.75 && antiGlaette.isEmpty
+            && teenReadability.isEmpty ? .ready : .revise
         if verdict == .revise && findings.isEmpty {
             findings.append("Das Kapitel erreicht den Lektoratsgrenzwert noch nicht sicher.")
         }

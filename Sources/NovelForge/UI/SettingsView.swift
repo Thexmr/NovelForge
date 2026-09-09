@@ -11,7 +11,7 @@ struct SettingsView: View {
         case appearance = "Darstellung"
         case providers = "Textmodelle"
         case covers = "Cover"
-        case privacy = "Daten"
+        case privacy = "Amazon & Daten"
 
         var id: String { rawValue }
 
@@ -34,11 +34,8 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Einstellungen")
-                            .font(.system(size: 30, weight: .bold, design: .rounded))
+                            .font(.system(size: 26, weight: .bold))
                             .foregroundStyle(StudioTheme.heroGradient)
-                        Text("Vorgaben, Modelle, Cover-Erstellung und lokale Daten verwalten.")
-                            .font(.subheadline)
-                            .foregroundStyle(StudioTheme.textMuted)
                     }
 
                     Picker("Bereich", selection: $selectedSection) {
@@ -63,7 +60,7 @@ struct SettingsView: View {
                     }
                 }
                 .id(selectedSection)
-                .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .trailing)))
+                .transition(.opacity)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .animation(reduceMotion ? nil : Motion.standard, value: selectedSection)
             }

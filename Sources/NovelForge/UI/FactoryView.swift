@@ -12,6 +12,10 @@ struct FactoryView: View {
 
     @State private var loginRunning = false
     @State private var loginNote: String?
+    @State private var recoveryEntry: KDPFactory.QueueEntry?
+    @State private var recoveryURL = ""
+    @State private var recoveryError: String?
+    @State private var showUploadRules = false
 
     private func project(_ id: UUID) -> Project? { projects.first { $0.id == id } }
 
@@ -29,16 +33,45 @@ struct FactoryView: View {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 loginCard
-                slotsCard
-                calendarCard
                 if !uploadReady.isEmpty { readyCard }
                 queueCard
+                DisclosureGroup("Upload-Zeitplan & Grenzen", isExpanded: $showUploadRules) {
+                    VStack(spacing: 16) {
+                        slotsCard
+                        calendarCard
+                    }
+                    .padding(.top, 12)
+                }
             }
             .padding(22)
             .frame(maxWidth: 900, alignment: .leading)
         }
         .background(StudioBackground())
-        .navigationTitle("Buchfabrik")
+        .navigationTitle("Amazon KDP")
+        .sheet(item: $recoveryEntry) { entry in
+            VStack(alignment: .leading, spacing: 16) {
+                Text("KDP-Entwurf zuordnen").font(.title2.weight(.semibold))
+                Text(entry.title).font(.headline)
+                TextField("Link zur Bearbeitung des vorhandenen Kindle-Entwurfs", text: $recoveryURL)
+                    .textFieldStyle(.roundedBorder)
+                if let recoveryError { Text(recoveryError).foregroundStyle(StudioTheme.amber) }
+                HStack {
+                    Button("Abbrechen") { recoveryEntry = nil }
+                    Spacer()
+                    Button("Entwurf zuordnen") {
+                        if factory.associateDraft(entry.id, url: recoveryURL) {
+                            recoveryEntry = nil
+                        } else {
+                            recoveryError = "Zuordnung nicht möglich. Bitte Link und Uploadstatus prüfen."
+                        }
+                    }
+                    .disabled(KDPUploadService.draftBookID(from: recoveryURL.trimmingCharacters(in: .whitespacesAndNewlines)) == nil
+                              || factory.isDispatching)
+                }
+            }
+            .padding(24)
+            .frame(width: 520)
+        }
         .onAppear {
             factory.setProjectResolver { id in projects.first { $0.id == id } }
             if factory.enabled { factory.startDispatcher() }
@@ -51,10 +84,10 @@ struct FactoryView: View {
     private var header: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Autonome KDP-Buchfabrik")
-                    .font(.largeTitle.weight(.bold))
+                Text("Amazon KDP")
+                    .font(.system(size: 28, weight: .bold))
                     .foregroundStyle(StudioTheme.heroGradient)
-                Text("Fertige Bücher werden mit Cover und allen Texten automatisch als KDP-ENTWURF hochgeladen. Der letzte Veröffentlichen-Klick bleibt bei dir.")
+                Text("\(factory.queue.count) Uploads · Nur Entwürfe, keine automatische Veröffentlichung")
                     .font(.callout)
                     .foregroundStyle(StudioTheme.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
@@ -69,13 +102,12 @@ struct FactoryView: View {
                     }))
                     .toggleStyle(.switch)
                     .labelsHidden()
-                Text(factory.enabled ? "FABRIK AN" : "Fabrik aus")
+                Text(factory.enabled ? "Automatik an" : "Automatik aus")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(factory.enabled ? StudioTheme.lime : StudioTheme.textFaint)
             }
         }
         .padding(18)
-        .studioFeaturedPanel(cornerRadius: 10)
     }
 
     // MARK: - Login
@@ -88,7 +120,7 @@ struct FactoryView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("KDP-Konto: \(factory.loginState)")
                     .font(.callout.weight(.semibold))
-                Text("Einmalig im Browser einloggen (inkl. 2FA). Danach lädt die Fabrik autonom – die Session bleibt gespeichert.")
+                Text(factory.isAuthenticating ? "Amazon-Anmeldung läuft" : "Anmeldung und Zwei-Faktor-Bestätigung")
                     .font(.caption).foregroundStyle(StudioTheme.textMuted)
                 if let loginNote { Text(loginNote).font(.caption2).foregroundStyle(StudioTheme.cyan) }
             }
@@ -100,7 +132,7 @@ struct FactoryView: View {
                 else { Label("KDP-Login", systemImage: "safari") }
             }
             .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.cyan))
-            .disabled(loginRunning || !KDPUploadService.sidecarReady)
+            .disabled(loginRunning || factory.isDispatching || !KDPUploadService.sidecarReady)
         }
         .padding(16)
         .studioGlassTile(cornerRadius: 8, accent: StudioTheme.cyan, opacity: 0.9)
@@ -278,7 +310,7 @@ struct FactoryView: View {
                     Task { await factory.uploadNext { id in project(id) } }
                 } label: { Label("Nächsten jetzt hochladen", systemImage: "arrow.up.circle") }
                     .buttonStyle(.borderless).font(.caption)
-                    .disabled(factory.isDispatching || factory.freeSlots <= 0 || factory.queue.isEmpty)
+                    .disabled(factory.isDispatching || factory.isAuthenticating || factory.freeSlots <= 0 || factory.queue.isEmpty)
             }
             if factory.queue.isEmpty {
                 Text("Leer. Fertige Bücher erscheinen oben zum Einreihen.")
@@ -286,11 +318,30 @@ struct FactoryView: View {
             } else {
                 ForEach(factory.queue) { entry in
                     HStack(alignment: .top, spacing: 10) {
-                        stageIcon(entry.stage)
+                        if entry.stage == .uploading && entry.lastMessage.contains("[auth-wait]") {
+                            Image(systemName: "lock.shield").foregroundStyle(StudioTheme.amber)
+                        } else {
+                            stageIcon(entry.stage)
+                        }
                         VStack(alignment: .leading, spacing: 2) {
                             Text(entry.title).font(.callout.weight(.medium))
+                            if entry.stage == .uploading && entry.lastMessage.contains("[auth-wait]") {
+                                Text("Wartet auf Amazon-Bestätigung").font(.caption.weight(.semibold))
+                                    .foregroundStyle(StudioTheme.amber)
+                            }
                             Text(entry.lastMessage).font(.caption2).foregroundStyle(StudioTheme.textMuted)
                                 .fixedSize(horizontal: false, vertical: true)
+                            if entry.stage == .failed {
+                                Button {
+                                    recoveryURL = entry.draftURL ?? ""
+                                    recoveryError = nil
+                                    recoveryEntry = entry
+                                } label: {
+                                    Label("Vorhandenen KDP-Entwurf zuordnen", systemImage: "link")
+                                }
+                                .buttonStyle(.borderless)
+                                .disabled(factory.isDispatching)
+                            }
                             if (entry.stage == .draftReady || entry.stage == .draftNeedsAttention),
                                let u = entry.draftURL, let url = URL(string: u) {
                                 Link("Entwurf in KDP öffnen → Preis prüfen & veröffentlichen", destination: url)
@@ -304,6 +355,7 @@ struct FactoryView: View {
                             .buttonStyle(.borderless).foregroundStyle(StudioTheme.textFaint)
                             .help("Aus Warteschlange entfernen")
                             .accessibilityLabel("\(entry.title) aus Warteschlange entfernen")
+                            .disabled(entry.stage == .uploading)
                     }
                     .padding(.vertical, 5)
                     Divider().opacity(0.3)
@@ -329,12 +381,17 @@ struct FactoryView: View {
     // MARK: - Aktionen
 
     private func doLogin() {
+        factory.isAuthenticating = true
         loginRunning = true; loginNote = "Bitte im Browserfenster bei Amazon KDP einloggen (inkl. 2FA)…"
         Task {
+            defer { factory.isAuthenticating = false; loginRunning = false }
             do {
                 try await KDPUploadService.login { msg in Task { @MainActor in loginNote = msg } }
+                factory.isAuthenticating = false
                 await factory.refreshLoginState()
-                await MainActor.run { loginNote = "Login abgeschlossen."; loginRunning = false }
+                loginNote = factory.loginState == "eingeloggt"
+                    ? "Login abgeschlossen."
+                    : "Anmeldung abgeschlossen, Sitzung konnte beim erneuten Prüfen nicht bestätigt werden."
             } catch {
                 await MainActor.run {
                     loginNote = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription

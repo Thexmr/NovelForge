@@ -15,6 +15,8 @@ enum KDPUploadService {
     }
 
     private struct SidecarStatus: Decodable {
+        let stage: String?
+        let saveConfirmed: Bool?
         let ok: Bool?
         let offline: Bool?
         let draftUrl: String?
@@ -112,6 +114,14 @@ enum KDPUploadService {
         return FileManager.default.fileExists(atPath: dir.appendingPathComponent("node_modules").path)
     }
 
+    static func draftBookID(from rawURL: String) -> String? {
+        guard let url = URL(string: rawURL), url.scheme == "https", url.host == "kdp.amazon.com",
+              url.user == nil, url.password == nil, url.port == nil || url.port == 443,
+              url.path.range(of: #"^/[a-z]{2}_[A-Z]{2}/title-setup/kindle/(?![Nn][Ee][Ww]/)[A-Za-z0-9_-]+/(details|content|pricing)/?$"#,
+                             options: .regularExpression) != nil else { return nil }
+        return String(url.path.split(separator: "/")[3])
+    }
+
     /// Converts the sidecar's status into a result without turning an incomplete
     /// draft or a stale/missing status file into a successful upload.
     static func interpretStatus(data: Data?, exitCode: Int32,
@@ -135,6 +145,9 @@ enum KDPUploadService {
         guard exitCode == 0 else {
             throw SidecarError.failed("KDP-Sidecar endete mit Fehlercode \(exitCode).")
         }
+        guard status.stage == "done" else {
+            throw SidecarError.failed("KDP-Sidecar hat den Vorgang nicht abgeschlossen.")
+        }
 
         let problems = status.probleme ?? []
         if dryRun {
@@ -153,10 +166,15 @@ enum KDPUploadService {
             )
         }
 
+        guard status.saveConfirmed == true, status.offline != true else {
+            throw SidecarError.failed("Amazon hat die Speicherung des Entwurfs nicht bestätigt.")
+        }
         guard let rawURL = status.draftUrl,
               let url = URL(string: rawURL),
               url.scheme == "https",
-              url.host == "kdp.amazon.com" else {
+              url.host == "kdp.amazon.com",
+              url.path.range(of: #"^/[a-z]{2}_[A-Z]{2}/title-setup/(kindle|paperback)/(?![Nn][Ee][Ww]/)[A-Za-z0-9_-]+/(details|content|pricing)/?$"#,
+                             options: .regularExpression) != nil else {
             throw SidecarError.failed("KDP-Sidecar hat keine gültige Entwurfsadresse bestätigt.")
         }
         guard status.ok == true || !problems.isEmpty else {
@@ -187,7 +205,8 @@ enum KDPUploadService {
             // Hinterlegte KDP-Zugangsdaten NUR als Umgebungsvariable weitergeben:
             // über die Kommandozeile stünden sie in der Prozessliste, in der Job-Datei
             // auf der Platte. So bleiben sie im Speicher dieses einen Prozesses.
-            if let zugang = KeychainService.kdpCredentials() {
+            if arguments.first != "check", !arguments.contains("--dry-run"),
+               let zugang = KeychainService.kdpCredentials() {
                 var umgebung = ProcessInfo.processInfo.environment
                 umgebung["NF_KDP_EMAIL"] = zugang.email
                 umgebung["NF_KDP_PASSWORD"] = zugang.password
@@ -235,6 +254,7 @@ enum KDPUploadService {
 
     /// Legt für das Projekt einen KDP-eBook-ENTWURF an (kein Veröffentlichen).
     static func uploadDraft(project: Project, priceEUR: Double, aiDisclosure: String,
+                            existingDraftURL: String? = nil,
                             dryRun: Bool = false,
                             progress: @escaping (String) -> Void) async throws -> UploadResult {
         guard sidecarReady else { throw SidecarError.depsMissing }
@@ -339,9 +359,17 @@ enum KDPUploadService {
         // bleibt die Prüfung bewusst aus und der Upload verlässt sich allein auf das
         // Zurücklesen aus dem Formular.
         var vollstaendigerJob = job
+        if let existingDraftURL {
+            guard let bookID = draftBookID(from: existingDraftURL) else {
+                throw SidecarError.failed("Ungültiger KDP-Entwurfslink. Bitte den Link zur Bearbeitung des Kindle-Buchs verwenden.")
+            }
+            vollstaendigerJob["bookId"] = bookID
+        }
         if let sicht = visionConfig() { vollstaendigerJob["ai"] = sicht }
-        let jobURL = appSupport.appendingPathComponent("kdp_job_\(project.id.uuidString).json")
-        let statusURL = appSupport.appendingPathComponent("kdp_status_\(project.id.uuidString).json")
+        let runID = UUID().uuidString
+        let jobURL = appSupport.appendingPathComponent("kdp_job_\(project.id.uuidString)_\(runID).json")
+        let statusURL = appSupport.appendingPathComponent("kdp_status_\(project.id.uuidString)_\(runID).json")
+        let checkpointURL = appSupport.appendingPathComponent("kdp_checkpoint_\(project.id.uuidString).json")
         // Ein Status aus einem früheren Lauf darf nie als Ergebnis des aktuellen
         // Prozesses gelesen werden.
         try? FileManager.default.removeItem(at: statusURL)
@@ -352,6 +380,7 @@ enum KDPUploadService {
         }
 
         var args = ["upload", "--job", jobURL.path, "--status", statusURL.path,
+                    "--checkpoint", checkpointURL.path,
                     "--profile", chromeProfile.path]
         // Die bestehende KDP-Anmeldung aus dem ECHTEN Chrome des Nutzers übernehmen:
         // der Sidecar kopiert nur die Sitzungsdateien (Cookies), das normale Chrome

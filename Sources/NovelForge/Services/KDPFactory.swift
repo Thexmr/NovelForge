@@ -89,6 +89,7 @@ final class KDPFactory: ObservableObject {
     @Published private(set) var queue: [QueueEntry] = []
     @Published private(set) var history: [UploadRecord] = []
     @Published private(set) var isDispatching = false
+    @Published var isAuthenticating = false
     @Published var loginState: String = "unbekannt"   // "eingeloggt" | "nicht eingeloggt" | "prüft…"
 
     private var timer: Timer?
@@ -296,6 +297,20 @@ final class KDPFactory: ObservableObject {
         persist()
     }
 
+    func associateDraft(_ entryID: UUID, url: String) -> Bool {
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !isDispatching, KDPUploadService.draftBookID(from: trimmed) != nil,
+              queue.contains(where: { $0.id == entryID && $0.stage == .failed }) else { return false }
+        update(entryID) {
+            $0.draftURL = trimmed
+            $0.stage = .queued
+            $0.attempts = 0
+            $0.lastTriedAt = nil
+            $0.lastMessage = "Vorhandener KDP-Entwurf zugeordnet. Bereit zur Wiederaufnahme."
+        }
+        return true
+    }
+
     private func update(_ entryID: UUID, _ mutate: (inout QueueEntry) -> Void) {
         guard let i = queue.firstIndex(where: { $0.id == entryID }) else { return }
         mutate(&queue[i]); queue[i].updatedAt = Date(); persist()
@@ -323,7 +338,7 @@ final class KDPFactory: ObservableObject {
     func setProjectResolver(_ r: @escaping (UUID) -> Project?) { projectResolver = r }
 
     private func tick(force: Bool = false, resolveProject: ((UUID) -> Project?)? = nil) async {
-        guard !isDispatching else { return }
+        guard !isDispatching, !isAuthenticating else { return }
         guard force || enabled else { return }
         // Kalender greift nur im automatischen Betrieb; „Jetzt hochladen" (force) übergeht ihn.
         if !force, let reason = scheduleReason {
@@ -373,6 +388,7 @@ final class KDPFactory: ObservableObject {
         do {
             let result = try await KDPUploadService.uploadDraft(
                 project: project, priceEUR: next.priceEUR, aiDisclosure: next.aiDisclosure,
+                existingDraftURL: next.draftURL,
                 progress: { [weak self] msg in
                     Task { @MainActor in self?.update(next.id) { $0.lastMessage = msg } }
                 })
@@ -405,6 +421,7 @@ final class KDPFactory: ObservableObject {
     // MARK: - Login-Status
 
     func refreshLoginState() async {
+        guard !isDispatching, !isAuthenticating else { return }
         loginState = "prüft…"
         let ok = await KDPUploadService.checkLogin()
         loginState = ok ? "eingeloggt" : "nicht eingeloggt"

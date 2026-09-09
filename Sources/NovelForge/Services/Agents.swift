@@ -1279,10 +1279,18 @@ enum PromptFactory {
           die sich ballen, und andere austauschbare Abkuerzungen.
         - WORTWAHL UND LESEFLUSS: Zeitgemaesse deutsche Standardsprache, vertraute Alltagswoerter,
           praezise Verben und wenige tragende Adjektive. Schreibe so, dass ein erwachsener Leser
-          ohne Nachschlagen und ohne Zurueckspringen folgen kann. Fachsprache nur, wenn Figur und
+          und ein durchschnittlicher 15-jaehriger Jugendlicher ohne Nachschlagen und ohne
+          Zurueckspringen folgen koennen. Ueberwiegend kurze bis mittlere Saetze; eine laengere
+          Periode nur, wenn ihr Gedankengang beim ersten Lesen klar bleibt. Fachsprache nur, wenn Figur und
           Situation sie verlangen und der Kontext sie sofort verstaendlich macht. Kein pathetischer,
           altertuemlicher, akademisch aufgeblasener oder gewollt literarischer Ton. Schoenheit
           entsteht aus Genauigkeit, Emotion und Rhythmus, nicht aus seltenen Woertern.
+          Das gilt auch in historischen Romanen und Fantasy: Die Welt darf alt sein,
+          die Erzaehlsprache bleibt modern. Statt "alsbald" schreibe "bald", statt
+          "allenthalben" "ueberall", statt "sie vermochte" "sie konnte". Keine
+          kuenstliche Jugendsprache. Mache bei mehreren Figuren deutlich, auf wen
+          "sie", "er" und "ihr" verweisen. Jede wichtige Entscheidung bekommt einen
+          verstaendlichen Anlass und eine erkennbare Folge.
         - BILDER UND VERGLEICHE: Ein starkes, zur Figur passendes Bild reicht. Keine
           Vergleichsketten, keine Trikola als Reflex und keine Antithese-Schablone "nicht X,
           sondern Y".
@@ -1513,6 +1521,28 @@ enum PromptFactory {
             Orientierung für müheloses Lesen, aber keine Vorgeschichte auf Vorrat. Keine \
             Stakkato-Hookfolge, kein Sinnesinventar und keine Kette bedeutungsschwerer \
             Mini-Details. Ein klarer menschlicher Konflikt trägt besser als sichtbare Technik.
+
+            10/10-EINSTIEGSPRUEFUNG (VERBINDLICH):
+            - Kausalitaet vor Stimmung: Wenn Frist, Vertrag, Verkauf, Geldforderung, Auftrag oder
+              andere Sachzwänge vorkommen, muss beim ersten Lesen klar sein, WER was von der Figur
+              verlangt, WARUM gerade jetzt und WELCHE konkrete Folge ein Scheitern hat.
+            - Persoenlicher Einsatz: Zeige nicht nur die Aufgabe, sondern was diese konkrete Figur
+              dadurch verlieren, verraten oder aufs Spiel setzen kann.
+            - Vorbereitete Entscheidung: Eine abrupte Kuendigung, Trennung, Flucht, Gewalttat oder
+              andere unumkehrbare Entscheidung braucht vorher mindestens ein konkretes Erlebnis,
+              Verhalten oder Detail, das sie psychologisch nachvollziehbar macht. Keine pauschale
+              Erklaerung wie "die Firma sah sie nur als Nummer".
+            - Unverwechselbare Figur: Zeige mindestens einen Widerspruch zwischen dem, was die Figur
+              behauptet oder will, und dem, was sie tut, schuetzt oder fuerchtet.
+            - Individuelle Stimmen: Dialoge transportieren Untertext. Figuren erklaeren einander
+              keine Informationen, die beide bereits kennen, und sprechen nicht im selben Ton.
+            - Konkreter Ausloeser: Hoechstens ein zentrales Raetsel, Fundstueck oder Stoerelement.
+              Es muss persoenlich mit der Figur verbunden sein und eine konkrete Frage oeffnen.
+            - Konkrete Sprache: Keine abstrakte Zusammenfassung wie "alte Wunden", "klares Ziel",
+              "Geheimnisse lueften" oder "Truemmer ihres Lebens". Zeige Gegenstand, Handlung,
+              Erinnerung oder Folge. Pro Absatz hoechstens ein bis zwei Sinnesdetails.
+            - Namens- und Faktenkontinuitaet: Kein Name, Besitzverhaeltnis, Verwandtschaftsgrad,
+              Ziel oder Rechtsvorgang darf innerhalb der Szene wechseln oder neu erfunden werden.
             """
         } else if isFinalScene {
             positionNote = """
@@ -2704,7 +2734,8 @@ enum PromptFactory {
     }
 
     /// „Blick ins Buch"-Optimierung: macht den Anfang (Amazon-Leseprobe) zu maximalem Lesesog.
-    static func openingHook(language: String, bookTitle: String, genre: String, chapterText: String) -> String {
+    static func openingHook(language: String, bookTitle: String, genre: String,
+                            chapterText: String, editorialContext: String = "") -> String {
         if BookContentType.infer(from: genre) == .nonfiction {
             return """
             Überarbeite den Anfang der Amazon-Leseprobe des Sachbuchs "\(bookTitle)" auf \(language).
@@ -2740,11 +2771,30 @@ enum PromptFactory {
           reagieren.
         - Keine Stakkato-Kette aus Mini-Sätzen. Kurze Akzente mit klaren mittleren Sätzen
           verbinden; jeder Satz muss beim ersten Lesen verständlich sein.
+        - LESEALTER 15+: Ein durchschnittlicher 15-Jaehriger folgt jeder Handlung, Referenz und
+          Motivation beim ersten Lesen. Nutze moderne Alltagswoerter und ueberwiegend kurze bis
+          mittlere Saetze. Seltene Fachwoerter werden vermieden oder sofort aus der Situation klar.
+          Die Sprache bleibt erwachsen und emotional tief, aber nie akademisch oder altertuemlich.
         - Keine aufgereihte Sammlung aus Geruch, Kleidung, Narbe, Fingern, Wetter und Vergleich.
           Ein oder zwei handlungsrelevante Details genügen.
         - Zeigen statt erklären; eigene, sofort erkennbare Erzählstimme, aber keine sichtbare
           Hook-Technik und keine bedeutungsschwere Leerformel.
         - Eine Spannungsfrage, die aus der etablierten Situation folgt, bleibt am Ende des Auszugs offen.
+        - KAUSALE KLARHEIT: Wenn Frist, Vertrag, Verkauf, Geldforderung, Auftrag oder ein anderer
+          Sachzwang vorkommt, versteht der Leser ohne Ruecksprung: Wer verlangt was, warum jetzt,
+          welche Folge droht und warum betrifft das die Perspektivfigur persoenlich?
+        - MOTIVATION: Jede unumkehrbare Entscheidung ist durch mindestens ein konkretes Erlebnis,
+          Verhalten oder Beweisdetail vorbereitet. Ersetze allgemeine Behauptungen ueber Beruf,
+          Familie oder Vergangenheit durch eine spezifische Erinnerung oder gegenwaertige Folge.
+        - FIGURENEIGENHEIT: Die Perspektivfigur zeigt einen individuellen Widerspruch zwischen
+          Wunsch und Furcht, Behauptung und Verhalten oder Pflicht und Sehnsucht.
+        - DIALOG MIT UNTERTEXT: Figuren erklaeren einander nichts, was beide wissen. Ihre Wortwahl,
+          Ausweichbewegungen und Machtpositionen unterscheiden sich hoerbar.
+        - KONKRETE SPRACHE: Streiche Standardbilder wie "alte Wunden", "klares Ziel vor Augen",
+          "Geheimnisse lueften" und "Truemmer des Lebens". Pro Absatz reichen ein bis zwei
+          handlungsrelevante Sinnesdetails; wiederhole kein Wetter- oder Koerpermotiv mechanisch.
+        - PLAUSIBILITAET UND KONTINUITAET: Namen, Rollen, Besitzverhaeltnisse, Fristen,
+          Rechtsvorgaenge und Ziele widersprechen sich nicht. Erfinde keine Ersatznamen.
         - Erhalte Figuren, Setting, Fakten und Handlung des Kapitels – ändere NUR Anziehung/Sog
           und Formulierung, nicht das Geschehen.
         - Reine Prosa, keine Überschriften, keine Kommentare, keine Meta-Hinweise.
@@ -2752,7 +2802,116 @@ enum PromptFactory {
         KAPITELTEXT:
         \(chapterText)
 
+        VERBINDLICHER KONTEXT FUER FAKTEN UND MOTIVATION:
+        \(editorialContext.isEmpty ? "Kein zusaetzlicher Kontext vorhanden; erfinde deshalb keine neuen Fakten." : editorialContext)
+
+        Die im Kontext markierte hoechste Autoritaet hat bei jedem Widerspruch Vorrang vor
+        Kapiteltext und alten Planfeldern.
+        Korrigiere falsche Namen und Rollen vollstaendig auf die dort festgelegten Figuren.
+        Erfinde keinen Ersatznamen. Bewahre nur Ereignisse und Fakten, die dem Kontext nicht
+        widersprechen.
+
         Gib den vollständigen, überarbeiteten Kapiteltext aus.
+        """
+    }
+
+    /// Eng gefuehrte Folgerunde nach einer semantischen Abnahme. Anders als der
+    /// kreative Erstentwurf darf sie nicht erneut den ganzen Anfang umgestalten.
+    static func openingTargetedRepair(
+        language: String,
+        bookTitle: String,
+        genre: String,
+        chapterText: String,
+        editorialContext: String,
+        repairIssues: [String],
+        allowsCanonicalEventCorrections: Bool
+    ) -> String {
+        let canonicalCorrectionRule = allowsCanonicalEventCorrections ? """
+        Die Fehlerliste und der verbindliche Kanon sind fuer die beanstandeten Stellen die
+        hoehere Autoritaet als der alte Kapiteltext. Wenn eine Reparatur ein widerspruechliches
+        Ereignis, eine falsche Reaktion oder eine unplausible Entscheidung ersetzen muss,
+        fuehre genau diese Korrektur aus. Bewahre nur die davon nicht betroffenen Ereignisse.
+        """ : """
+        Bewahre alle nicht beanstandeten Ereignisse und Fakten. Veraendere an den markierten
+        Stellen nur so viel Handlung, Reaktion oder Dialog, wie die konkrete Reparatur verlangt.
+        """
+        let issues = repairIssues.prefix(6).map { "- \($0)" }.joined(separator: "\n")
+        return """
+        CHIRURGISCHE KORREKTUR eines Romananfangs aus „\(bookTitle)"
+        (Genre: \(genre), Sprache: \(language)).
+
+        Die Fassung ist bereits redaktionell bearbeitet. Schreibe sie NICHT erneut frei um.
+        Repariere jede unten genannte Stelle konkret und vollstaendig. Aendere den kleinsten
+        zusammenhaengenden Textbereich, der fuer eine natuerliche Ursache und Folge noetig ist.
+        Entferne dabei auch Saetze, die nach der Reparatur widerspruechlich oder doppelt waeren.
+        \(canonicalCorrectionRule)
+
+        VERBINDLICHE REPARATUREN:
+        \(issues.isEmpty ? "- Erhalte die Fassung; glätte nur einen eindeutig stoerenden Anschluss." : issues)
+
+        VERBINDLICHER KANON:
+        \(editorialContext.isEmpty ? "Keine zusaetzlichen Fakten erfinden." : editorialContext)
+
+        SICHERHEITSREGELN:
+        - Verwende nur Personen, Rollen, Orte und Gegenstaende aus Text oder Kanon.
+        - Erfinde keine Ersatznamen, Fristen, Rechtsakte, Besitzverhaeltnisse oder Wendungen.
+        - Perspektive, Zeitform, Umfang und Genreton bleiben stabil.
+        - Moderne, klare Sprache fuer Leser ab 15; Dialog mit Untertext statt Erklaerungen.
+        - Reine Prosa, keine Ueberschrift, Fehlerliste, Erklaerung oder Meta-Ausgabe.
+
+        AKTUELLE FASSUNG:
+        \(chapterText)
+
+        Gib den vollstaendigen reparierten Kapiteltext aus.
+        """
+    }
+
+    /// Semantische Endabnahme fuer die Amazon-Leseprobe. Der zweite Modellaufruf
+    /// bewertet keine "schoene Sprache", sondern die Punkte, die reine Regex-Pruefer
+    /// nicht verlaesslich erkennen koennen: Kausalitaet, Motivation, Untertext und
+    /// innere Faktenlogik.
+    static func openingEditorialAudit(language: String, bookTitle: String, genre: String,
+                                      editorialContext: String, chapterText: String) -> String {
+        """
+        Pruefe den Romananfang von "\(bookTitle)" (Genre: \(genre), Sprache: \(language))
+        als strenger Akquisitionslektor. Ein glatter Stil ist KEIN Bestehensgrund.
+
+        Ein 10/10-tauglicher Einstieg besteht nur, wenn ALLE Punkte erfuellt sind:
+        1. KLARHEIT: Wer will in der aktuellen Szene was, warum jetzt und welche konkrete Folge droht?
+        2. EINSATZ: Warum trifft das genau diese Perspektivfigur persoenlich?
+        3. MOTIVATION: Eine grosse Entscheidung folgt aus konkretem Verhalten oder Vorgeschichte,
+           nicht aus einer pauschalen Erklaerung.
+        4. FIGUR: Die Hauptfigur besitzt einen individuellen Widerspruch und wirkt nicht austauschbar.
+        5. DIALOG: Figurenstimmen unterscheiden sich; Rede hat Untertext statt Publikumserklaerungen.
+        6. EIGENHEIT: Konkrete Beobachtungen ersetzen Standardmetaphern, Sinnesinventar und KI-Phrasen.
+        7. SOG: Genau ein organischer Ausloeser oeffnet eine konkrete, persoenliche Frage.
+        8. PLAUSIBILITAET: Namen, Rollen, Fristen, Besitz, Rechtsvorgaenge und Ziele bleiben widerspruchsfrei.
+        9. LESBARKEIT 15+: Ein durchschnittlicher 15-Jaehriger versteht Wortwahl, Satzbau,
+           Bezuege und Handlungslogik beim ersten Lesen, ohne dass der Text kindlich klingt.
+
+        Antworte NUR mit BESTANDEN, wenn jeder Punkt zweifelsfrei erfuellt ist.
+        Verwende ausschliesslich die Namen aus dem verbindlichen Kontext. Erfinde auch fuer
+        unbenannte Rollen keine Beispiel- oder Ersatznamen. Wenn Text und Kontext kollidieren,
+        benenne den Widerspruch mit [PLAUSIBILITAET] und nenne die kanonische Korrektur.
+        Sonst gib pro echtem Fehler genau eine kurze Zeile aus. Beginne jede Fehlerzeile
+        mit einem dieser Tags und direkt danach mit dem Wort FEHLER und Doppelpunkt:
+        [KLARHEIT] [EINSATZ] [MOTIVATION] [FIGUR] [DIALOG] [EIGENHEIT] [SOG] [PLAUSIBILITAET] [LESBARKEIT]
+        Exaktes Format: [TAG] FEHLER: konkrete Textstelle oder konkreter Widerspruch; knappe Reparatur.
+        Schreibe bestandene Kriterien NICHT auf. Ein getaggter positiver Befund ist ungueltig.
+        Nenne die konkrete Textstelle oder den konkreten Widerspruch und eine knappe Reparatur.
+        Hoechstens sechs Zeilen. Keine Geschmacksurteile, kein Lob, keine Zusammenfassung.
+        Belege jeden Befund am aktuell vorliegenden Text. Kritik aus einer aelteren
+        Fassung ist kein Beleg. Eine Charaktereigenschaft ist eine Neigung, kein Naturgesetz;
+        eine plausible Abweichung ist kein automatischer Widerspruch. Erfinde fuer eine
+        Reparatur keine Behoerdenentscheidung, Rechtsgrundlage, Erinnerung oder Beziehung.
+        Trenne fehlende Information von einem belegbaren Widerspruch. Unbekannte Details
+        darfst du nicht durch eigene Annahmen zu Fakten machen.
+
+        VERBINDLICHER KONTEXT:
+        \(editorialContext.truncated(to: 10_000))
+
+        ROMANANFANG:
+        \(chapterText.truncated(to: 36_000))
         """
     }
 
@@ -3594,12 +3753,10 @@ enum StructureParser {
                 return gemeinsam / Double(max(alt.count, jetzt.count)) >= 0.6
             }
             if dublette {
-                // Aus dem Kapitelziel eine eigene Überschrift bilden (erste sinnvolle
-                // Wortgruppe), sonst die Nummer – Hauptsache nicht zweimal dasselbe.
-                let ausZiel = k.goal
-                    .components(separatedBy: CharacterSet(charactersIn: ".,;–-"))
-                    .first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                let ersatz = ausZiel.count >= 8 ? String(ausZiel.prefix(48)) : "Kapitel \(k.number)"
+                // Das Kapitelziel enthält interne Felder wie „Ausloeser/Folge:".
+                // Es darf nie als sichtbare Überschrift verwendet werden. Der neutrale
+                // Platzhalter wird nach der Rohfassung aus der Zusammenfassung ersetzt.
+                let ersatz = "Kapitel \(k.number)"
                 ergebnis.append(PlannedChapter(
                     number: k.number, title: ersatz, goal: k.goal, conflict: k.conflict,
                     cause: k.cause, decision: k.decision, outcome: k.outcome,
@@ -3649,7 +3806,7 @@ enum StructureParser {
             let name = parts[0]
             guard !name.isEmpty else { continue }
             let role = parts.count > 1 ? parts[1] : "Nebenfigur"
-            guard !CharacterCanonAudit.isLocationCharacterRole(role) else { continue }
+            guard !CharacterCanonAudit.isNonPersonCharacterRole(role) else { continue }
             result.append(ParsedCharacter(
                 name: name,
                 role: role,

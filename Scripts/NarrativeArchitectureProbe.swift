@@ -86,6 +86,26 @@ enum NarrativeArchitectureProbe {
         precondition(AutonomousContentQuality.narrativeTenseIssues(
             in: stablePast, expectedTense: "Praeteritum"
         ).isEmpty, "Durchgehendes Praeteritum muss freigegeben werden")
+        let stablePastWithGeneralPresent = """
+        Der Wind zerrte an dem Umschlag. Mara presste ihn an ihre Jacke und wartete.
+        Der Turm liegt direkt an der Klippe, doch an diesem Morgen wirkte er verlassen.
+        Sie ging zur Tuer, nahm den Schluessel und trat ein.
+        """
+        precondition(AutonomousContentQuality.narrativeTenseIssues(
+            in: stablePastWithGeneralPresent, expectedTense: "Praeteritum"
+        ).isEmpty, "Eine allgemeine Praesensaussage nach klarem Praeteritum darf keine Neufassung ausloesen")
+        let realPastParagraph = """
+        Das Schwarz-Weiß-Bild war scharf, aufgenommen bei hellem Tageslicht, vermutlich
+        von einem versteckten Winkel aus. Es zeigte keine vergangene Liebe zwischen ihr
+        und Bartholomäus. Es zeigte ihre Schwester Sieglinde. Sie stand dicht an Dietmar
+        Ebenbauer heran, die Hand lag vertraut auf seinem Unterarm, ihr Gesicht war ihm
+        zugewandt in einer Intimität, die weit über eine geschäftliche Beziehung hinausging.
+        Sie lächelte ihn an mit einer Offenheit und Weichheit, die ihrer Schwester seit
+        Jahren fremd gewesen war.
+        """
+        precondition(AutonomousContentQuality.narrativeTenseIssues(
+            in: realPastParagraph, expectedTense: "Praeteritum"
+        ).isEmpty, "Reale durchgehende Praeteritumprosa darf keinen Tempus-Fehlalarm ausloesen")
 
         let lateSceneBreak = String(repeating: "Alva ging durch den Flur. ", count: 90)
             + "\n\n***\n\n" + mixedTense
@@ -97,6 +117,11 @@ enum NarrativeArchitectureProbe {
         precondition(!AutonomousContentQuality.narrativeTenseIssuesAcrossSections(
             in: lateParagraphBreak, expectedTense: "Praeteritum"
         ).isEmpty, "Ein spaeter Tempus-Neustart muss auch ohne erhaltenen Szenenmarker auffallen")
+        precondition(!AutonomousContentQuality.chapterDraftTenseIssues(
+            existingSceneTexts: [stablePast],
+            candidate: mixedTense,
+            expectedTense: "Praeteritum"
+        ).isEmpty, "Der Szenen-Gate muss Tempusbrueche im entstehenden Gesamtkapitel erkennen")
 
         let unresolvedEnding = PlannedChapter(
             number: 12, title: "Gelb hinter Glas",

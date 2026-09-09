@@ -547,6 +547,16 @@ enum CharacterCanonAudit {
         }
     }
 
+    static func isNonPersonCharacterRole(_ role: String) -> Bool {
+        if isLocationCharacterRole(role) { return true }
+        let folded = normalized(role)
+        let nonPersonMarkers = [
+            "symbolische figur", "symbolische anwesenheit", "symbolfigur",
+            "gegenstand", "requisite", "motiv", "abstraktion"
+        ]
+        return nonPersonMarkers.contains(where: folded.contains)
+    }
+
     /// Erkennt einen Altfehler aus frueheren Figurenparsern: Aus
     /// "Ostwald ortet Livs Handy" wurde ein Profil "Ostwald Livs". Wenn Ostwald
     /// zugleich ein echter Elternteil ist und dessen Beziehung bereits die kanonische

@@ -70,7 +70,14 @@ jobs:
       - name: Prüfprogramme (hartes Gate)
         run: |
           SRC=$(find Sources/NovelForge -name '*.swift' ! -name 'NovelForgeApp.swift' | tr '\n' ' ')
-          for probe in DeepPOVProbe EreignisProbe DialogProbe RueckgratProbe PlotGateProbe NamensProbe ChapterScorecardProbe OpeningQualityProbe; do
+          for probe in \
+            DeepPOVProbe EreignisProbe DialogProbe RueckgratProbe PlotGateProbe \
+            NamensProbe ChapterScorecardProbe OpeningQualityProbe \
+            StabilityPolicyProbe CharacterCanonProbe ProseRepetitionProbe \
+            NarrativeArchitectureProbe NarrativeQualityProbe GenreCraftProbe \
+            PromptQualityProbe RevisionSafetyProbe GoldenEvalProbe \
+            KDPUploadStatusProbe FinalRepairPhaseProbe FinalScenePlanRetryProbe \
+            RegressionProbe; do
             echo "── $probe ──"
             swiftc -wmo -parse-as-library -module-name Probe \
               -o "/tmp/$probe" "Scripts/$probe.swift" $SRC

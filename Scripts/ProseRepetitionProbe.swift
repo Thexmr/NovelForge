@@ -169,6 +169,25 @@ enum ProseRepetitionProbe {
             "Natuerliche Namensnennung mit eindeutigen Pronomen darf nicht blockieren"
         )
 
+        let neutralFiller = Array(repeating:
+            "Sie pruefte die Unterlagen, ordnete die Seiten und verglich jede Zahl mit dem Brief.",
+            count: 10).joined(separator: " ")
+        let spreadNameScene = "Mara oeffnete die Mappe. \(neutralFiller) Mara notierte das Datum. Mara schloss die Mappe."
+        precondition(
+            AutonomousContentQuality.characterNameOveruseFindings(
+                inChapters: [spreadNameScene], characterNames: ["Mara Feld"]
+            ).isEmpty,
+            "Eine einzelne lange Szene mit drei klaren Namensankern muss erlaubt bleiben"
+        )
+        precondition(
+            !AutonomousContentQuality.chapterDraftNameOveruseFindings(
+                existingSceneTexts: [spreadNameScene, spreadNameScene],
+                candidate: spreadNameScene,
+                characterNames: ["Mara Feld"]
+            ).isEmpty,
+            "Verteiltes Namenshaemmern muss schon beim Schreiben des Gesamtkapitels auffallen"
+        )
+
         let vagueMachineProse = Array(repeating: """
         Etwas in ihr veraenderte sich, ohne dass sie sagen konnte, was es war. Es war,
         als wuerde etwas in ihr auf eine Art reagieren, die sie nicht benennen konnte.
@@ -185,6 +204,44 @@ enum ProseRepetitionProbe {
             !AutonomousContentQuality.soundsLikeAI(concreteModernProse),
             "Konkrete, klare Handlung darf nicht als maschinelle Prosa gelten"
         )
+
+        let turnVariants = [
+            "Mara drehte sich um und sah die offene Tuer.",
+            "Im Flur drehte sie sich nicht um, obwohl Schritte folgten.",
+            "Am Bahnsteig drehte sich Mara um und hob die Hand.",
+            "Vor dem Wagen drehte sie sich nicht um, bis der Motor ansprang.",
+            "Im Tunnel drehte Mara sich um und blieb stehen.",
+            "An der Treppe drehte sie sich nicht um, als jemand rief.",
+            "Vor dem Ausgang drehte sich Mara um und wartete.",
+        ]
+        precondition(
+            AutonomousContentQuality.blockingFormulaicReactionPhrases(
+                inChapters: turnVariants
+            ).contains("drehte sich um"),
+            "Bejahte und verneinte Varianten derselben Reaktionsformel muessen gemeinsam zaehlen"
+        )
+
+        let duplicateTitles = StructureParser.entdoppelteTitel([
+            PlannedChapter(number: 1, title: "Die offene Tuer",
+                           goal: "Ausloeser/Folge: Der Brief zwingt Mara zum Aufbruch",
+                           conflict: "Sie wird beobachtet"),
+            PlannedChapter(number: 2, title: "Die offene Tuer",
+                           goal: "Ausloeser/Folge: Mara folgt der Spur in den Hafen",
+                           conflict: "Der Zeuge schweigt")
+        ])
+        precondition(
+            !AutonomousContentQuality.isInternalPlanningTitle(duplicateTitles[1].title),
+            "Entdoppelte Kapiteltitel duerfen keine internen Planungslabels offenlegen"
+        )
+        precondition(AutonomousContentQuality.isInternalPlanningTitle(
+            "Ausloeser/Folge: FOLGE AUS KAPITEL 22: Jonas verschwindet"
+        ), "Ein in den Titel gerutschtes Planungsfeld muss erkannt werden")
+        precondition(AutonomousContentQuality.containsNarrativeProcessLeak(
+            "Die Konfrontation mit Hagedorn war bereits in Kapitel 5 abgeschlossen."
+        ), "Redaktions- und Reparatursprache darf nicht als Romanprosa gelten")
+        precondition(!AutonomousContentQuality.containsNarrativeProcessLeak(
+            "Sie schlug das fünfte Kapitel auf und las bis zum Morgen."
+        ), "Eine echte Handlung mit einem Buchkapitel darf kein Fehlalarm sein")
         print("NovelForge prose repetition probe: PASS")
     }
 }

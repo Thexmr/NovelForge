@@ -270,8 +270,23 @@ enum AutonomousContentQuality {
             let kommaMuster = #",\s*(?:"# + verbMuster
                 + #")\s+(?:ich|du|er|sie|wir|ihr|[A-ZÄÖÜ][\p{L}-]+)\b"#
             let doppelpunktMuster = #"\b(?:"# + verbMuster + #")\s*:\s*\p{L}"#
-            let hatEinleitung = a.range(of: kommaMuster, options: .regularExpression) != nil
-                || a.range(of: doppelpunktMuster, options: .regularExpression) != nil
+            let doppelpunktRede = a.range(
+                of: doppelpunktMuster, options: .regularExpression
+            ) != nil
+            var eindeutigeKommaRede = false
+            if let redeTag = a.range(of: kommaMuster, options: .regularExpression) {
+                let davor = String(a[..<redeTag.lowerBound])
+                let letzterSatz = davor.components(
+                    separatedBy: CharacterSet(charactersIn: ".!?\n")
+                ).last?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+                let direkteAnfaenge = [
+                    "ich ", "du ", "wir ", "ihr ", "mein ", "meine ", "meiner ",
+                    "dein ", "deine ", "deiner ", "unser ", "unsere ", "euer ", "eure "
+                ]
+                eindeutigeKommaRede = davor.hasSuffix("?") || davor.hasSuffix("!")
+                    || direkteAnfaenge.contains(where: letzterSatz.hasPrefix)
+            }
+            let hatEinleitung = eindeutigeKommaRede || doppelpunktRede
             if hatEinleitung { treffer.append(String(a.prefix(120))) }
         }
         return treffer
@@ -350,6 +365,40 @@ enum AutonomousContentQuality {
             let einschuebe = satz.filter { $0 == "," || $0 == "–" || $0 == "—" }.count
             return einschuebe > 6
         }
+    }
+
+    /// Konservativer Lesefluss-Test fuer kommerzielle Unterhaltungsromane. Er soll
+    /// nicht jugendliche Sprache erzwingen, sondern sicherstellen, dass ein
+    /// durchschnittlicher 15-Jaehriger Satzbau und Wortwahl beim ersten Lesen versteht.
+    static func teenReadabilityIssues(in text: String) -> [String] {
+        let sentences = saetzeAusText(text).filter { $0.wordCount >= 2 }
+        let archaic = archaicTellMatches(text)
+        let jargon = jargonTellCount(text)
+        var issues: [String] = []
+        if !archaic.isEmpty || jargon > 0 {
+            issues.append(
+                "Unnoetig schwere oder veraltete Wortwahl: \(archaic.prefix(4).joined(separator: ", ")) (Fachwoerter \(jargon)). Nutze moderne Alltagswoerter oder erklaere einen notwendigen Begriff unmittelbar aus der Szene."
+            )
+        }
+        guard text.wordCount >= 120, sentences.count >= 6 else { return issues }
+
+        let lengths = sentences.map(\.wordCount)
+        let average = Double(lengths.reduce(0, +)) / Double(lengths.count)
+        let veryLong = lengths.filter { $0 > 34 }.count
+        let veryLongShare = Double(veryLong) / Double(lengths.count)
+
+        if average > 20.0 {
+            let averageText = String(format: "%.1f", average)
+            issues.append(
+                "Die durchschnittliche Satzlaenge liegt bei \(averageText) Woertern. Fuer flüssiges Lesen ab etwa 15 Jahren muessen mehr klare kurze und mittlere Saetze tragen."
+            )
+        }
+        if veryLong >= 2 && veryLongShare > 0.12 {
+            issues.append(
+                "Zu viele Saetze sind laenger als 34 Woerter (\(veryLong) von \(lengths.count)). Teile nur die verschachtelten Gedankengaenge, ohne Stakkato zu erzeugen."
+            )
+        }
+        return issues
     }
 
     /// Fehlt dem Text die Satzvarianz? („Burstiness")
@@ -727,9 +776,44 @@ enum AutonomousContentQuality {
                 "Der Romananfang enthaelt mehrfach monotone Ketten aus sehr kurzen Saetzen."
             )
         }
+        issues.append(contentsOf: teenReadabilityIssues(in: sample))
 
         var seen = Set<String>()
         return issues.filter { seen.insert($0).inserted }.prefix(6).map { $0 }
+    }
+
+    /// Parst nur die fest vereinbarten Befundzeilen des semantischen Einstiegs-Audits.
+    /// Freitext, Lob und Modell-Erklaerungen werden verworfen, damit sie nie als
+    /// Reparaturanweisung in den naechsten Prompt geraten.
+    static func parseOpeningEditorialAudit(_ response: String) -> [String] {
+        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return ["[PRUEFUNG] Die semantische Einstiegspruefung lieferte kein Ergebnis."]
+        }
+        if trimmed.uppercased() == "BESTANDEN" { return [] }
+
+        let allowed = [
+            "[KLARHEIT]", "[EINSATZ]", "[MOTIVATION]", "[FIGUR]",
+            "[DIALOG]", "[EIGENHEIT]", "[SOG]", "[PLAUSIBILITAET]", "[LESBARKEIT]"
+        ]
+        var seen = Set<String>()
+        let findings = trimmed.components(separatedBy: .newlines).compactMap { raw -> String? in
+            var line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            line = line.replacingOccurrences(
+                of: #"^(?:[-*]|\d+[.)])\s*"#, with: "", options: .regularExpression)
+            guard let tag = allowed.first(where: line.hasPrefix) else { return nil }
+            let remainder = line.dropFirst(tag.count)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard remainder.uppercased().hasPrefix("FEHLER:"), line.wordCount >= 4 else {
+                return nil
+            }
+            guard seen.insert(line).inserted else { return nil }
+            return line
+        }
+        let result = Array(findings.prefix(6))
+        return result.isEmpty
+            ? ["[PRUEFUNG] Die semantische Einstiegspruefung antwortete nicht im Fehlerformat."]
+            : result
     }
 
     /// Meldet nur eindeutige Tempuswechsel im fruehen Erzaehltext.
@@ -761,7 +845,7 @@ enum AutonomousContentQuality {
             .filter { !$0.isEmpty }
         let gegenwart: Set<String> = [
             "steht", "geht", "sitzt", "liegt", "haelt", "nimmt", "oeffnet", "sagt",
-            "fragt", "sieht", "hoert", "spuert", "fuehlt", "weiss", "muss", "will",
+            "fragt", "sieht", "hoert", "spuert", "fuehlt", "muss", "will",
             "kann", "kommt", "bleibt", "laeuft", "zieht", "dreht", "greift", "klopft",
             "kuehlt", "haengt", "traegt", "blickt", "wartet", "atmet", "laechelt",
             "schliesst", "stellt", "legt", "merkt", "holt", "tritt",
@@ -775,16 +859,26 @@ enum AutonomousContentQuality {
         ]
         let praesensTreffer = woerter.filter(gegenwart.contains).count
         let praeteritumTreffer = woerter.filter(vergangenheit.contains).count
+        let ersterSatz = normalizedGerman(
+            ohneDialog.components(separatedBy: CharacterSet(charactersIn: ".!?…"))
+                .first ?? ""
+        )
+        let ersteWoerter = ersterSatz.components(separatedBy: CharacterSet.letters.inverted)
+            .filter { !$0.isEmpty }
+        let praesensImErstenSatz = ersteWoerter.filter(gegenwart.contains).count
+        let praeteritumImErstenSatz = ersteWoerter.filter(vergangenheit.contains).count
         let erwartet = normalizedGerman(expectedTense)
 
         if (erwartet.contains("prater") || erwartet.contains("praeter")
             || erwartet.contains("vergangen")),
-           praesensTreffer >= 1, praeteritumTreffer >= 2 {
+           praesensImErstenSatz >= 1, praeteritumImErstenSatz == 0,
+           praeteritumTreffer >= 2 {
             return ["Der Einstieg wechselt trotz vorgegebenem Praeteritum in die Gegenwart."]
         }
         if (erwartet.contains("prasens") || erwartet.contains("praesens")
             || erwartet.contains("gegenwart")),
-           praeteritumTreffer >= 2, praesensTreffer >= 1 {
+           praeteritumImErstenSatz >= 1, praesensImErstenSatz == 0,
+           praesensTreffer >= 1 {
             return ["Der Einstieg wechselt trotz vorgegebenem Praesens ins Praeteritum."]
         }
         return []
@@ -834,6 +928,18 @@ enum AutonomousContentQuality {
             }
         }
         return Array(findings.prefix(8))
+    }
+
+    /// Prueft die neue Szene nicht isoliert, sondern als Teil des entstehenden Kapitels.
+    /// So faellt ein Tempus-Neustart an einer Szenengrenze bereits vor dem Speichern auf.
+    static func chapterDraftTenseIssues(existingSceneTexts: [String],
+                                        candidate: String,
+                                        expectedTense: String) -> [String] {
+        let sections = existingSceneTexts + [candidate]
+        return narrativeTenseIssuesAcrossSections(
+            in: sections.joined(separator: "\n\n***\n\n"),
+            expectedTense: expectedTense
+        )
     }
 
     struct CharacterNameOveruseFinding {
@@ -935,6 +1041,21 @@ enum AutonomousContentQuality {
             }
         }
         return findings
+    }
+
+    /// Lokales Fruehgate fuer verteiltes Namenshaemmern ueber mehrere Szenen desselben
+    /// Kapitels. Einzelne Szenen koennen jeweils unauffaellig sein, obwohl ihre Summe
+    /// bereits wie ein mechanischer Pronomenersatz klingt.
+    static func chapterDraftNameOveruseFindings(existingSceneTexts: [String],
+                                                candidate: String,
+                                                characterNames: [String])
+        -> [CharacterNameOveruseFinding] {
+        let completeChapter = (existingSceneTexts + [candidate])
+            .joined(separator: "\n\n***\n\n")
+        return characterNameOveruseFindings(
+            inChapters: [completeChapter],
+            characterNames: characterNames
+        )
     }
 
     /// Fremdwörter und Fachbegriffe, über die ein normaler Leser stolpert.
@@ -2521,10 +2642,20 @@ enum AutonomousContentQuality {
                         }
                     }
                 } else {
+                    // A kinship noun and a known name somewhere later in the same
+                    // sentence do not establish a relationship between them. Only an
+                    // adjacent apposition such as "ihre Schwester Sieglinde" may use
+                    // the named-target branch. This prevents ordinary sentences such
+                    // as "Ihre Schwester musste begreifen, dass Dietmar ..." from
+                    // becoming false canon contradictions.
+                    let directTargets = mentioned.filter {
+                        hasDirectKinshipTarget(target: $0, term: term, in: normalized)
+                    }
+                    guard !directTargets.isEmpty else { return nil }
                     let propertyClaim = normalized.contains("haus") || normalized.contains("erb")
                     supported = canonClauses.contains { _, clause in
                         containsWordStem(term, in: clause)
-                            && mentioned.allSatisfy { clause.contains($0) }
+                            && directTargets.allSatisfy { clause.contains($0) }
                             && (!propertyClaim || clause.contains("haus") || clause.contains("erb"))
                     }
                 }
@@ -2785,6 +2916,18 @@ enum AutonomousContentQuality {
             + #"(?:s|['’])?\s+(?:[\p{L}-]+\s+){0,2}"#
             + escapedTerm + #"(?:s|es|e|en|er)?\b"#
         return text.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    private static func hasDirectKinshipTarget(target: String, term: String,
+                                                in text: String) -> Bool {
+        let escapedTarget = NSRegularExpression.escapedPattern(for: target)
+        let escapedTerm = NSRegularExpression.escapedPattern(for: term)
+        let apposition = #"\b"# + escapedTerm + #"(?:s|es|e|en|er)?\s+"#
+            + escapedTarget + #"(?:s|['’])?\b"#
+        let labeledField = #"\b"# + escapedTarget + #"(?:s|['’])?\s*:\s*"#
+            + escapedTerm + #"(?:s|es|e|en|er)?\b"#
+        return text.range(of: apposition, options: .regularExpression) != nil
+            || text.range(of: labeledField, options: .regularExpression) != nil
     }
 
     private static func hasDirectDeathClaim(subject: String, in text: String) -> Bool {
@@ -3090,6 +3233,7 @@ enum AutonomousContentQuality {
         guard chapters.count >= 3 else { return false }
         return chapters.allSatisfy { chapter in
             !isGenericPlaceholder(chapter.title)
+                && !isInternalPlanningTitle(chapter.title)
                 && !isGenericPlaceholder(chapter.goal)
                 && chapter.goal.wordCount >= 5
                 && chapter.conflict.wordCount >= 3
@@ -3352,6 +3496,19 @@ enum AutonomousContentQuality {
         return hollowPlanningPhrases.contains(where: normalized.contains)
     }
 
+    /// Interne Felder des Kapitelplaners, die weder im Inhaltsverzeichnis noch im
+    /// Manuskript als Überschrift erscheinen dürfen.
+    static func isInternalPlanningTitle(_ title: String) -> Bool {
+        let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+        let prefixes = [
+            "ausloser/folge:", "ausloeser/folge:", "aktive entscheidung:", "neue lage:",
+            "emotionaler schritt:", "folge aus kapitel", "ausloser:"
+        ]
+        return prefixes.contains(where: normalized.hasPrefix)
+    }
+
     /// Verhindert Auto-Buchtitel nach schwachen Berufs-Hooks wie
     /// "Die Imkerin von Ulrichstein" oder "Das Schweigen der Imkerin".
     /// Berufe dürfen in der Geschichte vorkommen, aber nicht als austauschbarer
@@ -3439,6 +3596,23 @@ enum AutonomousContentQuality {
         // "als ki" nur als eigenständiges Wort – sonst matcht es "als Kind",
         // "als Kino" usw. und verwirft korrekte Romantexte.
         return normalized.range(of: #"\bals ki\b"#, options: .regularExpression) != nil
+    }
+
+    /// Erkennt Redaktionssprache, die bei einer KI-Reparatur versehentlich in die
+    /// Erzählung geraten ist. Ein normaler Satz über eine Figur, die in einem Buch
+    /// liest, bleibt erlaubt; blockiert werden nur Aussagen über bereits erledigte
+    /// Handlung in nummerierten Kapiteln.
+    static func containsNarrativeProcessLeak(_ text: String) -> Bool {
+        let normalized = text.folding(
+            options: [.caseInsensitive, .diacriticInsensitive], locale: .current
+        ).lowercased()
+        let patterns = [
+            #"\b(?:bereits|schon|selbst|langst)\s+(?:in|im)\s+kapitel\s+\d+\s+(?:abgeschlossen|beendet|geklart|erzahlt|beschrieben|aufgelost)\b"#,
+            #"\b(?:konfrontation|handlung|szene|ereignis|konflikt)\b.{0,80}\b(?:in|im)\s+kapitel\s+\d+\s+(?:abgeschlossen|beendet|geklart|erzahlt|beschrieben|aufgelost)\b"#
+        ]
+        return patterns.contains {
+            normalized.range(of: $0, options: .regularExpression) != nil
+        }
     }
 
     /// Unverwechselbare Instruktions-Fragmente aus den Prompts. Tauchen sie im
@@ -4121,7 +4295,7 @@ enum AutonomousContentQuality {
     /// Diese Liste enthält daher nur konkrete Mehrwortmuster aus den geprüften
     /// NovelForge-Manuskripten; abstrakte Gefühle oder normale Bewegungen bleiben frei.
     private static let formulaicReactionPatterns: [(label: String, pattern: String)] = [
-        ("drehte sich um", #"\b(?:[A-Za-zÄÖÜäöüß]+\s+)?drehte sich um\b"#),
+        ("drehte sich um", #"\b(?:\p{L}+\s+)?drehte(?:\s+\p{L}+)?\s+sich(?:\s+\p{L}+)?(?:\s+nicht)?\s+um\b"#),
         ("schüttelte den Kopf", #"\bschüttelte den Kopf\b"#),
         ("schloss die Augen", #"\bschloss die Augen\b"#),
         ("spürte, wie sich", #"\bspürte,?\s+wie sich\b"#),
@@ -4178,7 +4352,9 @@ enum AutonomousContentQuality {
         "antlitz", "jüngling", "die maid", "junge maid", "das weib", "ein weib",
         "holde ", "holder ", "es begab sich", "begab sich", "allerorten", "allzumal",
         "ingleichen", "sodann", "auf dass", "des nachts", "ein jeglich", "geziemt",
-        "gewahrte", "hub an", "sann nach", "zur stund"
+        "gewahrte", "hub an", "sann nach", "zur stund", "allenthalben", "alsdann",
+        "dieweil", "darob", "dergestalt", "mithin", "nunmehr", "obschon",
+        "gleichwohl", "vermochte", "sich anschickte", "ward gewahr"
     ]
 
     /// Akademisches Fachvokabular/Bildungswörter, die normale Leser nicht kennen und
@@ -4312,18 +4488,26 @@ enum AutonomousContentQuality {
     }
 
     /// Zählt altertümliche Marker (Gesamtvorkommen).
+    private static let archaicTellRegex: NSRegularExpression? = {
+        let alternatives = archaicTellPhrases
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .sorted { $0.count > $1.count }
+            .map(NSRegularExpression.escapedPattern(for:))
+            .joined(separator: "|")
+        return try? NSRegularExpression(
+            pattern: "(?<![\\p{L}])(?:" + alternatives + ")(?![\\p{L}])",
+            options: .caseInsensitive)
+    }()
+
+    static func archaicTellMatches(_ text: String) -> [String] {
+        guard let regex = archaicTellRegex else { return [] }
+        let ns = text as NSString
+        return regex.matches(in: text, range: NSRange(location: 0, length: ns.length))
+            .map { ns.substring(with: $0.range) }
+    }
+
     static func archaicTellCount(_ text: String) -> Int {
-        let lower = text.lowercased()
-        guard !lower.isEmpty else { return 0 }
-        var count = 0
-        for phrase in archaicTellPhrases {
-            var range = lower.startIndex..<lower.endIndex
-            while let hit = lower.range(of: phrase, range: range) {
-                count += 1
-                range = hit.upperBound..<lower.endIndex
-            }
-        }
-        return count
+        archaicTellMatches(text).count
     }
 
     // MARK: - Stilticks (Frequenz-Übernutzung, an der Leser KI-Prosa erkennen)
@@ -4612,11 +4796,21 @@ enum AutonomousContentQuality {
                                        hoechstens: Int = 12) -> [(satz: String, grund: String)] {
         var gesehen = Set<String>()
         var ergebnis: [(satz: String, grund: String)] = []
+        let sentenceTokenizer = NLTokenizer(unit: .sentence)
+        sentenceTokenizer.string = text
+        let obsolete = sentenceTokenizer.tokens(for: text.startIndex..<text.endIndex)
+            .compactMap { range -> (satz: String, grund: String)? in
+            let sentence = String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let matches = archaicTellMatches(sentence)
+            guard !matches.isEmpty else { return nil }
+            return (sentence, "Veraltete Wortwahl (" + matches.prefix(4).joined(separator: ", ")
+                + "): im Satz durch vertraute heutige Woerter ersetzen; Bedeutung bewahren")
+        }
         let fragmente = proseSentenceFragments(in: text).dropFirst().map {
             (satz: $0,
              grund: "Satzfragment: als vollständigen, natürlich lesbaren Satz mit finitem Verb formulieren")
         }
-        for fund in saetzeMitTicks(in: text) + ueberzaehligeBilder(in: text)
+        for fund in obsolete + saetzeMitTicks(in: text) + ueberzaehligeBilder(in: text)
             + filterwortSaetze(in: text) + fragmente {
             let schluessel = fund.satz.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !schluessel.isEmpty, gesehen.insert(schluessel).inserted else { continue }
@@ -4689,8 +4883,9 @@ enum AutonomousContentQuality {
     static func soundsLikeAI(_ text: String) -> Bool {
         let words = text.wordCount
         guard words >= 150 else { return false }
+        if containsNarrativeProcessLeak(text) { return true }
         // Schon zwei altertümliche Marker lassen den Text sofort antiquiert wirken.
-        if archaicTellCount(text) >= 2 { return true }
+        if archaicTellCount(text) > 0 { return true }
         // Zwei akademische Fachwörter machen den Text für normale Leser unzugänglich.
         if jargonTellCount(text) >= 2 { return true }
         // Gehäufte Umschreibungen (Benennungs-Vermeidung, Korrekturfiguren) machen die
@@ -4961,10 +5156,10 @@ enum AutonomousContentQuality {
         let priorKeys = Set(priorRecords.map(\.key))
         // Wortfolgen der bisherigen Sätze – Grundlage für die Erkennung von
         // Fast-Wiederholungen (siehe `istFastGleich`).
-        let priorTrigramme = priorRecords.map { wortTrigramme($0.spelling) }
+        let priorIndex = LocalSentenceIndex(priorRecords.map { wortTrigramme($0.spelling) })
 
         var seenInCandidate = Set<String>()
-        var seenTrigramme: [Set<[String]>] = []
+        var seenIndex = LocalSentenceIndex()
         var collisions: [String] = []
 
         for record in significantSentenceRecords(in: candidate) {
@@ -4972,9 +5167,9 @@ enum AutonomousContentQuality {
             let exaktImKandidaten = !seenInCandidate.insert(record.key).inserted
             let eigene = wortTrigramme(record.spelling)
             // NEU: auch fast gleiche Sätze zählen, nicht nur wortgleiche.
-            let fastSchonDa = !exaktSchonDa && priorTrigramme.contains { istFastGleich(eigene, $0) }
-            let fastImKandidaten = !exaktImKandidaten && seenTrigramme.contains { istFastGleich(eigene, $0) }
-            seenTrigramme.append(eigene)
+            let fastSchonDa = !exaktSchonDa && priorIndex.containsNearMatch(eigene, threshold: fastGleichSchwelle)
+            let fastImKandidaten = !exaktImKandidaten && seenIndex.containsNearMatch(eigene, threshold: fastGleichSchwelle)
+            seenIndex.insert(eigene)
 
             guard exaktSchonDa || exaktImKandidaten || fastSchonDa || fastImKandidaten else { continue }
             guard !collisions.contains(where: {
@@ -5001,12 +5196,12 @@ enum AutonomousContentQuality {
         let priorRecords = priorTexts.flatMap { significantSentenceRecords(in: $0) }
         guard !priorRecords.isEmpty else { return 0 }
         let priorKeys = Set(priorRecords.map(\.key))
-        let priorTrigramme = priorRecords.map { wortTrigramme($0.spelling) }
+        let priorIndex = LocalSentenceIndex(priorRecords.map { wortTrigramme($0.spelling) })
         var hits = 0
         for record in candidateRecords {
             let exact = priorKeys.contains(record.key)
             let eigene = wortTrigramme(record.spelling)
-            if exact || priorTrigramme.contains(where: { istFastGleich(eigene, $0) }) {
+            if exact || priorIndex.containsNearMatch(eigene, threshold: fastGleichSchwelle) {
                 hits += 1
             }
         }

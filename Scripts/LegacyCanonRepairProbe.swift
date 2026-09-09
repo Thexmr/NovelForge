@@ -23,6 +23,25 @@ enum LegacyCanonRepairProbe {
                 )]
             )
             let context = ModelContext(container)
+            let projectsBeforeRepair = try context.fetch(FetchDescriptor<Project>())
+            let stalledProjectIDs = Set(projectsBeforeRepair.compactMap { project -> UUID? in
+                let chapters = project.chapters ?? []
+                let hasWrittenProse = chapters.contains {
+                    !(($0.rawBestText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                let rejectedPlans = (project.qualityReports ?? []).filter {
+                    !$0.autoFixed
+                        && $0.checkType == "Szenenplan"
+                        && $0.result.localizedCaseInsensitiveContains("verworfen")
+                }.count
+                return !hasWrittenProse && !chapters.isEmpty && rejectedPlans >= 12
+                    ? project.id : nil
+            })
+            let expectStalledPlan = ProcessInfo.processInfo.environment["NF_EXPECT_STALLED"] != "0"
+            if expectStalledPlan {
+                precondition(!stalledProjectIDs.isEmpty,
+                             "Testdaten enthalten keinen festgefahrenen Altplan")
+            }
             let changed = ProductionRecoveryService.repairLegacyCharacterCanon(in: context)
             let projects = try context.fetch(FetchDescriptor<Project>())
             guard let project = projects.first(where: { $0.title == "Die Nacht jagt dich" }) else {
@@ -53,6 +72,20 @@ enum LegacyCanonRepairProbe {
             precondition(combined.range(of: livPattern, options: .regularExpression) == nil,
                          "Der alte Einzelname blieb im Kanon")
             precondition(names.contains("Hagedorn"), "Die kanonische Tochter ging verloren")
+            let repairedStalledProjects = projects.filter { stalledProjectIDs.contains($0.id) }
+            precondition(repairedStalledProjects.allSatisfy { ($0.chapters ?? []).isEmpty },
+                         "Ein festgefahrener Altplan blieb gespeichert")
+            let unresolvedRejectedPlans = repairedStalledProjects.flatMap { project in
+                (project.qualityReports ?? []).filter {
+                    !$0.autoFixed
+                        && $0.checkType == "Szenenplan"
+                        && $0.result.localizedCaseInsensitiveContains("verworfen")
+                }
+            }
+            precondition(
+                unresolvedRejectedPlans.isEmpty,
+                "Bereits verworfene Altplaene blieben als neue Ablehnungen aktiv"
+            )
             print("NovelForge legacy canon repair: PASS | \(changed) Projekt(e) repariert")
         } catch {
             print("REPAIR_FAIL: \(error.localizedDescription)")

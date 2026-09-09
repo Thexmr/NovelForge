@@ -15,6 +15,12 @@ enum ProductionRecoveryPolicy {
         guard projectStatus == .paused || projectStatus == .failed else { return false }
         let reason = result?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if reason == involuntaryStopMarker { return true }
+        // Ein Lauf, den nur der volle Datentraeger gestoppt hat, ist genauso fortsetzbar
+        // wie ein abgerissener: Der Grund verschwindet von selbst, sobald wieder Platz
+        // frei ist. Ohne diese Regel blieb ein so gestopptes Buch liegen, bis jemand von
+        // Hand auf „Fortsetzen" drueckte – auch dann noch, wenn laengst wieder 9 GB frei
+        // waren. Genau so lag „Morgen frueh bei dir" seit dem 09.09.2026, 16:02 still.
+        if ProductionStorageGuard.isStorageFailureMessage(reason) { return true }
         return (reason.hasPrefix("Die App wurde während ")
                 || reason.hasPrefix("Die App wurde zwischen "))
             && reason.contains("gespeicherte Stand ist vollständig")
@@ -39,6 +45,59 @@ enum ProductionRecoveryPolicy {
                                           progressDates: [Date]) -> Int {
         guard let lastProgress = progressDates.max() else { return failureDates.count }
         return failureDates.filter { $0 > lastProgress }.count
+    }
+
+    /// Namen, die in einem gespeicherten Plan handeln, aber nicht zur aktuellen
+    /// Figurenbibel gehören. Das ist der typische Altzustand nach einer früheren
+    /// Teil-Neugenerierung: Profile und Szenenperspektiven sind neu, Kapitelziele
+    /// erzählen aber weiterhin die alte Geschichte.
+    static func unexpectedPlanNames(planTexts: [String],
+                                    allowedNames: [String]) -> [String] {
+        let allowed = Set(allowedNames.flatMap(CharacterCanonAudit.nameParts))
+        var found = Set<String>()
+        let planningLabels: Set<String> = [
+            "aktive", "entscheidung", "emotionaler", "schritt", "neue", "lage",
+            "folge", "aus", "kapitel", "szene", "ausloeser", "auslöser"
+        ]
+        for text in planTexts {
+            let ns = text as NSString
+            let range = NSRange(location: 0, length: ns.length)
+            if let expression = try? NSRegularExpression(
+                pattern: #"(?<!\p{L})([\p{Lu}][\p{L}'’-]{2,})\s+([\p{Lu}][\p{L}'’-]{2,})(?!\p{L})"#
+            ) {
+                for match in expression.matches(in: text, range: range) {
+                    let first = ns.substring(with: match.range(at: 1))
+                    let second = ns.substring(with: match.range(at: 2))
+                    guard first != first.uppercased(), second != second.uppercased(),
+                          !planningLabels.contains(first.lowercased()),
+                          !planningLabels.contains(second.lowercased()) else { continue }
+                    for part in CharacterCanonAudit.nameParts("\(first) \(second)")
+                    where !allowed.contains(part) {
+                        found.insert(part)
+                    }
+                }
+            }
+            if let expression = try? NSRegularExpression(
+                pattern: #"(?<!\p{L})([\p{Lu}][\p{L}'’-]{2,})['’]\s+\p{L}"#
+            ) {
+                for match in expression.matches(in: text, range: range)
+                where match.numberOfRanges > 1 && match.range(at: 1).location != NSNotFound {
+                    let candidate = ns.substring(with: match.range(at: 1))
+                    if let part = CharacterCanonAudit.nameParts(candidate).first,
+                       !allowed.contains(part) {
+                        found.insert(part)
+                    }
+                }
+            }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.range(of: #"^[\p{Lu}][\p{L}'’-]{2,}$"#,
+                             options: .regularExpression) != nil,
+               let part = CharacterCanonAudit.nameParts(trimmed).first,
+               !allowed.contains(part) {
+                found.insert(part)
+            }
+        }
+        return found.subtracting(allowed).sorted()
     }
 
     /// Ein aktiver Phasenstatus kann nach einem frischen Prozessstart nicht echt
@@ -169,7 +228,7 @@ enum ProductionRecoveryService {
         if let incident = recentJobs.first(where: {
             $0.status == .paused
                 && $0.project?.status != .completed
-                && !($0.result ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && ProductionIncidentStore.isActionable($0.result ?? "")
         })?.result {
             ProductionIncidentStore.record(incident)
         } else {
@@ -274,7 +333,7 @@ enum ProductionRecoveryService {
                 relationshipsByName: relationships
             )
             let invalidProfiles = characters.filter { character in
-                if CharacterCanonAudit.isLocationCharacterRole(character.role) { return true }
+                if CharacterCanonAudit.isNonPersonCharacterRole(character.role) { return true }
                 let parts = character.name.split(whereSeparator: { !$0.isLetter }).map(String.init)
                 guard parts.count == 2, parts[1].lowercased().hasSuffix("s") else {
                     return false
@@ -284,7 +343,20 @@ enum ProductionRecoveryService {
                     $0.caseInsensitiveCompare(stale) == .orderedSame
                 })
             }
-            guard !replacements.isEmpty || !invalidProfiles.isEmpty else { continue }
+            let chapters = project.chapters ?? []
+            let hasWrittenProse = chapters.contains {
+                !(($0.rawBestText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            let rejectedScenePlanReports = (project.qualityReports ?? []).filter {
+                !$0.autoFixed
+                    && $0.checkType == "Szenenplan"
+                    && $0.result.localizedCaseInsensitiveContains("verworfen")
+            }
+            let rejectedScenePlans = rejectedScenePlanReports.count
+            let hasStalledUnwrittenPlan = !hasWrittenProse && !chapters.isEmpty
+                && rejectedScenePlans >= 12
+            guard !replacements.isEmpty || !invalidProfiles.isEmpty
+                    || hasStalledUnwrittenPlan else { continue }
 
             func renamed(_ text: String) -> String {
                 CharacterCanonAudit.replacingNames(in: text, replacements: replacements)
@@ -336,15 +408,28 @@ enum ProductionRecoveryService {
                 bible.characters?.removeAll { $0.id == character.id }
                 modelContext.delete(character)
             }
+            // Ohne Prosa ist ein gemischter Plan nicht erhaltenswert: Eine blinde
+            // Zuordnung Elena -> Agnieszka könnte Rollen vertauschen. Die sichere
+            // Reparatur ist, Kapitel und Szenen zu löschen und aus dem aktuellen
+            // Primärkanon neu planen zu lassen. Geschriebener Text bleibt tabu.
+            if hasStalledUnwrittenPlan {
+                for chapter in chapters { modelContext.delete(chapter) }
+                project.chapters = []
+                for report in rejectedScenePlanReports { report.autoFixed = true }
+            }
             bible.updatedAt = Date()
             project.updatedAt = Date()
 
             let report = QualityReport(
                 checkedArea: "Buchkanon",
-                checkType: "Historische Figurenkorrektur",
-                result: "Inkonsistente Alias- und Ortsprofile automatisch bereinigt: "
+                checkType: "Historische Plan- und Figurenkorrektur",
+                result: "Historische Plan-/Figurenaltlasten automatisch bereinigt: "
                     + (replacements.map { "\($0.key) -> \($0.value)" }
-                        + invalidProfiles.map(\.name)).sorted().joined(separator: ", "),
+                        + invalidProfiles.map(\.name)
+                        + (hasStalledUnwrittenPlan
+                           ? ["festgefahrener Altplan (\(rejectedScenePlans) Ablehnungen)"]
+                           : []))
+                        .sorted().joined(separator: ", "),
                 severity: .info,
                 recommendation: "Alle Kanonquellen und vorhandenen Texte verwenden wieder dieselben Figuren."
             )
@@ -407,7 +492,11 @@ enum ProductionRecoveryService {
         for job in recentJobs {
             guard let project = job.project else { continue }
             guard seenProjects.insert(project.id).inserted else { continue }
-            guard job.status == .paused,
+            // Ein Speichermangel beendet den Job als „fehlgeschlagen", nicht als
+            // „pausiert" – ohne diese Ausnahme lief die Selbstheilung daran vorbei.
+            let wurdeVonSpeichermangelGestoppt =
+                ProductionStorageGuard.isStorageFailureMessage(job.result ?? "")
+            guard job.status == .paused || wurdeVonSpeichermangelGestoppt,
                   ProductionRecoveryPolicy.shouldAutoResume(
                     result: job.result,
                     projectStatus: project.status

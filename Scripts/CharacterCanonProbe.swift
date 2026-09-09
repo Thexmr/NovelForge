@@ -177,6 +177,24 @@ enum CharacterCanonProbe {
             characterNames: ["Marta Zschornack", "Tomasz Meschke"],
             subject: "Marta Zschornack"
         ).isEmpty, "Eine erfundene Verwandtschaft muss weiterhin blockiert werden")
+        let siblingCanon = """
+        Sieglinde Wieser ist Elaras Schwester. Dietmar Ebenbauer benutzt beide Frauen,
+        um den Leuchtturm in seinen Besitz zu bringen.
+        """
+        precondition(AutonomousContentQuality.draftCanonIssues(
+            in: "Ihre Schwester musste begreifen, dass Dietmar den Turm und sie beide gleichermaßen als Schachfiguren missbraucht hatte.",
+            canon: siblingCanon,
+            perspectiveName: "Elara Brandstätter",
+            characterNames: ["Elara Brandstätter", "Sieglinde Wieser", "Dietmar Ebenbauer"]
+        ).isEmpty,
+        "Eine unbenannte Schwester darf nicht mit einer spaeter genannten Figur gleichgesetzt werden")
+        precondition(!AutonomousContentQuality.draftCanonIssues(
+            in: "Dietmar war Elaras Bruder und kannte deshalb jedes Geheimnis der Familie.",
+            canon: siblingCanon,
+            perspectiveName: "Elara Brandstätter",
+            characterNames: ["Elara Brandstätter", "Sieglinde Wieser", "Dietmar Ebenbauer"]
+        ).isEmpty,
+        "Eine ausdruecklich neu erfundene Verwandtschaft muss weiterhin blockiert werden")
         let realConceptGenitive = CharacterCanonAudit.personNames(
             in: "Der Antagonist ist Silke, Maras ehemalige beste Freundin und jetzige Inselaerztin."
         )
@@ -270,8 +288,17 @@ enum CharacterCanonProbe {
             !CharacterCanonAudit.isLocationCharacterRole("Nebenfigur, Katalysator"),
             "Eine echte Figurenrolle darf nicht entfernt werden"
         )
+        precondition(
+            CharacterCanonAudit.isNonPersonCharacterRole("Symbolische Figur/Anwesenheit"),
+            "Ein Symbol oder Gegenstand darf nicht als Figurenprofil gespeichert werden"
+        )
+        precondition(
+            !CharacterCanonAudit.isNonPersonCharacterRole("Nebenfigur, emotionale Zeugin"),
+            "Eine menschliche Nebenfigur darf nicht entfernt werden"
+        )
         let parsedProfiles = StructureParser.parseCharacters("""
         FIGUR|Wald|Nebenfigur, Schauplatz|—|—|—|—|—
+        FIGUR|Pastell|Symbolische Figur/Anwesenheit|—|—|—|—|—
         FIGUR|Mara Feld|Protagonistin|34|Restauratorin|Den Vertrag finden|Den Bruder verlieren|Misstrauen
         """)
         precondition(parsedProfiles.map(\.name) == ["Mara Feld"],

@@ -58,6 +58,17 @@ struct NamensProbe {
         let imVorrat = taeter.filter { alleVor.contains($0) || alleNach.contains($0) }
         pruefe("keine der gemessenen Wiederholungsnamen im Vorrat", imVorrat.isEmpty,
                imVorrat.joined(separator: ", "))
+        let unpassend = ["Notburga", "Bartholomäus", "Sieglinde", "Theodolinde",
+                         "Perchta", "Dagobert", "Dietmar", "Traudl", "Pankraz",
+                         "Ludger", "Norwin", "Willi", "Wenzel", "Bogumil",
+                         "Jadwiga", "Genowefa", "Placyd", "Servatius"]
+        pruefe("keine auffaellig historischen Namen in der Automatik",
+               unpassend.allSatisfy { !NamensGenerator.istUnauffaelligerAutomatikname($0) })
+        let unpassendeNachnamen = ["Hinterleitner", "Brandstätter", "Ebenbauer"]
+        pruefe("keine auffaellig regionalen Nachnamen in der Automatik",
+               unpassendeNachnamen.allSatisfy {
+                   !NamensGenerator.istUnauffaelligerAutomatikNachname($0)
+               })
 
         // ------------------------------------------------------------------
         // 2. SIMULATION EINER GANZEN BUCHREIHE
@@ -100,10 +111,30 @@ struct NamensProbe {
             .filter { $0.value.count > 1 }
         pruefe("KEIN Vorname wiederholt sich ueber 60 Buecher", doppelt.isEmpty,
                doppelt.keys.sorted().prefix(6).joined(separator: ", "))
+        pruefe("60-Buecher-Simulation bleibt frei von komischen Automatiknamen",
+               alleNamen.allSatisfy {
+                   guard let first = $0.split(separator: " ").first else { return false }
+                   return NamensGenerator.istUnauffaelligerAutomatikname(String(first))
+               })
+        pruefe("60-Buecher-Simulation nutzt nur den modernen Namensraum",
+               alleNamen.count == 360 && alleNamen.allSatisfy { name in
+                   guard let first = name.split(separator: " ").first else { return false }
+                   return NamensGenerator.istModernerAutomatikname(String(first))
+               })
+        let modern = ["Emma", "Noah", "Marie", "Daniel", "Nele", "Hendrik"]
+        pruefe("moderner Reservepool wird im Dauerbetrieb verwendet",
+               modern.contains { wanted in
+                   alleNamen.contains { $0.hasPrefix(wanted + " ") }
+               })
 
         // Und keiner der gemessenen Wiederholungstaeter taucht auf.
         let verboten = alleNamen.filter { name in
-            taeter.contains { name.lowercased().contains($0) }
+            let teile = name.split(separator: " ").map {
+                String($0).folding(
+                    options: [.caseInsensitive, .diacriticInsensitive], locale: .current
+                ).lowercased()
+            }
+            return !Set(teile).isDisjoint(with: Set(taeter))
         }
         pruefe("Brenner, Liv, Voss und Co. kommen nie vor", verboten.isEmpty,
                verboten.prefix(5).joined(separator: ", "))

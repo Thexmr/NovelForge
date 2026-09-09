@@ -18,6 +18,8 @@ import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
 import { offlinePreflight, validateUploadJob } from './upload-core.js';
+import { KDP_BOOKSHELF, inspectKDPLogin, ensureKDPLogin } from './auth-core.js';
+import { DraftCheckpoint, draftIdentity, saveDraftAndVerify, writeJSONAtomic } from './draft-core.js';
 
 const require = createRequire(import.meta.url);
 
@@ -46,7 +48,7 @@ function report(patch) {
   const line = `[${statusObj.stage}] ${statusObj.message}`;
   console.log(line);
   if (statusPath) {
-    try { fs.writeFileSync(statusPath, JSON.stringify(statusObj, null, 2)); } catch (_) {}
+    writeJSONAtomic(statusPath, statusObj);
   }
 }
 
@@ -97,6 +99,9 @@ function realChromeRunning() {
 function hydrateSessionFromRealChrome(targetDir, profileName) {
   const src = realChromeProfileDir();
   const prof = profileName || 'Default';
+  // Preserve the session established by the app, including completed two-factor login.
+  if (['Cookies', path.join('Network', 'Cookies')].some(file =>
+    fs.existsSync(path.join(targetDir, prof, file)))) return 0;
   const pairs = [
     [path.join(src, 'Local State'), path.join(targetDir, 'Local State')],
     [path.join(src, prof, 'Cookies'), path.join(targetDir, prof, 'Cookies')],
@@ -148,9 +153,7 @@ async function launch(profileDir, chromePath, { headless } = { headless: false }
   // Puppeteer setzt standardmäßig --use-mock-keychain und --password-store=basic.
   // Damit kann Chrome die im macOS-Schlüsselbund verschlüsselten Cookies NICHT
   // entschlüsseln → übernommene Sitzungen wären wertlos. Für „mein Chrome" abschalten.
-  const ignoreDefaultArgs = (wantMine || wantCopy)
-    ? ['--use-mock-keychain', '--password-store=basic']
-    : undefined;
+  const ignoreDefaultArgs = ['--use-mock-keychain', '--password-store=basic'];
 
   if (wantMine && !realChromeRunning()) {
     // (2) Direkt im echten Profil arbeiten – alle Logins vorhanden.
@@ -162,7 +165,8 @@ async function launch(profileDir, chromePath, { headless } = { headless: false }
     fs.mkdirSync(profileDir, { recursive: true });
     const n = hydrateSessionFromRealChrome(profileDir, profileName);
     extraArgs.push('--profile-directory=' + profileName);
-    console.log('  (Sitzung aus deinem Chrome übernommen: ' + n + ' Sitzungsdateien; dein Chrome bleibt offen)');
+    console.log(n ? '  (Chrome-Sitzung einmalig übernommen; dein Chrome bleibt offen)'
+      : '  (Vorhandenes NovelForge-Anmeldeprofil bleibt erhalten; dein Chrome bleibt offen)');
   }
 
   fs.mkdirSync(userDataDir, { recursive: true });
@@ -189,7 +193,7 @@ async function launch(profileDir, chromePath, { headless } = { headless: false }
  * Platte). Es wird nichts protokolliert – auch keine Länge, kein Ausschnitt.
  *
  * Bleibt eine Zwei-Faktor-Abfrage (SMS/App-Code) stehen, wird das gemeldet: diesen Schritt
- * macht der Mensch, bzw. auf Android liest die App den SMS-Code selbst aus.
+ * macht ausschließlich der Mensch im Amazon-Fenster.
  */
 async function autoAnmelden(page) {
   const email = process.env.NF_KDP_EMAIL;
@@ -207,8 +211,9 @@ async function autoAnmelden(page) {
     // Zweistufige Maske: erst „Weiter", dann Passwort.
     const weiter = await page.$('#continue, input#continue');
     if (weiter && !passFeld) {
-      await weiter.click().catch(() => {});
-      await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+      const navigation = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+      await weiter.click();
+      await navigation;
       await new Promise(r => setTimeout(r, 1500));
     }
   }
@@ -220,8 +225,9 @@ async function autoAnmelden(page) {
     await page.$eval('input[name="rememberMe"], #auth-remember-me', (e) => { if (!e.checked) e.click(); }).catch(() => {});
     const senden = await page.$('#signInSubmit, input#signInSubmit');
     if (senden) {
-      await senden.click().catch(() => {});
-      await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {});
+      const navigation = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {});
+      await senden.click();
+      await navigation;
       await new Promise(r => setTimeout(r, 3000));
     }
   }
@@ -654,8 +660,6 @@ async function germanLocale(page) {
 // KDP mit erzwungener deutscher Sprache öffnen (leitet die Anmeldung auf Deutsch weiter).
 const KDP_HOME_DE = 'https://kdp.amazon.com/?language=de_DE';
 
-const KDP_BOOKSHELF = 'https://kdp.amazon.com/de_DE/bookshelf';
-const KDP_LOGIN_PROOF = '#dp-bookshelf, .a-nav-link, [data-testid="bookshelf"]';
 
 // Prüft, ob eine gültige Session besteht.
 // navigate=true: geht aktiv zum Bücherregal (für `check`).
@@ -666,52 +670,21 @@ async function isLoggedIn(page, { navigate = true } = {}) {
   if (navigate) {
     await page.goto(KDP_BOOKSHELF, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
   }
-  const url = page.url();
-  const onSignin = url.includes('/ap/signin') || url.includes('/ap/') || url.includes('signin');
-  // Zuverlässigster Nachweis: das persistente Amazon-Auth-Token-Cookie (at-main /
-  // sess-at-main / x-main). Ist es gesetzt UND wir sind nicht gerade auf der
-  // Anmeldeseite → eingeloggt. Robuster als (sich ändernde) DOM-Selektoren.
-  try {
-    const cs = await page.cookies('https://www.amazon.com', 'https://kdp.amazon.com');
-    const hasAuth = cs.some(c => /^(at-main|sess-at-main|x-main)$/.test(c.name) && c.value && c.value.length > 8);
-    if (hasAuth && !onSignin) return true;
-  } catch (_) { /* Cookie-Abfrage fehlgeschlagen – Fallback unten */ }
-  if (onSignin) return false;
-  // Fallback: auf einer KDP-Seite (nicht signin) mit Regal-/Nav-Element.
-  if (url.includes('kdp.amazon')) {
-    try { await page.waitForSelector(KDP_LOGIN_PROOF, { timeout: 3000 }); return true; }
-    catch (_) { return true; } // KDP-Seite, nicht signin → als eingeloggt werten
-  }
-  return false;
+  return (await inspectKDPLogin(page).catch(() => ({ authenticated: false }))).authenticated;
 }
 
 // ---------- Befehl: login ----------
 async function cmdLogin() {
   report({ stage: 'login', progress: 0.1, message: 'Öffne KDP-Login (einmalig, manuell inkl. 2FA) …' });
   const browser = await launch(args.profile, args.chrome, { headless: false });
-  const page = (await browser.pages())[0] || await browser.newPage();
-  await germanLocale(page);
-  // WICHTIG: direkt aufs deutsche Bücherregal — das ERZWINGT die (deutsche) Anmeldung
-  // mit korrektem return_to. Die Startseite (kdp.amazon.com/) zeigt jedem eine
-  // Marketing-Seite OHNE Login → dort würde nie echt authentifiziert.
-  await page.goto(KDP_BOOKSHELF, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
-  await page.bringToFront().catch(() => {});
-  report({ stage: 'login', progress: 0.4, message: 'Bitte im geöffneten Fenster bei Amazon KDP einloggen (inkl. 2FA). Warte auf dein Bücherregal …' });
-  // Bis zu 30 Minuten warten – OHNE das Fenster wegzunavigieren (passiv prüfen).
-  const deadline = Date.now() + 1800000;
-  let ok = false;
-  while (Date.now() < deadline) {
-    // Browser-/Fenster-Schließung durch den Nutzer sauber abfangen.
-    if (!browser.isConnected()) { report({ stage: 'login', message: 'Fenster wurde geschlossen.' }); break; }
-    try {
-      if (await isLoggedIn(page, { navigate: false })) { ok = true; break; }
-    } catch (_) { /* Seite lädt gerade um – weiter warten */ }
-    await new Promise(r => setTimeout(r, 2500));
+  try {
+    const page = (await browser.pages())[0] || await browser.newPage();
+    await germanLocale(page);
+    await ensureKDPLogin(page, browser, { attemptLogin: autoAnmelden, report });
+    report({ stage: 'login', progress: 1, ok: true, message: 'Login erfolgreich, Session gespeichert.' });
+  } finally {
+    await endSession(browser);
   }
-  report({ stage: 'login', progress: 1, ok, message: ok ? 'Login erfolgreich, Session gespeichert.' : 'Login nicht abgeschlossen (Zeit abgelaufen oder Fenster geschlossen).' });
-  await new Promise(r => setTimeout(r, 2500));
-  await endSession(browser);
-  if (!ok) process.exit(2);
 }
 
 // ---------- Befehl: check ----------
@@ -884,41 +857,48 @@ async function cmdUpload() {
     throw new Error('Uploadauftrag ungültig: ' + validationIssues.join(' · '));
   }
 
+  const format = job.format === 'paperback' || args.paperback ? 'paperback' : 'kindle';
+  const checkpoint = new DraftCheckpoint(args.checkpoint || `${args.job}.checkpoint.json`, format);
+  if (args.book || job.bookId) {
+    const id = String(args.book || job.bookId);
+    if (!/^[A-Za-z0-9_-]+$/.test(id) || id.toLowerCase() === 'new') throw new Error('Ungültige KDP-Buch-ID.');
+    checkpoint.remember(`https://kdp.amazon.com/de_DE/title-setup/${format}/${id}/details`);
+  }
+  const resumeURL = checkpoint.resumeURL();
+
   const browser = await launch(args.profile, args.chrome, { headless: false });
   try {
     const page = (await browser.pages())[0] || await browser.newPage();
+    let checkpointError = null;
+    page.on('framenavigated', frame => {
+      if (frame === page.mainFrame()) {
+        try { checkpoint.remember(frame.url()); } catch (error) { checkpointError = error; }
+      }
+    });
+    const rememberDraft = () => {
+      if (checkpointError) throw checkpointError;
+      checkpoint.remember(page.url());
+    };
     page.setDefaultTimeout(45000);
     await germanLocale(page);
 
     report({ stage: 'auth', progress: 0.06, message: 'Prüfe KDP-Login …' });
-    if (!(await isLoggedIn(page))) {
-      // Sind Zugangsdaten hinterlegt, wird jetzt angemeldet – sonst bleibt es beim Hinweis.
-      const anmeldung = await autoAnmelden(page);
-      if (anmeldung.versucht && !anmeldung.zweiFaktor && await isLoggedIn(page)) {
-        report({ stage: 'auth', progress: 0.1, message: 'Angemeldet.' });
-      } else if (anmeldung.zweiFaktor) {
-        throw new Error(anmeldung.hinweis);
-      } else {
-        throw new Error('Nicht bei KDP eingeloggt. Entweder in den Einstellungen Zugangsdaten '
-          + 'hinterlegen oder einmal „KDP-Login" ausführen.');
-      }
-    }
+    await ensureKDPLogin(page, browser, { attemptLogin: autoAnmelden, report });
 
     // BESTEHENDEN ENTWURF FORTSETZEN statt jedes Mal einen neuen anzulegen.
     // Ohne das entsteht bei jedem Versuch ein weiterer Entwurf im echten Konto –
     // genau das ist beim Einrichten mehrfach passiert. Kennt der Auftrag die Buch-ID
     // (job.bookId oder --book), wird dieser Entwurf geöffnet und weitergeführt.
-    const bestehend = args.book || job.bookId || null;
+    const bestehend = draftIdentity(resumeURL);
     let formularDa = false;
     if (bestehend) {
-      report({ stage: 'create', progress: 0.12, message: `Öffne bestehenden Entwurf ${bestehend} …` });
-      await page.goto(`https://kdp.amazon.com/de_DE/title-setup/kindle/${bestehend}/details`,
+      report({ stage: 'create', progress: 0.12, message: `Öffne bestehenden Entwurf ${bestehend.id} …` });
+      await page.goto(bestehend.url.replace(/\/(content|pricing)$/, '/details'),
         { waitUntil: 'domcontentloaded' }).catch(() => {});
       formularDa = await page.waitForSelector('#data-title, input[name="data[title]"]', { timeout: 45000 })
         .then(() => true).catch(() => false);
       if (!formularDa) {
-        report({ stage: 'create', progress: 0.13,
-          message: 'Bestehender Entwurf nicht erreichbar – lege stattdessen einen neuen an.' });
+        throw new Error('Bestehender KDP-Entwurf nicht erreichbar. Es wird kein zweiter Entwurf angelegt. Bitte Anmeldung und Entwurf prüfen.');
       }
     }
 
@@ -967,6 +947,7 @@ async function cmdUpload() {
     // Der Ablauf danach ist derselbe; nur die Dateien unterscheiden sich:
     // Taschenbuch verlangt ein Cover-PDF, kein JPEG.
     const taschenbuch = job.format === 'paperback' || !!args.paperback;
+    checkpoint.beginCreation();
     const schritt2 = await klickeText(taschenbuch ? 'taschenbuch erstellen' : 'ebook erstellen');
     if (schritt2) await new Promise(r => setTimeout(r, 6000));
 
@@ -994,6 +975,7 @@ async function cmdUpload() {
           + 'Bitte einmal in diesem Fenster bei KDP anmelden und den Upload erneut starten.'
         : 'Das eBook-Formular ist nicht erschienen (Seite: ' + wo.slice(0, 120) + ').');
     }
+    rememberDraft();
 
     // Details ausfüllen. PRIMÄR: die an der echten deutschen KDP-eBook-Seite LIVE
     // validierten IDs (#data-title etc.). Fallbacks: auto-kdp-Print + name-Attribute.
@@ -1065,9 +1047,11 @@ async function cmdUpload() {
       report({ stage: 'content', progress: 0.6, message: 'Speichere Details und gehe zum Inhalt …' });
       const weiter1 = await page.$('#save-and-continue-announce, #save-and-continue');
       if (weiter1) {
-        await weiter1.click().catch(() => {});
-        await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+        const navigation = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+        await weiter1.click();
+        await navigation;
         await new Promise(r => setTimeout(r, 4000));
+        rememberDraft();
       }
 
       // BEWEIS statt Annahme: Sind wir wirklich weitergekommen? Bleibt die Detailseite
@@ -1080,9 +1064,11 @@ async function cmdUpload() {
           message: `Detailseite blieb stehen (Versuch ${versuch}) – behoben: ${p2.behoben.join(', ') || 'nichts'}` });
         const nochmal = await page.$('#save-and-continue-announce, #save-and-continue');
         if (!nochmal) break;
-        await nochmal.click().catch(() => {});
-        await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+        const navigation = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+        await nochmal.click();
+        await navigation;
         await new Promise(r => setTimeout(r, 4000));
+        rememberDraft();
       }
       if (/\/details/.test(page.url())) {
         probleme.push('Inhaltsseite nicht erreicht (Detailseite meldet noch Pflichtfelder)');
@@ -1137,11 +1123,16 @@ async function cmdUpload() {
       report({ stage: 'pricing', progress: 0.86, message: `Gehe zum Preis und setze ${job.priceEUR} € …` });
       const weiter2 = await page.$('#save-and-continue-announce, #save-and-continue');
       if (weiter2) {
-        await weiter2.click().catch(() => {});
-        await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+        const navigation = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+        await weiter2.click();
+        await navigation;
         await new Promise(r => setTimeout(r, 4000));
+        rememberDraft();
       }
-      await typeInto(page, ['#data-pricing-print-list-price-EUR', 'input[name="priceEUR"]', 'input[name="listPrice"]'], String(job.priceEUR));
+      if (!/\/pricing\/?$/.test(page.url())) probleme.push('Preisseite nicht erreicht');
+      merke('Preis EUR', await typeVerified(page,
+        ['#data-pricing-print-list-price-EUR', 'input[name="priceEUR"]', 'input[name="listPrice"]'],
+        String(job.priceEUR), { label: 'Preis EUR' }));
     }
 
     // Sicht-Kontrolle VOR dem Speichern. WICHTIG: Sie ist nur ein ZUSATZ-Hinweis und darf
@@ -1172,9 +1163,9 @@ async function cmdUpload() {
     } else {
       // ENTWURF speichern — NICHT veröffentlichen.
       report({ stage: 'save-draft', progress: 0.95, message: 'Speichere als Entwurf (kein Veröffentlichen) …' });
-      const saveBtn = await page.$('#save-announce, button[data-action="save-draft"], #save-and-continue-announce');
-      if (saveBtn) { await saveBtn.click().catch(() => {}); await new Promise(r => setTimeout(r, 4000)); }
-      const draftUrl = page.url();
+      rememberDraft();
+      const draftUrl = await saveDraftAndVerify(page);
+      checkpoint.remember(draftUrl);
       // EHRLICHES ERGEBNIS. Hier stand `ok: true` fest verdrahtet - egal, ob Cover,
       // Kategorie oder KI-Kennzeichnung gesetzt werden konnten. `pflichtOk` wurde
       // berechnet, aber nur im Testlauf benutzt. Ein Entwurf mit fehlendem Cover galt
@@ -1183,7 +1174,7 @@ async function cmdUpload() {
       //
       // Der Entwurf IST gespeichert (deshalb kein Fehler-Exit), aber `ok` sagt jetzt
       // die Wahrheit, und `probleme` steht maschinenlesbar in der Statusdatei.
-      report({ stage: 'done', progress: 1, ok: pflichtOk, draftUrl, probleme,
+      report({ stage: 'done', progress: 1, ok: pflichtOk, saveConfirmed: true, draftUrl, probleme,
         message: (pflichtOk
           ? 'Entwurf vollständig in KDP gespeichert. Bitte Preis prüfen und manuell veröffentlichen.'
           : 'Entwurf gespeichert, aber nicht alle Pflichtfelder gesetzt - vor dem Veröffentlichen prüfen.')

@@ -798,7 +798,12 @@ final class PipelineOrchestrator: ObservableObject {
             project.status = previousStatus
             lastError = (error as? AIError)?.errorDescription ?? error.localizedDescription
             finish()
-            let hint = (error as? AIError)?.recoverySuggestion.map { " \($0)" } ?? ""
+            let hint: String
+            if let aiError = error as? AIError, case .contentQualityRejected = aiError {
+                hint = " Der vorhandene Text bleibt erhalten. Dieser Einzelauftrag ist beendet; die offenen Befunde stehen im Fehlerbericht."
+            } else {
+                hint = (error as? AIError)?.recoverySuggestion.map { " \($0)" } ?? ""
+            }
             return "\(errPrefix): \(lastError ?? error.localizedDescription)\(hint)"
         }
     }
@@ -883,11 +888,20 @@ final class PipelineOrchestrator: ObservableObject {
     /// „Blick ins Buch": optimiert den Anfang des fertigen Buches (erstes Kapitel) auf
     /// maximalen Lesesog – der stärkste Conversion-Hebel auf Amazon (die Leseprobe verkauft).
     func optimizeOpening(project: Project) async -> String {
-        await runMarketingStep(project: project, agent: AgentName.repairEditor, phase: .manuscriptRevision,
+        let result = await runMarketingStep(project: project, agent: AgentName.repairEditor, phase: .manuscriptRevision,
                                okMessage: "Buchanfang auf Lesesog optimiert (Blick ins Buch).",
                                errPrefix: "Fehler beim Optimieren des Anfangs") { config in
             try await self.produceOpeningOptimization(project: project, config: config)
         }
+        if result == "Buchanfang auf Lesesog optimiert (Blick ins Buch).",
+           (project.qualityReports ?? []).contains(where: {
+               $0.checkType == LocalEditorialAssistant.openingReviewType && !$0.autoFixed
+           }) {
+            project.status = .needsReview
+            modelContext?.saveOrLog()
+            return "Bessere Zwischenfassung gespeichert. Die inhaltliche Endabnahme ist noch offen; die Befunde stehen im Qualitaetsbericht."
+        }
+        return result
     }
 
     private func produceOpeningOptimization(project: Project, config: ProviderConfiguration) async throws {
@@ -912,36 +926,134 @@ final class PipelineOrchestrator: ObservableObject {
                 : explicitProtagonists
             let otherTexts = chapters.dropFirst().compactMap(\.bestText)
             let primaryCanon = primaryStoryCanon(project: project)
-            let allowedContext = primaryCanon + "\n" + currentText
+            let completeCanon = canonicalStoryContext(project: project)
+            let openingScenes = Array(sortedScenes(chapter).prefix(3))
+            let openingPlanCandidate = openingScenes.map { scene in
+                "Szene \(scene.sceneNumber): Ziel=\(scene.goal); Hindernis=\(scene.obstacle); "
+                    + "Neue Information=\(scene.newInformation); Wendung=\(scene.cliffhanger)"
+            }.joined(separator: "\n")
+            let planningEvidence = [chapter.goal, chapter.conflict, openingPlanCandidate]
+                .joined(separator: "\n")
+            let firstPerspective = openingScenes.first?.perspective ?? ""
+            let perspectiveMatchesProtagonist = protagonistNames.isEmpty
+                || protagonistNames.contains {
+                    $0.localizedCaseInsensitiveCompare(firstPerspective) == .orderedSame
+                        || firstPerspective.localizedCaseInsensitiveContains($0)
+                }
+            let planHasForeignNames = !CharacterCanonAudit.unexpectedActingCharacterParts(
+                in: planningEvidence, allowedNames: characterNames
+            ).isEmpty
+            let openingPlanIsReliable = perspectiveMatchesProtagonist && !planHasForeignNames
+            let requiresCanonicalRebuild = !openingPlanIsReliable
+                && LocalEditorialAssistant.openingRequiresCanonicalRebuild(
+                    currentText,
+                    protagonistNames: protagonistNames
+                )
+            let openingPlan = openingPlanIsReliable ? """
+                KAPITELZIEL: \(chapter.goal)
+                KAPITELKONFLIKT: \(chapter.conflict)
+                SZENENPLAN:
+                \(openingPlanCandidate)
+                """ : """
+                ALTER KAPITEL-/SZENENPLAN NICHT VERWENDEN: Er widerspricht den kanonischen
+                Figurenprofilen. Rekonstruiere den Einstieg ausschliesslich aus Primaerkanon,
+                Figurenprofilen und den bereits kanonisch belegten Grundereignissen.
+                """
+            let rebuildDirective = requiresCanonicalRebuild ? """
+
+                LEGACY-NEUAUFBAU DES ANFANGS:
+                Der vorhandene Kapiteltext beginnt nachweislich nicht mit der kanonischen
+                Hauptfigur. Er stammt aus einem widersprüchlichen alten Plan und ist KEINE
+                Autorität für Perspektivfigur, Kündigung, Anruf, Frist oder Ereignisfolge.
+                Baue den Einstieg um die kanonische Hauptfigur neu auf. Bewahre aus dem
+                Alttext nur Setting und Fakten, die Figurenprofile und Primärplot ausdrücklich
+                bestätigen. Entferne unplausible irreversible Entscheidungen vollständig,
+                wenn der Kanon sie nicht verlangt.
+                """ : ""
+            let editorialContext = """
+            HOECHSTE AUTORITAET - BUCHKANON UND FIGURENPROFILE:
+            \(completeCanon.truncated(to: 12_000))
+
+            KANONHIERARCHIE: Fuer Namen, Alter, Rolle, Beruf und Geschlecht sind die
+            FIGURENPROFILE verbindlich. Rollenwoerter wie "Hauptfigur", "Schwester",
+            "Investor" oder "Jugendliebe" in Praemisse und Plot bezeichnen genau die
+            dazu passenden Profile und sind keine Erlaubnis fuer neue Namen.
+
+            \(openingPlan)
+            \(rebuildDirective)
+            """
+            let allowedContext = completeCanon + "\n" + currentText
             let sourceCollisions = Set(AutonomousContentQuality.repeatedSentenceCollisions(
                 candidate: currentText, priorTexts: otherTexts
             ))
             let sourceCanonClaims = Set(AutonomousContentQuality.unsupportedCanonClaims(
                 in: currentText, canon: primaryCanon, characterNames: characterNames
             ))
+            let sourceUnexpectedActors = Set(
+                CharacterCanonAudit.unexpectedActingCharacterParts(
+                    in: currentText, allowedNames: characterNames
+                )
+            )
 
-            var accepted: String?
             var tokens = 0
+            var accepted: String?
+            var acceptedResidualIssues: [String] = []
+            var bestSafeCandidate: String?
+            var bestSafeIssues: [String] = []
+            var bestSafeIssueCount = Int.max
             var rejectionReasons = project.isNonfiction ? []
                 : AutonomousContentQuality.finalOpeningIssues(
                     in: currentText, protagonistNames: protagonistNames
                 )
-            for attempt in 1...3 where accepted == nil {
-                let feedback = rejectionReasons.isEmpty ? "" : """
+            if !project.isNonfiction {
+                let sourceAudit = try await semanticOpeningAudit(
+                    project: project, chapter: chapter, text: currentText,
+                    editorialContext: editorialContext, config: config
+                )
+                tokens += sourceAudit.tokens
+                rejectionReasons.append(contentsOf: sourceAudit.issues)
+            }
+            let sourceIssueCount = max(1, rejectionReasons.count)
+            var revision = LocalEditorialAssistant.OpeningRevisionState(
+                text: currentText, issues: rejectionReasons)
+            for attempt in 1...6 where accepted == nil {
+                currentAgent = "Buchanfang: Korrektur \(attempt)/6"
+                job.result = "Durchgang \(attempt)/6: \(revision.issues.count) Befunde zur aktuellen Fassung."
+                job.lastHeartbeat = Date()
+                let feedback = revision.issues.isEmpty ? "" : """
 
 
                 DER VORIGE ANFANG WURDE ABGELEHNT:
-                \(rejectionReasons.prefix(5).map { "- \($0)" }.joined(separator: "\n"))
-                Behebe genau diese Punkte, ohne Ereignisse oder Fakten zu veraendern.
+                \(revision.issues.prefix(5).map { "- \($0)" }.joined(separator: "\n"))
+                Behebe genau diese Punkte. Kanon und konkrete Reparaturanweisung haben an
+                widerspruechlichen Stellen Vorrang; bewahre alle nicht betroffenen Ereignisse.
                 """
-                let response = try await generate(
-                    prompt: PromptFactory.openingHook(
+                let revisionPrompt: String
+                if attempt == 1 {
+                    revisionPrompt = PromptFactory.openingHook(
                         language: project.language, bookTitle: project.title,
-                        genre: project.genre, chapterText: currentText.truncated(to: 36_000))
-                        + feedback + "\n\nTechnischer Vollstaendigkeitsversuch \(attempt)/3.",
+                        genre: project.genre, chapterText: revision.text.truncated(to: 36_000),
+                        editorialContext: editorialContext
+                    ) + feedback
+                } else {
+                    revisionPrompt = PromptFactory.openingTargetedRepair(
+                        language: project.language,
+                        bookTitle: project.title,
+                        genre: project.genre,
+                        chapterText: revision.text.truncated(to: 36_000),
+                        editorialContext: editorialContext,
+                        repairIssues: Array(revision.issues.prefix(6)),
+                        allowsCanonicalEventCorrections: requiresCanonicalRebuild
+                    )
+                }
+                let response = try await generate(
+                    prompt: revisionPrompt
+                        + "\n\nUmfang: \(Int(Double(currentText.wordCount) * 0.75)) bis \(Int(Double(currentText.wordCount) * 1.15)) Woerter. Vollstaendigen Kapiteltext liefern."
+                        + "\n\nRedaktioneller Verbesserungsdurchgang \(attempt)/6.",
                     system: "Du bist ein Bestseller-Lektor und optimierst den Buchanfang (Amazon-Leseprobe) auf maximalen Lesesog. Gib nur den vollständigen Kapiteltext zurück.",
                     maxTokens: min(12_000, max(4_000, currentText.wordCount * 3)),
-                    temperature: 0.45, config: config, creative: true
+                    temperature: attempt == 1 ? 0.45 : 0.25,
+                    config: config, creative: true
                 )
                 tokens += response.tokensUsed ?? 0
                 let candidate = AutonomousContentQuality.humanizeProse(
@@ -949,59 +1061,91 @@ final class PipelineOrchestrator: ObservableObject {
                         AutonomousContentQuality.strippingPromptArtifacts(response.text)))
                     .trimmingCharacters(in: .whitespacesAndNewlines)
 
-                var reasons: [String] = []
+                var hardReasons: [String] = []
+                var qualityReasons: [String] = []
+                var structuralHardReasons: [String] = []
                 if !AutonomousContentQuality.isAcceptableRewrite(
                     source: currentText, candidate: candidate,
                     minRatio: 0.75, maxRatio: 1.15,
                     finishReason: response.finishReason
                 ) || !withinGrowthCeiling(candidate, source: currentText, chapter: chapter) {
-                    reasons.append("Die Fassung ist unvollstaendig oder veraendert den Kapitelumfang zu stark.")
+                    let minimumWords = Int(Double(currentText.wordCount) * 0.75)
+                    let maximumWords = Int(Double(currentText.wordCount) * 1.15)
+                    let finishReason = response.finishReason ?? "unbekannt"
+                    structuralHardReasons.append(
+                        "Umfangsfehler: Kandidat \(candidate.wordCount) Woerter, erforderlich "
+                            + "\(minimumWords)-\(maximumWords) bei \(currentText.wordCount) Ausgangswoertern; "
+                            + "Provider-Abschluss \(finishReason). "
+                            + "Liefere beim naechsten Versuch den vollstaendigen Text im Korridor."
+                    )
                 }
                 if !project.isNonfiction {
-                    reasons.append(contentsOf: AutonomousContentQuality.finalOpeningIssues(
+                    qualityReasons.append(contentsOf: AutonomousContentQuality.finalOpeningIssues(
                         in: candidate, protagonistNames: protagonistNames
                     ))
                     if !AutonomousContentQuality.characterNameOveruseFindings(
                         inChapters: [candidate], characterNames: characterNames
                     ).isEmpty {
-                        reasons.append("Der Figurenname wird in kurzen Absaetzen gehaemmert.")
+                        qualityReasons.append("Der Figurenname wird in kurzen Absaetzen gehaemmert.")
                     }
+                    let semanticAudit = try await semanticOpeningAudit(
+                        project: project, chapter: chapter, text: candidate,
+                        editorialContext: editorialContext, config: config
+                    )
+                    tokens += semanticAudit.tokens
+                    qualityReasons.append(contentsOf: semanticAudit.issues)
                 }
                 let newCollisions = Set(AutonomousContentQuality.repeatedSentenceCollisions(
                     candidate: candidate, priorTexts: otherTexts
                 )).subtracting(sourceCollisions)
                 if !newCollisions.isEmpty {
-                    reasons.append("Die Fassung fuehrt neue wortgleiche Saetze aus anderen Kapiteln ein.")
+                    hardReasons.append(
+                        "Die Fassung fuehrt neue wortgleiche Saetze aus anderen Kapiteln ein: "
+                            + newCollisions.sorted().prefix(3).joined(separator: " | ")
+                    )
                 }
                 let newCanonClaims = Set(AutonomousContentQuality.unsupportedCanonClaims(
                     in: candidate, canon: primaryCanon, characterNames: characterNames
                 )).subtracting(sourceCanonClaims)
                 if !newCanonClaims.isEmpty {
-                    reasons.append("Die Fassung erfindet neue, nicht belegte Kanonfakten.")
+                    structuralHardReasons.append(
+                        "Die Fassung erfindet neue, nicht belegte Kanonfakten: "
+                            + newCanonClaims.sorted().prefix(3).joined(separator: " | ")
+                    )
                 }
+                let newUnexpectedActors = Set(
+                    CharacterCanonAudit.unexpectedActingCharacterParts(
+                        in: candidate, allowedNames: characterNames
+                    )
+                ).subtracting(sourceUnexpectedActors)
                 if !AutonomousContentQuality.unexpectedCharacterNames(
                     in: candidate, allowedContext: allowedContext,
                     characterNames: characterNames
-                ).isEmpty || !CharacterCanonAudit.unexpectedActingCharacterParts(
-                    in: candidate, allowedNames: characterNames
-                ).isEmpty {
-                    reasons.append("Die Fassung fuehrt eine nicht kanonische Figur ein.")
+                ).isEmpty || !newUnexpectedActors.isEmpty {
+                    structuralHardReasons.append("Die Fassung fuehrt eine nicht kanonische Figur ein.")
                 }
                 if !AutonomousContentQuality.unexpectedStoryArtifacts(
                     in: candidate, allowedContext: allowedContext
                 ).isEmpty {
-                    reasons.append("Die Fassung fuehrt ein neues Fundstueck oder Handlungselement ein.")
+                    structuralHardReasons.append("Die Fassung fuehrt ein neues Fundstueck oder Handlungselement ein.")
                 }
                 if AutonomousContentQuality.containsMetaRequest(candidate)
                     || PublicContentGuard.disclosureViolation(in: candidate)
                     || !ContentSafetyFilter.isSafe(candidate) {
-                    reasons.append("Die Fassung enthaelt Meta-, Offenlegungs- oder unzulaessigen Inhalt.")
+                    structuralHardReasons.append("Die Fassung enthaelt Meta-, Offenlegungs- oder unzulaessigen Inhalt.")
                 }
-                reasons.append(contentsOf: RevisionSafety.issues(
-                    source: currentText, candidate: candidate
-                ))
+                if !requiresCanonicalRebuild {
+                    structuralHardReasons.append(contentsOf: RevisionSafety.issues(
+                        source: currentText, candidate: candidate
+                    ).filter { !$0.localizedCaseInsensitiveContains("Anführungszeichen") })
+                }
+                if !AutonomousContentQuality.brokenDialogueTypography(in: candidate).isEmpty
+                    || !AutonomousContentQuality.dialogOhneAnfuehrungszeichen(in: candidate).isEmpty {
+                    structuralHardReasons.append("Dialog-Anfuehrungszeichen sind beschaedigt oder unvollstaendig.")
+                }
+                hardReasons.append(contentsOf: structuralHardReasons)
 
-                if reasons.isEmpty, !project.isNonfiction {
+                if hardReasons.isEmpty, qualityReasons.isEmpty, !project.isNonfiction {
                     do {
                         let verdict = try await blindRevisionClearlyImproves(
                             original: currentText, candidate: candidate,
@@ -1010,35 +1154,126 @@ final class PipelineOrchestrator: ObservableObject {
                         )
                         tokens += verdict.tokens
                         if !verdict.accepted {
-                            reasons.append("Der blinde Lektoratsvergleich weist keine klare Verbesserung nach.")
+                            qualityReasons.append("Der blinde Lektoratsvergleich weist keine klare Verbesserung nach.")
                         }
                     } catch is CancellationError {
                         throw CancellationError()
                     } catch {
-                        reasons.append("Der blinde Lektoratsvergleich konnte nicht sicher abgeschlossen werden.")
+                        qualityReasons.append("Der blinde Lektoratsvergleich konnte nicht sicher abgeschlossen werden.")
                     }
                 }
+                let reasons = hardReasons + qualityReasons
                 if reasons.isEmpty { accepted = candidate }
+                if hardReasons.isEmpty, !candidate.isEmpty,
+                   qualityReasons.count < bestSafeIssueCount {
+                    bestSafeCandidate = candidate
+                    bestSafeIssues = qualityReasons
+                    bestSafeIssueCount = qualityReasons.count
+                }
+                let collisionOnlyProgress = LocalEditorialAssistant
+                    .allowsIntermediateOpeningProgress(
+                        structuralIssues: structuralHardReasons,
+                        sentenceCollisions: Array(newCollisions)
+                    )
+                revision.consider(text: candidate, issues: reasons,
+                                  canAdvance: hardReasons.isEmpty || collisionOnlyProgress)
                 rejectionReasons = reasons
+            }
+            if accepted == nil, let bestSafeCandidate {
+                let candidateCanonicallyValid = !LocalEditorialAssistant
+                    .openingRequiresCanonicalRebuild(
+                        bestSafeCandidate,
+                        protagonistNames: protagonistNames
+                    )
+                if requiresCanonicalRebuild,
+                   LocalEditorialAssistant.shouldKeepBestOpeningCandidate(
+                        sourceIssueCount: sourceIssueCount,
+                        candidateIssueCount: bestSafeIssueCount,
+                        structurallySafe: true,
+                        blindComparisonWon: false,
+                        sourceCanonicallyInvalid: true,
+                        candidateCanonicallyValid: candidateCanonicallyValid
+                   ) {
+                    accepted = bestSafeCandidate
+                    acceptedResidualIssues = bestSafeIssues
+                } else {
+                    do {
+                        let verdict = try await blindRevisionClearlyImproves(
+                            original: currentText,
+                            candidate: bestSafeCandidate,
+                            language: project.language,
+                            chapterTitle: chapter.title,
+                            config: config
+                        )
+                        tokens += verdict.tokens
+                        if LocalEditorialAssistant.shouldKeepBestOpeningCandidate(
+                            sourceIssueCount: sourceIssueCount,
+                            candidateIssueCount: bestSafeIssueCount,
+                            structurallySafe: true,
+                            blindComparisonWon: verdict.accepted,
+                            candidateCanonicallyValid: candidateCanonicallyValid
+                        ) {
+                            accepted = bestSafeCandidate
+                            acceptedResidualIssues = bestSafeIssues
+                        }
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        // Ohne belastbaren Blindvergleich bleibt ein gueltiger Ausgangstext erhalten.
+                    }
+                }
             }
             guard let improved = accepted else {
                 throw AIError.contentQualityRejected(
-                    "Romananfang nach drei Optimierungsversuchen nicht freigabefaehig: "
+                    "Romananfang nach sechs redaktionellen Durchgaengen nicht freigabefaehig: "
                         + rejectionReasons.prefix(4).joined(separator: " ")
                 )
             }
             chapter.finalText = improved
             chapter.actualWordCount = improved.wordCount
-            chapter.status = .finalized
+            chapter.status = acceptedResidualIssues.isEmpty ? .finalized : .revised
             chapter.updatedAt = Date()
+            for report in project.qualityReports ?? []
+                where report.checkType == LocalEditorialAssistant.openingReviewType {
+                report.autoFixed = true
+            }
             addReport(project: project, area: "Kapitel \(chapter.chapterNumber)", type: "Blick ins Buch",
                       result: "Anfang auf Lesesog optimiert.", severity: .info,
                       recommendation: "Leseprobe entscheidet den Kauf – Anfang wurde geschärft.")
-            completeJob(job, result: "Anfang optimiert und hart abgenommen", tokens: tokens)
+            if !acceptedResidualIssues.isEmpty {
+                addReport(
+                    project: project,
+                    area: "Kapitel \(chapter.chapterNumber)",
+                    type: LocalEditorialAssistant.openingReviewType,
+                    result: "Zwischenfassung gespeichert; \(acceptedResidualIssues.count) inhaltliche Befunde offen.",
+                    severity: .error,
+                    recommendation: acceptedResidualIssues.joined(separator: "\n")
+                )
+            }
+            completeJob(job, result: acceptedResidualIssues.isEmpty
+                ? "Anfang optimiert und abgenommen"
+                : "Zwischenfassung gespeichert; inhaltliche Endabnahme offen", tokens: tokens)
         } catch {
             if job.status == .running { failJob(job, error: error) }
             throw error
         }
+    }
+
+    private func semanticOpeningAudit(project: Project, chapter: Chapter, text: String,
+                                      editorialContext: String,
+                                      config: ProviderConfiguration) async throws
+        -> (issues: [String], tokens: Int) {
+        let response = try await generate(
+            prompt: PromptFactory.openingEditorialAudit(
+                language: project.language, bookTitle: project.title, genre: project.genre,
+                editorialContext: editorialContext, chapterText: text),
+            system: "Du bist ein strenger Romanlektor. Du pruefst Kausalitaet, Figurenpsychologie, Dialoguntertext, Eigenheit und Kontinuitaet. Befolge exakt das verlangte Kurzformat.",
+            maxTokens: 700, temperature: 0.1, config: config
+        )
+        return (
+            AutonomousContentQuality.parseOpeningEditorialAudit(response.text),
+            response.tokensUsed ?? 0
+        )
     }
 
     /// Buch erweitern: bringt ein bestehendes Buch coherent auf einen größeren Zielumfang,
@@ -1168,9 +1403,58 @@ final class PipelineOrchestrator: ObservableObject {
 
     // MARK: - Steuerung
 
+    /// Haelt an, solange der Datentraeger zu voll ist, um sicher zu schreiben – und
+    /// laeuft von selbst weiter, sobald wieder Platz frei ist.
+    ///
+    /// Ein voller Datentraeger ist ein voruebergehender Zustand des Rechners, kein
+    /// Bedienfehler. Trotzdem beendete frueher JEDER dieser Faelle den kompletten Lauf:
+    /// Start verweigert, Dauerproduktion beendet, Buch pausiert – und danach lief nichts
+    /// mehr von allein an, auch wenn Minuten spaeter wieder 6 GB frei waren. Genau daran
+    /// endete der Lauf vom 09.09.2026 um 16:02 bei 327 MB Restspeicher.
+    ///
+    /// Rueckgabe `false` bedeutet ausschliesslich: Der Lauf wurde abgebrochen (Stopp
+    /// oder Pause). Ein Speichermangel allein beendet nichts mehr.
+    private func waitForStorageSpace() async -> Bool {
+        guard var storageError = ProductionStorageGuard.blockingError() else { return true }
+
+        let agentBeforeWaiting = currentAgent
+        var didRecordIncident = false
+        while !Task.isCancelled {
+            let message = storageError.errorDescription ?? storageError.localizedDescription
+            lastError = message
+            currentAgent = "Wartet auf freien Speicher – die Produktion laeuft automatisch weiter, sobald 1 GB frei ist"
+            if !didRecordIncident {
+                ProductionIncidentStore.record(message)
+                didRecordIncident = true
+            }
+            do {
+                try await Task.sleep(
+                    nanoseconds: UInt64(ProductionStorageGuard.recheckInterval * 1_000_000_000)
+                )
+            } catch {
+                return false
+            }
+            guard let stillBlocking = ProductionStorageGuard.blockingError() else {
+                lastError = nil
+                currentAgent = agentBeforeWaiting
+                if didRecordIncident { ProductionIncidentStore.clear() }
+                return true
+            }
+            storageError = stillBlocking
+        }
+        return false
+    }
+
+    /// Wartet vor einer schreibenden Operation auf freien Speicher. Wirft nur, wenn der
+    /// Lauf in der Wartezeit abgebrochen wurde – nie wegen des Speichers selbst.
+    private func requireStorageSpaceWaitingIfNeeded() async throws {
+        guard await waitForStorageSpace() else { throw CancellationError() }
+    }
+
     func startPipeline(project: Project, providerConfig: ProviderConfiguration) {
         guard !isRunning else { return }
-
+        // Ein voller Datentraeger verhindert den Start nicht mehr: Der Lauf startet,
+        // meldet den Speichermangel und beginnt zu schreiben, sobald Platz frei ist.
         prepareCatalogNameRegistry()
         isRunning = true
         stopMode = .none
@@ -1239,7 +1523,7 @@ final class PipelineOrchestrator: ObservableObject {
     /// (oder optional die maximale Buchanzahl erreicht ist).
     func startUnlimitedProduction(settings: UnlimitedSettings, providerConfig: ProviderConfiguration) {
         guard !isRunning else { return }
-
+        // Kein Start-Veto mehr bei Speichermangel: Die Schleife wartet den Zustand ab.
         prepareCatalogNameRegistry()
         isRunning = true
         isUnlimitedMode = true
@@ -1278,9 +1562,11 @@ final class PipelineOrchestrator: ObservableObject {
         var interruptedProject: Project?
         var isRetryingCurrentBook = false
         var qualityRepairRounds = 0
+        var contentQualityRestarts = 0
         var processedBooks = 0
         while !Task.isCancelled {
             if !isRetryingCurrentBook {
+                contentQualityRestarts = 0
                 sceneTimes = []
                 totalTokensUsed = 0
                 estimatedCostUSD = 0
@@ -1298,6 +1584,12 @@ final class PipelineOrchestrator: ObservableObject {
                 updateProductionTiming()
             }
             lastError = nil
+
+            guard await waitForStorageSpace() else {
+                if let project = currentProject { handleStop(project: project) } else { finish() }
+                isUnlimitedMode = false
+                return
+            }
 
             do {
                 let project: Project
@@ -1388,6 +1680,26 @@ final class PipelineOrchestrator: ObservableObject {
 
                 unlimitedConsecutiveFailures += 1
 
+                // Voller Datentraeger: warten statt beenden. Das laufende Buch bleibt
+                // aktiv und wird an derselben Stelle fortgesetzt, sobald Platz frei ist.
+                if ProductionStorageGuard.isStorageFailure(error) {
+                    if let project = currentProject, project.status != .completed {
+                        project.status = .paused
+                        interruptedProject = project
+                        isRetryingCurrentBook = true
+                    }
+                    modelContext?.saveOrLog("Speichermangel – Buch wartet auf freien Speicher")
+                    guard await waitForStorageSpace() else {
+                        if let project = currentProject { handleStop(project: project) } else { finish() }
+                        isUnlimitedMode = false
+                        return
+                    }
+                    // Speichermangel ist kein Produktionsfehler: Er darf den Backoff
+                    // fuer echte Fehler nicht hochzaehlen.
+                    unlimitedConsecutiveFailures = max(0, unlimitedConsecutiveFailures - 1)
+                    continue
+                }
+
                 // HINWEIS: Es gibt bewusst KEINEN Sonder-Retry für Szenenqualitäts-
                 // Fehler mehr. Deterministische Content-Befunde werden im Schreib-Loop
                 // als Report gespeichert (nie geworfen); ein unbegrenzter Retry hier
@@ -1396,16 +1708,23 @@ final class PipelineOrchestrator: ObservableObject {
                 // Temporäre Providerfehler setzen dasselbe, bereits geschriebene
                 // Projekt fort. Dadurch bleiben 500-Seiten-Bücher nicht wegen
                 // eines kurzen Netzausfalls nach hunderten Seiten liegen.
-                if ProductionStabilityPolicy.shouldResumeInterruptedBook(after: error),
+                if ProductionStabilityPolicy.shouldResumeInterruptedBook(
+                    after: error, consecutiveFailures: contentQualityRestarts
+                ),
                    let project = currentProject,
                    project.status != .completed {
+                    if ProductionStabilityPolicy.isContentQualityRejection(error) {
+                        contentQualityRestarts += 1
+                    }
                     project.status = .paused
                     interruptedProject = project
                     isRetryingCurrentBook = true
                     let delay = ProductionStabilityPolicy.retryDelay(
                         forConsecutiveFailures: unlimitedConsecutiveFailures
                     )
-                    currentAgent = "Provider vorübergehend nicht erreichbar – dieses Buch wird in \(ProductionStabilityPolicy.formatRetryDelay(delay)) fortgesetzt"
+                    currentAgent = ProductionStabilityPolicy.isContentQualityRejection(error)
+                        ? "Planqualität wird neu aufgebaut (Versuch \(contentQualityRestarts)/\(ProductionStabilityPolicy.maxContentQualityRestarts))"
+                        : "Provider vorübergehend nicht erreichbar – dieses Buch wird in \(ProductionStabilityPolicy.formatRetryDelay(delay)) fortgesetzt"
                     modelContext?.saveOrLog()
                     do {
                         try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
@@ -1597,6 +1916,7 @@ final class PipelineOrchestrator: ObservableObject {
         var project = resumeProject
         var transientFailures = 0
         var qualityRepairRounds = 0
+        var contentQualityRestarts = 0
 
         if let project {
             currentProject = project
@@ -1689,15 +2009,34 @@ final class PipelineOrchestrator: ObservableObject {
                     )
                 }
 
-                if ProductionStabilityPolicy.shouldResumeInterruptedBook(after: error),
+                // Voller Datentraeger: Der Worker gibt sein Buch nicht ab, sondern
+                // wartet und schreibt weiter, sobald wieder Platz frei ist.
+                if ProductionStorageGuard.isStorageFailure(error) {
+                    project?.status = .paused
+                    modelContext?.saveOrLog("Speichermangel – Buch wartet auf freien Speicher")
+                    publishWorkerStatus()
+                    guard await waitForStorageSpace() else {
+                        return cancelledUnlimitedBookOutcome()
+                    }
+                    continue
+                }
+
+                if ProductionStabilityPolicy.shouldResumeInterruptedBook(
+                    after: error, consecutiveFailures: contentQualityRestarts
+                ),
                    let project {
+                    if ProductionStabilityPolicy.isContentQualityRejection(error) {
+                        contentQualityRestarts += 1
+                    }
                     transientFailures += 1
                     project.status = .paused
                     lastError = message
                     let delay = ProductionStabilityPolicy.retryDelay(
                         forConsecutiveFailures: transientFailures
                     )
-                    currentAgent = "Provider unterbrochen – dasselbe Buch läuft in \(ProductionStabilityPolicy.formatRetryDelay(delay)) weiter"
+                    currentAgent = ProductionStabilityPolicy.isContentQualityRejection(error)
+                        ? "Planqualität wird neu aufgebaut (Versuch \(contentQualityRestarts)/\(ProductionStabilityPolicy.maxContentQualityRestarts))"
+                        : "Provider unterbrochen – dasselbe Buch läuft in \(ProductionStabilityPolicy.formatRetryDelay(delay)) weiter"
                     publishWorkerStatus()
                     modelContext?.saveOrLog()
                     do {
@@ -2111,8 +2450,14 @@ final class PipelineOrchestrator: ObservableObject {
 
     private func run(project: Project, config: ProviderConfiguration) async {
         var consecutiveTransientFailures = 0
+        var contentQualityRestarts = 0
         var readinessRetries = 0
         while !Task.isCancelled {
+            guard await waitForStorageSpace() else {
+                handleStop(project: project)
+                return
+            }
+
             do {
                 try await executeAllPhases(project: project, config: config)
                 try PublicationReadiness.validateForCompletion(project: project)
@@ -2176,16 +2521,37 @@ final class PipelineOrchestrator: ObservableObject {
                 }
 
 
-                if ProductionStabilityPolicy.shouldResumeInterruptedBook(after: error) {
+                // Voller Datentraeger: Das Buch bleibt fortsetzbar liegen und laeuft
+                // ohne Klick weiter, sobald wieder Platz frei ist.
+                if ProductionStorageGuard.isStorageFailure(error) {
+                    project.status = .paused
+                    modelContext?.saveOrLog("Speichermangel – Buch wartet auf freien Speicher")
+                    guard await waitForStorageSpace() else {
+                        handleStop(project: project)
+                        return
+                    }
+                    continue
+                }
+
+                if ProductionStabilityPolicy.shouldResumeInterruptedBook(
+                    after: error, consecutiveFailures: contentQualityRestarts
+                ) {
+                    if ProductionStabilityPolicy.isContentQualityRejection(error) {
+                        contentQualityRestarts += 1
+                    }
                     consecutiveTransientFailures += 1
                     project.status = .paused
                     let delay = ProductionStabilityPolicy.retryDelay(
                         forConsecutiveFailures: consecutiveTransientFailures
                     )
                     let reason = (error as? AIError)?.errorDescription ?? error.localizedDescription
-                    lastError = "Vorübergehende Unterbrechung: \(reason) Die Produktion setzt dieses Buch automatisch fort."
+                    lastError = ProductionStabilityPolicy.isContentQualityRejection(error)
+                        ? "Qualitätsplanung abgelehnt: \(reason) Neuer Aufbau \(contentQualityRestarts)/\(ProductionStabilityPolicy.maxContentQualityRestarts)."
+                        : "Vorübergehende Unterbrechung: \(reason) Die Produktion setzt dieses Buch automatisch fort."
                     ProductionIncidentStore.record(lastError ?? reason)
-                    currentAgent = "Verbindung unterbrochen – automatische Fortsetzung in \(ProductionStabilityPolicy.formatRetryDelay(delay))"
+                    currentAgent = ProductionStabilityPolicy.isContentQualityRejection(error)
+                        ? "Planqualität wird neu aufgebaut (Versuch \(contentQualityRestarts)/\(ProductionStabilityPolicy.maxContentQualityRestarts))"
+                        : "Verbindung unterbrochen – automatische Fortsetzung in \(ProductionStabilityPolicy.formatRetryDelay(delay))"
                     modelContext?.saveOrLog()
                     do {
                         try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
@@ -2319,6 +2685,15 @@ final class PipelineOrchestrator: ObservableObject {
         job.result = result.map { String($0.prefix(2000)) }
         job.tokenUsage = tokens
         currentJob = nil
+        // EIN GELUNGENER SCHRITT BEENDET DIE ALTE STOERMELDUNG.
+        //
+        // Der Vorfallspeicher trug bisher die letzte Meldung, bis ein ganzes Buch fertig
+        // wurde. Am 09.09.2026 stand deshalb um 20:15 noch „Kapitelplanung nach vier
+        // Versuchen pausiert" im Cockpit, obwohl die Pipeline um 19:45 alle 58 Kapitel
+        // geplant und um 20:08 bereits Szenen geschrieben hatte. Wer eine erledigte
+        // Stoerung als Alarm sieht, glaubt irgendwann auch dem echten nicht mehr.
+        // Die Historie steht weiterhin am Job selbst.
+        ProductionIncidentStore.clear()
     }
 
     private func failJob(_ job: PipelineJob, error: Error) {
@@ -2361,11 +2736,16 @@ final class PipelineOrchestrator: ObservableObject {
         let model = creative ? resolveWritingModel(for: config, fallback: fallbackModel) : fallbackModel
 
         func run(_ chosen: String) async throws -> GenerationResponse {
+            try await requireStorageSpaceWaitingIfNeeded()
             let request = GenerationRequest(
                 prompt: prompt, systemPrompt: system, model: chosen,
                 provider: config.provider, maxTokens: maxTokens, temperature: temperature
             )
             let response = try await gateway.generateText(request: request, configuration: config)
+            // Zwischen Anfrage und Antwort kann ein anderer Prozess den Datentraeger
+            // fuellen. Vor jeder Mutation der SwiftData-Objekte erneut pruefen – und
+            // notfalls warten, statt die fertige Antwort mit einem Fehler wegzuwerfen.
+            try await requireStorageSpaceWaitingIfNeeded()
             if let tokens = response.tokensUsed {
                 recordTokenUsage(tokens, model: chosen)
             }
@@ -3768,17 +4148,35 @@ final class PipelineOrchestrator: ObservableObject {
         // Bereits geplant? (Fortsetzen) – verhindert auch doppelte Kapitel.
         let existingChapters = sortedChapters(project)
         if !existingChapters.isEmpty {
-            if hasUsableExistingChapterPlan(
+            let hasWrittenProse = existingChapters.contains {
+                !(($0.bestText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            let rejectedScenePlanReports = (project.qualityReports ?? []).filter {
+                !$0.autoFixed
+                    && $0.checkType == "Szenenplan"
+                    && $0.result.localizedCaseInsensitiveContains("verworfen")
+            }
+            let rejectedScenePlans = rejectedScenePlanReports.count
+            if !hasWrittenProse && rejectedScenePlans >= 12 {
+                addReport(
+                    project: project,
+                    area: "Kapitelplan",
+                    type: "Stagnationsschutz",
+                    result: "Ungeschriebener Altplan nach \(rejectedScenePlans) "
+                        + "Szenenplan-Ablehnungen vollständig verworfen.",
+                    severity: .warning,
+                    recommendation: "Kapitel und Szenen werden aus dem aktuellen Figurenkanon neu geplant."
+                )
+                for report in rejectedScenePlanReports { report.autoFixed = true }
+                resetChapterPlan(for: project)
+            } else if hasUsableExistingChapterPlan(
                 existingChapters,
                 expectedCount: productionPlan(for: project).chapterCount,
                 isNonfiction: project.isNonfiction
             ) {
                 project.status = .chapterPlanning
                 return
-            }
-            let hasWrittenProse = existingChapters.contains {
-                !(($0.bestText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
+            } else {
             // EIN UNBEHEBBARER BEFUND DARF NIEMALS BLOCKIEREN.
             //
             // Hier stand ein `throw`, und er erzeugte einen perfekten Deadlock:
@@ -3813,7 +4211,8 @@ final class PipelineOrchestrator: ObservableObject {
                 project.status = .chapterPlanning
                 return
             }
-            resetChapterPlan(for: project)
+                resetChapterPlan(for: project)
+            }
         }
         project.status = .chapterPlanning
         let plan = productionPlan(for: project)
@@ -5026,6 +5425,10 @@ final class PipelineOrchestrator: ObservableObject {
     /// Antworten werden erneut erzeugt, ohne minderwertige Ersatztexte zu speichern.
     private func isFatalProductionError(_ error: Error) -> Bool {
         if error is CancellationError { return true }
+        // Speichermangel (auch als SQLite-Meldung "database or disk is full") wird
+        // sofort nach oben durchgereicht: Dort wartet die Buchschleife auf freien
+        // Speicher. Ein phaseninternes Wiederholen scheitert bis dahin garantiert.
+        if ProductionStorageGuard.isStorageFailure(error) { return true }
         guard let aiError = error as? AIError else { return false }
         switch aiError {
         case .apiKeyInvalid, .quotaExceeded, .baseURLMissing, .contextTooLong, .fileTooLarge:
@@ -5466,6 +5869,7 @@ final class PipelineOrchestrator: ObservableObject {
             for (sceneIndex, scene) in scenes.enumerated() {
                 try Task.checkCancellation()
                 if isSceneWritten(scene), let existingText = scene.text {
+                    let earlierSceneTexts = scenes.prefix(sceneIndex).compactMap(\.text)
                     let normalizedExistingText = SpellCheckService.korrigiereEindeutigeFehler(
                         in: AutonomousContentQuality.humanizeProse(existingText)
                     )
@@ -5478,8 +5882,16 @@ final class PipelineOrchestrator: ObservableObject {
                         priorTexts: priorProseTexts
                     )
                     let nameOveruse = project.isNonfiction ? []
-                        : AutonomousContentQuality.characterNameOveruseFindings(
-                            inChapters: [normalizedExistingText], characterNames: characterNames
+                        : AutonomousContentQuality.chapterDraftNameOveruseFindings(
+                            existingSceneTexts: earlierSceneTexts,
+                            candidate: normalizedExistingText,
+                            characterNames: characterNames
+                        )
+                    let tenseIssues = project.isNonfiction ? []
+                        : AutonomousContentQuality.chapterDraftTenseIssues(
+                            existingSceneTexts: earlierSceneTexts,
+                            candidate: normalizedExistingText,
+                            expectedTense: profile.tense
                         )
                     let openingIssues = project.isNonfiction
                         || chapter.chapterNumber != 1 || scene.sceneNumber != 1
@@ -5498,7 +5910,7 @@ final class PipelineOrchestrator: ObservableObject {
                         in: normalizedExistingText
                     )
                     if collisions.isEmpty, nameOveruse.isEmpty, openingIssues.isEmpty,
-                       resumeCanonIssues.isEmpty, dialogueIssues.isEmpty {
+                       tenseIssues.isEmpty, resumeCanonIssues.isEmpty, dialogueIssues.isEmpty {
                         previousSceneText = normalizedExistingText
                         priorProseTexts.append(normalizedExistingText)
                         if let summary = scene.summary, !summary.isEmpty {
@@ -5957,6 +6369,10 @@ final class PipelineOrchestrator: ObservableObject {
                     var lastDialoganteil = 1.0
                     var lastSubtext = DialogSubtext.Kennzahl(fragen: 0, direkt: 0)
                     var lastRetelling = false
+                    // Bereits gespeicherte Szenen dieses Kapitels bilden gemeinsam mit
+                    // jedem Kandidaten die lokale Kapitelansicht. Sie bleibt fuer alle
+                    // Versuche dieser Szene identisch.
+                    let bisherImKapitel = sortedScenes(chapter).compactMap(\.text)
                     // HARTE GESAMTSCHRANKE FÜR DIESE EINE SZENE.
                     //
                     // Jeder Pfad hier drin hat seine eigene kleine Grenze (1...2, 1...3,
@@ -6366,7 +6782,6 @@ final class PipelineOrchestrator: ObservableObject {
                             // `priorProseTexts` wird nur am Kapitelende aktualisiert – dadurch
                             // konnte dieselbe Wendung mehrfach im selben Kapitel stehen, ohne
                             // dass etwas anschlug (Buch 11: „die Narbe am Handgelenk" 8×).
-                            let bisherImKapitel = sortedScenes(chapter).compactMap(\.text)
                             lastVerbrauchteWendungen = project.isNonfiction
                                 ? []
                                 : AutonomousContentQuality.verbrauchteWendungen(
@@ -6406,12 +6821,16 @@ final class PipelineOrchestrator: ObservableObject {
                                 : AutonomousContentQuality.monotoneSatzanfaenge(in: response.text)
                             lastNameOveruse = project.isNonfiction
                                 ? []
-                                : AutonomousContentQuality.characterNameOveruseFindings(
-                                    inChapters: [response.text], characterNames: characterNames
+                                : AutonomousContentQuality.chapterDraftNameOveruseFindings(
+                                    existingSceneTexts: bisherImKapitel,
+                                    candidate: response.text,
+                                    characterNames: characterNames
                                 ).map { "\($0.characterName) (bis zu \($0.maximumMentions)x)" }
                             lastTenseIssues = project.isNonfiction ? []
-                                : AutonomousContentQuality.narrativeTenseIssues(
-                                    in: response.text, expectedTense: profile.tense)
+                                : AutonomousContentQuality.chapterDraftTenseIssues(
+                                    existingSceneTexts: bisherImKapitel,
+                                    candidate: response.text,
+                                    expectedTense: profile.tense)
                             lastKlischees = project.isNonfiction
                                 ? []
                                 : AutonomousContentQuality.stimmungsklischees(
@@ -6509,11 +6928,15 @@ final class PipelineOrchestrator: ObservableObject {
                                     in: sceneText, allowedContext: resolvedAllowedDraftContext
                                 ).isEmpty
                                 && (project.isNonfiction
-                                    || (AutonomousContentQuality.characterNameOveruseFindings(
-                                        inChapters: [sceneText], characterNames: characterNames
+                                    || (AutonomousContentQuality.chapterDraftNameOveruseFindings(
+                                        existingSceneTexts: bisherImKapitel,
+                                        candidate: sceneText,
+                                        characterNames: characterNames
                                     ).isEmpty
-                                        && AutonomousContentQuality.narrativeTenseIssues(
-                                            in: sceneText, expectedTense: profile.tense
+                                        && AutonomousContentQuality.chapterDraftTenseIssues(
+                                            existingSceneTexts: bisherImKapitel,
+                                            candidate: sceneText,
+                                            expectedTense: profile.tense
                                         ).isEmpty))
                                 && (project.isNonfiction
                                     || AutonomousContentQuality.localContentWordOveruse(
@@ -6574,12 +6997,16 @@ final class PipelineOrchestrator: ObservableObject {
                                    in: sceneText, allowedContext: resolvedAllowedDraftContext
                                ).isEmpty,
                                (project.isNonfiction
-                                || AutonomousContentQuality.characterNameOveruseFindings(
-                                    inChapters: [sceneText], characterNames: characterNames
+                                || AutonomousContentQuality.chapterDraftNameOveruseFindings(
+                                    existingSceneTexts: bisherImKapitel,
+                                    candidate: sceneText,
+                                    characterNames: characterNames
                                 ).isEmpty),
                                (project.isNonfiction
-                                || AutonomousContentQuality.narrativeTenseIssues(
-                                    in: sceneText, expectedTense: profile.tense
+                                || AutonomousContentQuality.chapterDraftTenseIssues(
+                                    existingSceneTexts: bisherImKapitel,
+                                    candidate: sceneText,
+                                    expectedTense: profile.tense
                                 ).isEmpty),
                                // Stilticks erlauben GENAU EINE gezielte Neufassung (Versuch 2
                                // bekommt den Stiltick-Hinweis); ab Versuch 2 blockieren sie die
@@ -6758,8 +7185,10 @@ final class PipelineOrchestrator: ObservableObject {
                                    allowedNames: allowedSceneCharacters
                                ).isEmpty,
                                (project.isNonfiction
-                                || AutonomousContentQuality.characterNameOveruseFindings(
-                                    inChapters: [expanded.text], characterNames: characterNames
+                                || AutonomousContentQuality.chapterDraftNameOveruseFindings(
+                                    existingSceneTexts: bisherImKapitel,
+                                    candidate: expanded.text,
+                                    characterNames: characterNames
                                 ).isEmpty),
                                ContentSafetyFilter.isSafe(expanded.text) {
                                 sceneText = expanded.text
@@ -6791,10 +7220,14 @@ final class PipelineOrchestrator: ObservableObject {
                     // Durchgesickerte Prompt-Anweisungen/Labels aus der Prosa entfernen
                     // (z.B. „Knüpfe nahtlos daran …") und KI-typische Gedankenstriche
                     // in natürliche Interpunktion umwandeln – bevor etwas gespeichert wird.
-                    sceneText = AutonomousContentQuality.strippingSceneHeading(sceneText)
-                    sceneText = AutonomousContentQuality.strippingPromptArtifacts(sceneText)
-                    sceneText = AutonomousContentQuality.strippingInlineFormatting(sceneText)
-                    sceneText = AutonomousContentQuality.humanizeProse(sceneText)
+                    let lokalesDossier = LocalEditorialAssistant.inspect(
+                        sceneText,
+                        priorTexts: priorProseTexts,
+                        protagonistNames: openingCharacterNames,
+                        isOpening: !project.isNonfiction
+                            && chapter.chapterNumber == 1 && scene.sceneNumber == 1
+                    )
+                    sceneText = lokalesDossier.text
                     // GEZIELTE SATZREPARATUR statt Alles-oder-nichts.
                     //
                     // Alle Stilblocker geben nach drei Versuchen frei, damit die Produktion
@@ -6807,7 +7240,7 @@ final class PipelineOrchestrator: ObservableObject {
                         // je 1000 Wörter bei erlaubten 2,5) umfasst die Chirurgie auch
                         // überzählige Bilder und Filterwörter – dieselbe Liste, die auch
                         // gemeldet und in der Freigabe geprüft wird.
-                        let ticks = AutonomousContentQuality.reparierbareStilSaetze(in: sceneText)
+                        let ticks = lokalesDossier.sentenceFindings
                         // Die Satz-Chirurgie ist ein Modellaufruf und läuft daher nur, solange
                         // das Szenenbudget es zulässt. Ohne diese Schranke konnte hier nach
                         // drei Entwürfen und mehreren Neufassungen noch beliebig weiter
@@ -6864,6 +7297,18 @@ final class PipelineOrchestrator: ObservableObject {
                             && !AutonomousContentQuality.repeatedPhraseCollisions(
                                 candidate: sceneText, priorTexts: priorProseTexts
                             ).isEmpty)
+                        || (!project.isNonfiction
+                            && !AutonomousContentQuality.chapterDraftNameOveruseFindings(
+                                existingSceneTexts: bisherImKapitel,
+                                candidate: sceneText,
+                                characterNames: characterNames
+                            ).isEmpty)
+                        || (!project.isNonfiction
+                            && !AutonomousContentQuality.chapterDraftTenseIssues(
+                                existingSceneTexts: bisherImKapitel,
+                                candidate: sceneText,
+                                expectedTense: profile.tense
+                            ).isEmpty)
                         || !AutonomousContentQuality.draftCanonIssues(
                             in: sceneText, canon: primaryCanon,
                             perspectiveName: scene.perspective,
@@ -6891,6 +7336,7 @@ final class PipelineOrchestrator: ObservableObject {
                         let enforced = try await enforceDraftQuality(
                             sceneText,
                             priorTexts: priorProseTexts,
+                            chapterExistingTexts: bisherImKapitel,
                             allowedContext: resolvedAllowedDraftContext,
                             draftCanon: sceneDraftCanon,
                             allowedSceneNames: allowedSceneCharacters,
@@ -7128,8 +7574,16 @@ final class PipelineOrchestrator: ObservableObject {
                     let finalTicks = project.isNonfiction
                         ? [] : AutonomousContentQuality.reparierbareStilSaetze(in: sceneText)
                     let finalNameOveruse = project.isNonfiction ? []
-                        : AutonomousContentQuality.characterNameOveruseFindings(
-                            inChapters: [sceneText], characterNames: characterNames
+                        : AutonomousContentQuality.chapterDraftNameOveruseFindings(
+                            existingSceneTexts: bisherImKapitel,
+                            candidate: sceneText,
+                            characterNames: characterNames
+                        )
+                    let finalTenseIssues = project.isNonfiction ? []
+                        : AutonomousContentQuality.chapterDraftTenseIssues(
+                            existingSceneTexts: bisherImKapitel,
+                            candidate: sceneText,
+                            expectedTense: profile.tense
                         )
                     let finalLocalWordOveruse = project.isNonfiction ? []
                         : AutonomousContentQuality.localContentWordOveruse(
@@ -7144,7 +7598,7 @@ final class PipelineOrchestrator: ObservableObject {
                     if !finalCollisions.isEmpty || !finalPhraseCollisions.isEmpty
                         || finalTicks.count > 1
                         || !finalNameOveruse.isEmpty || !finalLocalWordOveruse.isEmpty
-                        || !finalOpeningIssues.isEmpty {
+                        || !finalOpeningIssues.isEmpty || !finalTenseIssues.isEmpty {
                         var findings: [String] = []
                         if !finalCollisions.isEmpty {
                             findings.append(
@@ -7171,6 +7625,9 @@ final class PipelineOrchestrator: ObservableObject {
                         if !finalOpeningIssues.isEmpty {
                             findings.append("Romananfang traegt nicht: "
                                 + finalOpeningIssues.prefix(2).joined(separator: " "))
+                        }
+                        if !finalTenseIssues.isEmpty {
+                            findings.append("Erzaehlzeit wechselt an einer Szenen- oder Absatzgrenze")
                         }
                         // STILBEFUNDE MELDEN, NICHT DAS BUCH ANHALTEN.
                         //
@@ -7235,6 +7692,21 @@ final class PipelineOrchestrator: ObservableObject {
                             recommendation: "Die gespeicherte Szene enthaelt nur katalogweit freie Namen."
                         )
                     }
+                    if !AutonomousContentQuality.brokenDialogueTypography(in: sceneText).isEmpty {
+                        if let repair = try? await repairDraftDialogueTypography(
+                            sceneText,
+                            project: project,
+                            chapter: chapter,
+                            scene: scene,
+                            config: config
+                        ) {
+                            sceneText = repair.text
+                            sceneTokens += repair.tokens
+                            if repair.attempted {
+                                szenenBudget.verbuche(fassung: repair.text)
+                            }
+                        }
+                    }
                     var persistenceIssues = AutonomousContentQuality.hardDraftPersistenceIssues(
                         sceneText,
                         targetWords: scene.targetWordCount,
@@ -7250,7 +7722,10 @@ final class PipelineOrchestrator: ObservableObject {
                         ).map { "Kanonischer Rollenwiderspruch: \($0)" })
                     }
                     if !AutonomousContentQuality.brokenDialogueTypography(in: sceneText).isEmpty {
-                        persistenceIssues.append("beschädigte Dialogtypografie")
+                        let issue = "beschädigte Dialogtypografie"
+                        if !ProductionStabilityPolicy.isDeferredTechnicalDraftIssue(issue) {
+                            persistenceIssues.append(issue)
+                        }
                     }
                     guard persistenceIssues.isEmpty else {
                         addReport(
@@ -8553,6 +9028,7 @@ final class PipelineOrchestrator: ObservableObject {
         let phasePattern = #"^(aufbruch|eskalation|krise|auflösung|kapitel|teil)\s+\d+$"#
         let isGeneric = current.isEmpty
             || AutonomousContentQuality.isGenericPlaceholder(current)
+            || AutonomousContentQuality.isInternalPlanningTitle(current)
             || current.range(of: phasePattern, options: [.regularExpression, .caseInsensitive]) != nil
         guard isGeneric, !summary.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         do {
@@ -8817,6 +9293,58 @@ final class PipelineOrchestrator: ObservableObject {
         return (paragraphs.joined(separator: "\n\n"), usedTokens)
     }
 
+    /// Ein einzelner technischer Anfuehrungszeichenfehler darf kein bereits weit
+    /// geschriebenes Buch zur Projektanlage zurueckschicken. Die lokale Normalisierung
+    /// ist zu diesem Zeitpunkt schon gelaufen; genau ein konservativer Cloud-Patch darf
+    /// daher nur Zeichensetzung und Abstaende korrigieren. Scheitert er, bleibt der
+    /// sichtbare Befund fuer die obligatorische Schlusskorrektur erhalten.
+    private func repairDraftDialogueTypography(
+        _ source: String,
+        project: Project,
+        chapter: Chapter,
+        scene: StoryScene,
+        config: ProviderConfiguration
+    ) async throws -> (text: String, tokens: Int, attempted: Bool) {
+        guard !AutonomousContentQuality.brokenDialogueTypography(in: source).isEmpty else {
+            return (source, 0, false)
+        }
+        let response = try await generate(
+            prompt: """
+            Korrigiere ausschliesslich die deutsche Dialogtypografie dieser Szene:
+            fehlende oder doppelte Anfuehrungszeichen, Satzzeichen und Leerzeichen an
+            Redegrenzen. Bewahre jedes Wort, alle Ereignisse, Namen, Reihenfolge,
+            Perspektive und Zeitform. Fuege nichts hinzu und entferne nichts. Gib nur
+            die vollstaendige korrigierte Szene zurueck.
+
+            KAPITEL \(chapter.chapterNumber), SZENE \(scene.sceneNumber):
+            \(source)
+            """,
+            system: "Du bist ein deutscher Korrektor. Du reparierst nur Dialogzeichen und veraenderst keinen Inhalt.",
+            maxTokens: min(6_000, max(800, source.wordCount * 4)),
+            temperature: 0.1,
+            config: config
+        )
+        let candidate = AutonomousContentQuality.humanizeProse(
+            AutonomousContentQuality.strippingInlineFormatting(
+                AutonomousContentQuality.strippingPromptArtifacts(response.text)
+            )
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard AutonomousContentQuality.brokenDialogueTypography(in: candidate).isEmpty,
+              AutonomousContentQuality.isAcceptableRewrite(
+                source: source,
+                candidate: candidate,
+                minRatio: 0.90,
+                maxRatio: 1.10,
+                finishReason: response.finishReason
+              ),
+              !AutonomousContentQuality.containsMetaRequest(candidate),
+              !PublicContentGuard.disclosureViolation(in: candidate),
+              ContentSafetyFilter.isSafe(candidate) else {
+            return (source, response.tokensUsed ?? 0, true)
+        }
+        return (candidate, response.tokensUsed ?? 0, true)
+    }
+
     private func cleanDraftStyleArtifacts(
         _ source: String,
         priorTexts: [String],
@@ -8915,6 +9443,7 @@ final class PipelineOrchestrator: ObservableObject {
     private func enforceDraftQuality(
         _ source: String,
         priorTexts: [String],
+        chapterExistingTexts: [String],
         allowedContext: String,
         draftCanon: String,
         allowedSceneNames: [String],
@@ -8970,8 +9499,16 @@ final class PipelineOrchestrator: ObservableObject {
             unexpectedArtifacts: unexpectedArtifacts
         )
         let nameOveruse = project.isNonfiction ? []
-            : AutonomousContentQuality.characterNameOveruseFindings(
-                inChapters: [source], characterNames: characterNames
+            : AutonomousContentQuality.chapterDraftNameOveruseFindings(
+                existingSceneTexts: chapterExistingTexts,
+                candidate: source,
+                characterNames: characterNames
+            )
+        let tenseIssues = project.isNonfiction ? []
+            : AutonomousContentQuality.chapterDraftTenseIssues(
+                existingSceneTexts: chapterExistingTexts,
+                candidate: source,
+                expectedTense: project.bookProfile?.tense ?? ""
             )
         let localWordOveruse = project.isNonfiction ? []
             : AutonomousContentQuality.localContentWordOveruse(
@@ -8996,6 +9533,11 @@ final class PipelineOrchestrator: ObservableObject {
             allFindings.append(
                 "Figurennamen werden in kurzen Absaetzen mechanisch wiederholt; "
                     + "nach der ersten eindeutigen Nennung klare Pronomen oder natuerliche Satzanschluesse verwenden"
+            )
+        }
+        if !tenseIssues.isEmpty {
+            allFindings.append(
+                "Erzaehlzeit an Szenen- oder Absatzgrenzen an das vorgegebene Tempus angleichen"
             )
         }
         if !localWordOveruse.isEmpty {
@@ -9097,8 +9639,16 @@ final class PipelineOrchestrator: ObservableObject {
                    in: candidate, allowedContext: allowedContext
                ).isEmpty,
                (project.isNonfiction
-                || AutonomousContentQuality.characterNameOveruseFindings(
-                    inChapters: [candidate], characterNames: characterNames
+                || AutonomousContentQuality.chapterDraftNameOveruseFindings(
+                    existingSceneTexts: chapterExistingTexts,
+                    candidate: candidate,
+                    characterNames: characterNames
+                ).isEmpty),
+               (project.isNonfiction
+                || AutonomousContentQuality.chapterDraftTenseIssues(
+                    existingSceneTexts: chapterExistingTexts,
+                    candidate: candidate,
+                    expectedTense: project.bookProfile?.tense ?? ""
                 ).isEmpty),
                ContentSafetyFilter.isSafe(candidate) {
                 return (candidate, usedTokens, candidate != source)
@@ -11954,6 +12504,113 @@ final class PipelineOrchestrator: ObservableObject {
         }
     }
 
+    private func repairFinalStyleParagraphs(
+        source: String,
+        otherChapterTexts: [String],
+        project: Project,
+        chapter: Chapter,
+        config: ProviderConfiguration
+    ) async throws -> (text: String, tokens: Int, changed: Bool) {
+        var current = source
+        var totalTokens = 0
+        var changedAny = false
+
+        for pass in 1...2 {
+            let dossier = LocalEditorialAssistant.inspect(
+                current,
+                priorTexts: otherChapterTexts,
+                maximumParagraphs: 12
+            )
+            current = dossier.text
+            let targets = dossier.paragraphTargets
+            guard !targets.isEmpty else { break }
+
+            var paragraphs = current.components(separatedBy: "\n\n")
+            var changedThisPass = false
+
+            // Vier markierte Absätze teilen sich einen Modellaufruf. Zuvor erzeugte
+            // jeder Absatz bis zu zwei Anfragen je Durchgang. Die lokale Zuordnung und
+            // die Einzelabnahme erhalten trotzdem die chirurgische Sicherheit.
+            for batchStart in stride(from: 0, to: targets.count, by: 4) {
+                try Task.checkCancellation()
+                let end = min(batchStart + 4, targets.count)
+                let batch = Array(targets[batchStart..<end])
+                let prompt = LocalEditorialAssistant.batchRepairPrompt(
+                    targets: batch,
+                    chapterNumber: chapter.chapterNumber,
+                    chapterTitle: chapter.title
+                ) + "\n\nBündeldurchgang \(pass)/2."
+                let batchWords = batch.reduce(0) { $0 + $1.text.wordCount }
+
+                do {
+                    let response = try await generate(
+                        prompt: prompt,
+                        system: "Du bist ein konservativer deutscher Romanlektor. Du verbesserst nur markierte Absätze und veränderst niemals die Geschichte.",
+                        maxTokens: min(7_000, max(900, batchWords * 5)),
+                        temperature: 0.2,
+                        config: config,
+                        creative: true
+                    )
+                    totalTokens += response.tokensUsed ?? 0
+                    let replacements = LocalEditorialAssistant.parseBatchReplacements(
+                        response.text,
+                        targets: batch
+                    )
+
+                    for target in batch {
+                        guard let candidate = replacements[target.paragraphIndex],
+                              paragraphs.indices.contains(target.paragraphIndex) else { continue }
+                        let paragraph = paragraphs[target.paragraphIndex]
+                        let comparisonTexts = otherChapterTexts
+                            + paragraphs.enumerated().compactMap {
+                                $0.offset == target.paragraphIndex ? nil : $0.element
+                            }
+                        let candidateDossier = LocalEditorialAssistant.inspect(
+                            candidate,
+                            priorTexts: comparisonTexts,
+                            maximumParagraphs: 2
+                        )
+                        let candidateIssueCount = candidateDossier.paragraphTargets
+                            .reduce(0) { $0 + $1.issueCount }
+                            + candidateDossier.repeatedSentences.count
+                            + candidateDossier.dialogueIssues.count
+
+                        if candidateIssueCount < target.issueCount,
+                           AutonomousContentQuality.isAcceptableRewrite(
+                               source: paragraph, candidate: candidate,
+                               minRatio: 0.58, maxRatio: 1.35,
+                               finishReason: response.finishReason
+                           ),
+                           RevisionSafety.issues(
+                               source: paragraph,
+                               candidate: candidate
+                           ).isEmpty,
+                           !AutonomousContentQuality.containsMetaRequest(candidate),
+                           !PublicContentGuard.disclosureViolation(in: candidate),
+                           ContentSafetyFilter.isSafe(candidate) {
+                            paragraphs[target.paragraphIndex] = candidateDossier.text
+                            changedThisPass = true
+                            changedAny = true
+                        }
+                    }
+                } catch {
+                    if isFatalProductionError(error) { throw error }
+                    // Originaltext erhalten; der Befund bleibt für die nächste
+                    // kontrollierte Reparaturphase sichtbar.
+                }
+            }
+
+            current = paragraphs.joined(separator: "\n\n")
+            if !changedThisPass { break }
+            if !AutonomousContentQuality.soundsLikeAI(current),
+               AutonomousContentQuality.antiGlaetteFindings(in: current).isEmpty,
+               AutonomousContentQuality.clarityAssessment(current).isAcceptable {
+                break
+            }
+        }
+        return (current, totalTokens, changedAny)
+    }
+
     private func runAIStyleCleanup(project: Project,
                                    config: ProviderConfiguration) async throws {
         guard !project.isNonfiction else { return }
@@ -12001,6 +12658,98 @@ final class PipelineOrchestrator: ObservableObject {
             var accepted: String?
             var usedTokens = 0
             var rejectionReasons: [String] = []
+
+            // Zuerst nur die tatsaechlich auffaelligen Absaetze anfassen. Ein
+            // Ganzkapitel-Rewrite bleibt als Fallback erhalten, wird aber nicht mehr
+            // fuer vier lokale Floskeln erzwungen.
+            let surgical = try await repairFinalStyleParagraphs(
+                source: source,
+                otherChapterTexts: otherTexts,
+                project: project,
+                chapter: chapter,
+                config: config
+            )
+            usedTokens += surgical.tokens
+            if surgical.changed {
+                let candidate = surgical.text
+                var reasons: [String] = []
+                if !AutonomousContentQuality.isAcceptableRewrite(
+                    source: source, candidate: candidate,
+                    minRatio: 0.82, maxRatio: 1.12,
+                    finishReason: nil
+                ) || !withinGrowthCeiling(candidate, source: source, chapter: chapter) {
+                    reasons.append("Die Absatzreparatur veraendert den Kapitelumfang zu stark.")
+                }
+                if AutonomousContentQuality.soundsLikeAI(candidate) {
+                    reasons.append("Formelhafte oder vage Prosa ist weiterhin zu dicht.")
+                }
+                if !AutonomousContentQuality.antiGlaetteFindings(in: candidate).isEmpty {
+                    reasons.append("Die Fassung enthaelt weiterhin uebererklaerte Stellen.")
+                }
+                if !AutonomousContentQuality.clarityAssessment(candidate).isAcceptable {
+                    reasons.append("Referenzen oder Vergleichsketten sind weiterhin unklar.")
+                }
+                let newCollisions = Set(
+                    AutonomousContentQuality.repeatedSentenceCollisions(
+                        candidate: candidate, priorTexts: otherTexts
+                    )
+                ).subtracting(sourceCollisions)
+                if !newCollisions.isEmpty {
+                    reasons.append("Die Absatzreparatur erzeugt neue wortgleiche Saetze.")
+                }
+                let newCanonClaims = Set(
+                    AutonomousContentQuality.unsupportedCanonClaims(
+                        in: candidate, canon: primaryCanon, characterNames: characterNames
+                    )
+                ).subtracting(sourceCanonClaims)
+                if !newCanonClaims.isEmpty {
+                    reasons.append("Die Absatzreparatur erfindet neue Kanonfakten.")
+                }
+                if !AutonomousContentQuality.unexpectedCharacterNames(
+                    in: candidate, allowedContext: allowedContext,
+                    characterNames: characterNames
+                ).isEmpty || !CharacterCanonAudit.unexpectedActingCharacterParts(
+                    in: candidate, allowedNames: characterNames
+                ).isEmpty {
+                    reasons.append("Die Absatzreparatur fuehrt eine nicht kanonische Figur ein.")
+                }
+                if !AutonomousContentQuality.unexpectedStoryArtifacts(
+                    in: candidate, allowedContext: allowedContext
+                ).isEmpty {
+                    reasons.append("Die Absatzreparatur fuehrt ein neues Handlungselement ein.")
+                }
+                if !AutonomousContentQuality.characterNameOveruseFindings(
+                    inChapters: [candidate], characterNames: characterNames
+                ).isEmpty {
+                    reasons.append("Die Fassung wiederholt Figurennamen mechanisch.")
+                }
+                if chapter.chapterNumber == chapters.first?.chapterNumber {
+                    reasons.append(contentsOf: AutonomousContentQuality.finalOpeningIssues(
+                        in: candidate, protagonistNames: protagonistNames
+                    ))
+                }
+                reasons.append(contentsOf: RevisionSafety.issues(
+                    source: source, candidate: candidate
+                ))
+
+                if reasons.isEmpty {
+                    do {
+                        let verdict = try await blindRevisionClearlyImproves(
+                            original: source, candidate: candidate,
+                            language: project.language, chapterTitle: chapter.title,
+                            config: config
+                        )
+                        usedTokens += verdict.tokens
+                        if verdict.accepted { accepted = candidate }
+                        else { reasons.append("Der blinde Lektoratsvergleich weist keine klare Verbesserung nach.") }
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        reasons.append("Der blinde Lektoratsvergleich konnte nicht sicher abgeschlossen werden.")
+                    }
+                }
+                rejectionReasons = reasons
+            }
 
             for attempt in 1...3 where accepted == nil {
                 let retry = rejectionReasons.isEmpty ? "" : """
@@ -12864,8 +13613,11 @@ final class PipelineOrchestrator: ObservableObject {
     private func canonicalStoryContext(project: Project) -> String {
         guard let bible = project.storyBible else { return "" }
         return [
-            primaryStoryCanon(project: project),
-            "ERGÄNZENDE FIGURENPROFILE (dürfen dem Primärkanon nie widersprechen):\n\(compactCharacterSummary(bible))"
+            // Profile zuerst: Viele Aufrufer begrenzen lange Kanontexte. Standen die
+            // Namen hinter dem Plot, wurden sie bei komplexen Buechern abgeschnitten
+            // und das Modell erfand Ersatzfiguren, obwohl Profile vorhanden waren.
+            "VERBINDLICHE FIGURENPROFILE (Namen, Rollen, Alter, Beruf und Stimme):\n\(compactCharacterSummary(bible))",
+            primaryStoryCanon(project: project)
         ].filter { !$0.hasSuffix(": ") && !$0.hasSuffix(":\n") }
             .joined(separator: "\n\n")
     }

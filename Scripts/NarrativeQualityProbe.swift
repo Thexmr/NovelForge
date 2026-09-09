@@ -86,10 +86,21 @@ enum NarrativeQualityProbe {
         """
         precondition(AutonomousContentQuality.fehlendeSatzvarianz(in: readable) == nil,
                      "Gut lesbare kurze und mittlere Saetze duerfen keine Schachtelsaetze erzwingen")
+        precondition(AutonomousContentQuality.teenReadabilityIssues(in: readable).isEmpty,
+                     "Klare moderne Prosa muss fuer Leser ab 15 freigegeben werden")
         precondition(
             AutonomousContentQuality.isPersistableDraftText(readable, targetWords: 240),
             "Vollstaendige klare Prosa muss als geschriebene Szene gespeichert werden duerfen"
         )
+        let unnecessarilyDifficult = Array(repeating: """
+        Die epistemologische Rekontextualisierung der Angelegenheit, welche Mara angesichts der
+        aequidistanten Positionierung saemtlicher Beteiligter nunmehr vorzunehmen gedachte, erwies
+        sich als eine hermeneutische Herausforderung, deren mannigfaltige Implikationen sie trotz
+        der fortschreitenden institutionellen Konsolidierung nicht ohne weitere Reflexion zu
+        erfassen vermochte.
+        """, count: 6).joined(separator: " ")
+        precondition(!AutonomousContentQuality.teenReadabilityIssues(in: unnecessarilyDifficult).isEmpty,
+                     "Akademische Bandwurmsaetze muessen die Lesbarkeit ab 15 blockieren")
         let formerPlaceholder = """
         [Diese Szene muss noch ausgeschrieben werden - bitte im Manuskript neu erzeugen.]
         Geplanter Inhalt: Mara konfrontiert ihren Bruder mit dem Brief.
@@ -122,11 +133,14 @@ enum NarrativeQualityProbe {
             AutonomousContentQuality.soundsLikeAI(completeButStylisticallyWeak),
             "Der Testtext muss als stilistisch auffaellig erkannt werden"
         )
+        let persistenceIssues = AutonomousContentQuality.draftPersistenceIssues(
+            completeButStylisticallyWeak, targetWords: 300
+        )
         precondition(
             AutonomousContentQuality.isPersistableDraftText(
                 completeButStylisticallyWeak, targetWords: 300
             ),
-            "Vollstaendige sichere Prosa darf wegen eines weichen Stilbefunds nicht verworfen werden"
+            "Vollstaendige sichere Prosa darf wegen eines weichen Stilbefunds nicht verworfen werden: \(persistenceIssues)"
         )
 
         let concept = PromptFactory.concept(

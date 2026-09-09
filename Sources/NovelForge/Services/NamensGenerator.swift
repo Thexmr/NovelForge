@@ -30,6 +30,176 @@ import Foundation
 /// der Generator nicht.
 enum NamensGenerator {
 
+    private static let modernerNamensraum = StoryMemory.Namensraum(
+        region: "modern deutschsprachig",
+        vornamen: [
+            "Emma", "Noah", "Mia", "Leon", "Emilia", "Paul", "Hannah", "Elias",
+            "Sofia", "Luca", "Clara", "Louis", "Ella", "Henry", "Lea", "Felix",
+            "Marie", "Maximilian", "Sophie", "Alexander", "Laura", "Julian",
+            "Sarah", "Niklas", "Julia", "Tim", "Lisa", "Tom", "Katharina", "Jan",
+            "Christina", "Lukas", "Stefanie", "David", "Melanie", "Daniel",
+            "Sandra", "Sebastian", "Tanja", "Tobias", "Nadine", "Christian",
+            "Vanessa", "Stefan", "Jennifer", "Andreas", "Jessica", "Thomas",
+            "Carolin", "Martin", "Annika", "Michael", "Miriam", "Markus",
+            "Rebecca", "Patrick", "Isabel", "Kevin", "Isabelle", "Dennis",
+            "Luisa", "Fabian", "Charlotte", "Florian", "Mathilda", "Moritz",
+            "Nele", "Simon", "Jule", "Philipp", "Alina", "Robin", "Elisa",
+            "Marcel", "Helene", "Manuel", "Luise", "Hendrik", "Maja", "Robert",
+            "Antonia", "Richard", "Victoria", "Benjamin", "Eva", "Jonathan",
+            "Nina", "Dominik", "Jana", "Kai", "Pia", "Nils", "Linda", "Erik",
+            "Britta", "Sven", "Sonja", "Ralf", "Natalie", "Frank",
+            "Vera", "Marco", "Sabine", "Mario", "Andrea", "Torsten", "Petra",
+            "Holger", "Claudia", "Jürgen", "Nicole", "Georg", "Simone", "Sascha",
+            "Katja", "Heiko", "Anja", "René", "Iris", "Carsten", "Svea", "Max",
+            "Kim", "Eric", "Romina", "Vincent", "Denise", "Christopher", "Deborah",
+            "Björn", "Patricia", "Gunnar", "Sylvia", "Joachim", "Gabriele", "Bernd",
+            "Kerstin", "Dominic", "Corinna", "Armin", "Maren", "Rüdiger", "Kirsten",
+            "Steffen", "Janina", "Jens", "Larissa", "Lars", "Mandy", "Malte",
+            "Abigail", "Aaron", "Ada", "Adrian", "Adriana", "Albert", "Alexandra", "Alex",
+            "Alicia", "Ali", "Alisa", "Anton", "Amelie", "Arthur", "Amy", "Bastian",
+            "Anastasia", "Ben", "Angelina", "Benedikt", "Anita", "Bruno", "Ariane", "Carl",
+            "Aurora", "Carlo", "Barbara", "Cem", "Bella", "Christoph", "Celine", "Colin",
+            "Chiara", "Damian", "Chloe", "Dario", "Dana", "Dean", "Daniela", "Edgar",
+            "Diana", "Emil", "Elena", "Fabio", "Elisabeth", "Frederik", "Emily", "Gabriel",
+            "Esther", "Gerrit", "Fiona", "Hannes", "Florentina", "Hassan", "Franziska", "Henri",
+            "Greta", "Jakob", "Ida", "Jannik", "Inga", "Jaron", "Jasmin", "Jasper",
+            "Johanna", "Joel", "Josephine", "Johannes", "Judith", "John", "Julie", "Joshua",
+            "Karina", "Julius", "Karoline", "Kaan", "Kira", "Karim", "Lara", "Kilian",
+            "Leah", "Konstantin", "Leonie", "Leandro", "Liana", "Leonard", "Lilli", "Levi",
+            "Lilly", "Liam", "Lorena", "Linus", "Lotta", "Lorenz", "Lucy", "Marlon",
+            "Luna", "Marvin", "Madeleine", "Mateo", "Magdalena", "Matti", "Maila", "Mattis",
+            "Mara", "Milan", "Maria", "Milo", "Marina", "Mohammad", "Marlene", "Niko",
+            "Martha", "Ole", "Mathea", "Oskar", "Maya", "Pascal", "Melissa", "Peer",
+            "Merle", "Rafael", "Michelle", "Raphael", "Mona", "Ricardo", "Nadja", "Ruben",
+            "Naomi", "Sami", "Nora", "Samuel", "Pauline", "Theo", "Ramona", "Till",
+            "Rosa", "Valentin", "Rosalie", "Viktor", "Ruth", "Yannick", "Samira", "Yusuf",
+            "Saskia", "Adam", "Selina", "Alan", "Sina", "Albin", "Stella", "Alessandro",
+            "Thea", "Amir", "Theresa", "André", "Valerie", "Angelo", "Verena", "Arne",
+            "Viola", "Aron", "Yara", "August", "Zoe", "Bela", "Alice", "Bennet",
+            "Alma", "Bent", "Amanda", "Amber", "Boris", "Amira", "Brian",
+            "Annabelle", "Can", "Anne", "Carlos", "Annelie", "Cedric", "Annemarie", "Chris",
+            "Ariana", "Constantin", "Ava", "Darius", "Bea", "Darren", "Bettina", "Diego",
+            "Bonnie", "Dorian", "Carla", "Dustin", "Carmen", "Efe", "Cassandra", "Elian",
+            "Cora", "Emanuel", "Dalia", "Enes", "Daria", "Enrico", "Delia", "Fabius",
+            "Eileen", "Ferdinand", "Elina", "Francesco", "Elise", "Gian", "Elodie", "Gianni",
+            "Elsa", "Gregor", "Enna", "Gustav", "Felicia", "Hamza", "Fenja", "Hugo",
+            "Finja", "Ilja", "Frieda", "Ismail", "Gloria", "Ivan", "Grace", "Jayden",
+            "Helen", "Juri", "Henriette", "Justus", "Ilona", "Keno", "Ina", "Koray",
+            "Isabell", "Lennard", "Ivette", "Lennox", "Jacqueline", "Leo", "Janna", "Logan",
+            "Jeanette", "Luan", "Josefine", "Luc", "Juna", "Marc", "Kaja", "Marian",
+            "Kassandra", "Matteo", "Kaya", "Miguel", "Lana", "Mika", "Lia", "Morten",
+            "Linn", "Muhammed", "Madison", "Nathan", "Marla", "Nicolas", "Mina", "Noel",
+            "Noemi", "Oscar", "Ronja", "Quentin", "Tamara", "Rayan", "Tessa", "Rocco",
+            "Tilda", "Vivien", "Ryan", "Yvonne", "Sandro", "Silas", "Tarek",
+            "Thilo", "Tristan", "Tyler", "William", "Yasin", "Yunus",
+            "Adele", "Aiden", "Aisha", "Alessio", "Alessia", "Alvin", "Anouk", "Antonio",
+            "Ashley", "Ari", "Astrid", "Baris", "Bridget", "Caspar", "Camilla", "Claudio",
+            "Claire", "Connor", "Daisy", "Dante", "Edda", "Davide", "Edith", "Devin",
+            "Ellen", "Domenico", "Evelyn", "Elia", "Fabienne", "Elvis", "Georgia", "Emilio",
+            "Gina", "Etienne", "Hailey", "Fares", "Heidi", "Farid", "Holly", "Gino",
+            "Irina", "Hanno", "Jette", "Harry", "Joyce", "Ilyas", "Kendra", "Jerome",
+            "Kiara", "Jesse", "Laila", "Jordan", "Lauren", "Kamil", "Letizia", "Kenan",
+            "Lynn", "Lasse", "Margot", "Leif", "Marisa", "Leroy", "Marit", "Maik",
+            "Nala", "Malik", "Nelly", "Massimo", "Penelope", "Maurice", "Romy", "Maxim",
+            "Roxana", "Meo", "Ruby", "Nevio", "Samantha", "Norman", "Shirin", "Orlando",
+            "Susan", "Piet", "Tara", "Raik", "Thalia", "Remo", "Uma", "Riad",
+            "Xenia", "Riko", "Zelda", "Roy", "Sean", "Sergio", "Severin", "Sören",
+            "Timo", "Titus", "Umut", "Vito", "Wesley", "Xander", "Yanis", "Zayn"
+        ],
+        nachnamen: [
+            "Müller", "Schmidt", "Schneider", "Fischer", "Weber", "Meyer",
+            "Becker", "Hoffmann", "Schäfer", "Koch", "Bauer", "Richter", "Klein",
+            "Wolf", "Schröder", "Schwarz", "Zimmermann", "Braun", "Krüger",
+            "Hofmann", "Hartmann", "Lange", "Schmitt", "Werner", "Schmitz",
+            "Krause", "Meier", "Schulz", "Maier", "Köhler", "Herrmann", "König",
+            "Walter", "Mayer", "Kaiser", "Fuchs", "Lang", "Scholz", "Möller",
+            "Weiß", "Jung", "Hahn", "Schubert", "Vogel", "Friedrich", "Keller",
+            "Busch", "Böhm", "Brandes", "Conrad", "Dietrich", "Engel", "Fröhlich",
+            "Graf", "Haase", "Henning", "Horn", "Jäger", "Kern", "Kuhn", "Lindner",
+            "Maurer", "Otto", "Roth", "Sauer", "Sommer", "Vogt", "Winkler"
+        ]
+    )
+
+    /// Namen, die zwar real sind, in automatisch erzeugten Gegenwartsromanen aber
+    /// schnell wie Absicht, Parodie oder historische Kulisse wirken. Solche Namen
+    /// duerfen weiterhin aus einer ausdruecklichen Nutzervorgabe bzw. einem Kanon
+    /// stammen; der automatische Generator vergibt sie nie mehr.
+    private static let auffaelligHistorischeOderDialektaleVornamen: Set<String> = [
+        "adelgunde", "adlgunde", "agathe", "ailke", "alois", "aloisia", "aloys",
+        "äne", "änne", "barbl", "bartholomäus", "bartl", "balthasar",
+        "bastl", "bohle", "broder", "burgl", "cäcilia", "cilli", "dagobert",
+        "dietlinde", "dietmar", "doortje", "ebbe", "edeltraud", "eddo", "eelke", "elfriede",
+        "emmeram", "emmerich", "engelbert", "eusebius", "ferdl", "focke", "fridolina",
+        "friedhelm", "gebhard", "gepke", "gerke", "godehard", "gretl", "gundl",
+        "gunthard", "habbo", "hansjörg", "harke", "heimo", "hias", "hilke", "hubertus",
+        "ihno", "irmtraud", "jakobus", "jelto", "kajetan", "konradin", "kreszenz",
+        "kunigunde", "lammert", "leonhardt", "leopoldine", "loisl", "lubbe", "maximiliane",
+        "melchior", "michl", "momme", "nandl", "nantke", "nepomuk", "nomme", "notburga",
+        "odilo", "okko", "oswin", "pankraz", "peike", "perchta", "poppo", "reemt",
+        "benno", "bertram", "heinz", "mechthild", "nikolaus", "oswald", "reinhild",
+        "ludger", "norwin", "renke", "resl", "rudl", "sieglinde", "sigrun",
+        "simberl", "simmerl", "sixtus", "willi",
+        "wenzel", "bogumil", "jadwiga", "genowefa", "placyd", "servatius",
+        "tede", "theodolinde", "traudl", "trude", "ubbo", "uke", "ulfert", "ursel",
+        "volkert", "waltraud", "waltraut", "wastl", "weert", "wendelin", "wolfhard",
+        "ynke", "zenzi"
+    ]
+
+    private static let auffaelligRegionaleNachnamen: Set<String> = [
+        "brandlhuber", "brandstätter", "ebenbauer", "egglhuber", "gschwandtner",
+        "gschwendtner", "haselwanter", "hinterleitner", "hinterseer", "hollersbacher",
+        "innerhofer", "kranebitter", "moosbrugger", "moosleitner", "payrleitner",
+        "puchleitner", "rottensteiner", "schwaighofer", "steinlechner", "trostberger",
+        "zehentner", "zöhrer"
+    ]
+
+    private static let moderneWeiblicheVornamen: Set<String> = [
+        "abigail", "ada", "adriana", "alexandra", "alicia", "alisa", "amelie",
+        "amy", "anastasia", "angelina", "anita", "ariane", "aurora", "barbara",
+        "bella", "celine", "chiara", "chloe", "dana", "daniela", "diana",
+        "elena", "elisabeth", "emily", "esther", "fiona", "florentina",
+        "franziska", "greta", "ida", "inga", "jasmin", "johanna", "josephine",
+        "judith", "julie", "karina", "karoline", "kira", "lara", "leah",
+        "leonie", "liana", "lilli", "lilly", "lorena", "lotta", "lucy", "luna",
+        "madeleine", "magdalena", "maila", "mara", "maria", "marina", "marlene",
+        "martha", "mathea", "maya", "melissa", "merle", "michelle", "mona",
+        "nadja", "naomi", "nora", "pauline", "ramona", "rosa", "rosalie", "ruth",
+        "samira", "saskia", "selina", "sina", "stella", "thea", "theresa",
+        "valerie", "verena", "viola", "yara", "zoe", "alice", "alma", "amanda",
+        "amber", "amira", "annabelle", "anne", "annelie", "annemarie", "ariana",
+        "ava", "bea", "bettina", "bonnie", "carla", "carmen", "cassandra", "cora",
+        "dalia", "daria", "delia", "eileen", "elina", "elise", "elodie", "elsa",
+        "enna", "felicia", "fenja", "finja", "frieda", "gloria", "grace", "helen",
+        "henriette", "ilona", "ina", "isabell", "ivette", "jacqueline", "janna",
+        "jeanette", "josefine", "juna", "kaja", "kassandra", "kaya", "lana", "lia",
+        "linn", "madison", "marla", "mina", "noemi", "ronja", "tamara", "tessa",
+        "tilda", "vivien", "yvonne", "adele", "aisha", "alessia", "anouk", "ashley",
+        "astrid", "bridget", "camilla", "claire", "daisy", "edda", "edith", "ellen",
+        "evelyn", "fabienne", "georgia", "gina", "hailey", "heidi", "holly", "irina",
+        "jette", "joyce", "kendra", "kiara", "laila", "lauren", "letizia", "lynn",
+        "margot", "marisa", "marit", "nala", "nelly", "penelope", "romy", "roxana",
+        "ruby", "samantha", "shirin", "susan", "tara", "thalia", "uma", "xenia", "zelda"
+    ]
+
+    static func istUnauffaelligerAutomatikname(_ name: String) -> Bool {
+        let normalized = name.lowercased()
+        return !auffaelligHistorischeOderDialektaleVornamen.contains(normalized)
+    }
+
+    static func istUnauffaelligerAutomatikNachname(_ name: String) -> Bool {
+        !auffaelligRegionaleNachnamen.contains(name.lowercased())
+    }
+
+    static func istModernerAutomatikname(_ name: String) -> Bool {
+        let normalized = name.folding(
+            options: [.caseInsensitive, .diacriticInsensitive], locale: .current
+        ).lowercased()
+        return modernerNamensraum.vornamen.contains {
+            $0.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                .lowercased() == normalized
+        }
+    }
+
     enum Geschlecht: String, Equatable {
         case weiblich
         case maennlich
@@ -82,13 +252,16 @@ enum NamensGenerator {
         var frei = gesperrt
         var ergebnis: [Vorschlag] = []
         var familienname: String?
+        var nachnamenImBuch = Set<String>()
 
-        let raeume = StoryMemory.namensraeume
+        // Der neutrale Gegenwartspool kommt zuerst. Regionale Raeume dienen als
+        // Reserve fuer grosse Kataloge, nicht als zufaellige Standardwahl fuer Buch 1.
+        let raeume = [modernerNamensraum] + StoryMemory.namensraeume
         guard !raeume.isEmpty else { return [] }
 
         // Deterministische, aber je Buch verschiedene Startposition.
         let seed = stabilerSeed(streuung)
-        let raumStart = seed % raeume.count
+        let raumStart = 0
 
         for versatz in 0..<raeume.count {
             let raum = raeume[(raumStart + versatz) % raeume.count]
@@ -99,8 +272,11 @@ enum NamensGenerator {
             // zufaellige Folge von sechs Vornamen lieferte im echten Wiederaufnahmetest
             // nur zwei passende Frauennamen und machte jede sichere Zuordnung unmoeglich.
             // Deshalb wird der Pool stabil abwechselnd aus beiden Gruppen aufgebaut.
-            let women = raum.vornamen.filter { geschlecht(vonVorname: $0) == .weiblich }
-            let men = raum.vornamen.filter { geschlecht(vonVorname: $0) == .maennlich }
+            let zeitgemaess = Array(Set(
+                raum.vornamen.filter(istUnauffaelligerAutomatikname)
+            )).sorted()
+            let women = zeitgemaess.filter { geschlecht(vonVorname: $0) == .weiblich }
+            let men = zeitgemaess.filter { geschlecht(vonVorname: $0) == .maennlich }
             guard !women.isEmpty, !men.isEmpty else { continue }
             let womenStart = seed % women.count
             let menStart = (seed / 11) % men.count
@@ -132,12 +308,27 @@ enum NamensGenerator {
                 var gewaehlt: String?
                 for ni in 0..<raum.nachnamen.count {
                     let nachname = raum.nachnamen[(nStart + vi + ni) % raum.nachnamen.count]
-                    if istFrei(nachname, in: frei) { gewaehlt = nachname; break }
+                    let normalisiert = nachname.folding(
+                        options: [.caseInsensitive, .diacriticInsensitive], locale: .current
+                    ).lowercased()
+                    // Ein normaler Familienname darf in verschiedenen Büchern erneut
+                    // vorkommen. Die katalogweite Eindeutigkeit trägt der Vorname; im
+                    // selben Ensemble bleibt der Nachname außerhalb der Familie einmalig.
+                    if istUnauffaelligerAutomatikNachname(nachname),
+                       !StoryMemory.verbrauchteNamen.contains(normalisiert),
+                       !nachnamenImBuch.contains(normalisiert) {
+                        gewaehlt = nachname
+                        break
+                    }
                 }
                 guard let nachname = gewaehlt else { continue }
 
                 frei.formUnion(teile(vorname))
-                frei.formUnion(teile(nachname))
+                nachnamenImBuch.insert(
+                    nachname.folding(
+                        options: [.caseInsensitive, .diacriticInsensitive], locale: .current
+                    ).lowercased()
+                )
                 if ergebnis.isEmpty { familienname = nachname }
                 ergebnis.append(Vorschlag(vorname: vorname, nachname: nachname,
                                           region: raum.region))
@@ -184,7 +375,8 @@ enum NamensGenerator {
         let normalized = vorname.folding(
             options: [.caseInsensitive, .diacriticInsensitive], locale: .current
         ).lowercased()
-        return weiblicheVornamen.contains(normalized) ? .weiblich : .maennlich
+        return weiblicheVornamen.contains(normalized)
+            || moderneWeiblicheVornamen.contains(normalized) ? .weiblich : .maennlich
     }
 
     static func geschlecht(vonRolle role: String, beruf: String) -> Geschlecht {
@@ -272,6 +464,16 @@ enum NamensGenerator {
     }
 
     private static let weiblicheVornamen: Set<String> = [
+        "emma", "mia", "emilia", "hannah", "sofia", "clara", "ella", "lea",
+        "marie", "sophie", "laura", "sarah", "julia", "lisa", "katharina",
+        "christina", "stefanie", "melanie", "sandra", "tanja", "nadine", "vanessa",
+        "jennifer", "jessica", "carolin", "annika", "miriam", "rebecca", "isabel",
+        "isabelle", "luisa", "charlotte", "mathilda", "nele", "jule", "alina",
+        "elisa", "helene", "luise", "maja", "antonia", "victoria", "eva", "nina",
+        "jana", "pia", "linda", "britta", "sonja", "natalie", "vera", "sabine",
+        "andrea", "petra", "claudia", "nicole", "simone", "katja", "anja", "iris",
+        "svea", "kim", "romina", "denise", "deborah", "patricia", "sylvia",
+        "gabriele", "kerstin", "corinna", "maren", "kirsten", "janina", "larissa", "mandy",
         "adelgunde", "adlgunde", "agathe", "agnieszka", "ailke", "alicja", "aloisia", "almut",
         "amalie", "anezka", "anke", "anneliese", "antje", "arzu", "ayla", "aylin",
         "barbl", "beatrice",

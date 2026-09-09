@@ -116,6 +116,9 @@ final class Chapter: NovelForgePersistentModel {
     var displayTitle: String {
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
         if t.isEmpty { return "Kapitel \(chapterNumber)" }
+        if AutonomousContentQuality.isInternalPlanningTitle(t) {
+            return "Kapitel \(chapterNumber)"
+        }
         if t.range(of: #"^(aufbruch|eskalation|krise|auflösung|kapitel|teil)\s+\d+$"#,
                    options: [.regularExpression, .caseInsensitive]) != nil {
             return "Kapitel \(chapterNumber)"

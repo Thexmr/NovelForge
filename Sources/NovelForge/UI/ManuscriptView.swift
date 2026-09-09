@@ -119,7 +119,7 @@ struct ManuscriptView: View {
             .frame(minWidth: 400, maxWidth: .infinity)
         }
         .background(StudioBackground())
-        .navigationTitle("Manuskript")
+        .navigationTitle("Lesen & Bearbeiten")
         .onAppear { autoSelect() }
         .onChange(of: projects.count) { autoSelect() }
         .onChange(of: appState.selectedProject) {
@@ -611,7 +611,7 @@ struct StoryBibleView: View {
             .frame(minWidth: 420, maxWidth: .infinity)
         }
         .background(StudioBackground())
-        .navigationTitle("Story Bible")
+        .navigationTitle("Figuren & Handlung")
     }
 
     private func bibleTextView(text: String, emptyHint: String) -> some View {

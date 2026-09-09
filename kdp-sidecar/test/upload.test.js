@@ -4,8 +4,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { offlinePreflight, validateUploadJob } from '../upload-core.js';
+
+const sidecarDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 function fixture() {
   const dir = mkdtempSync(path.join(tmpdir(), 'nf-kdp-'));
@@ -74,10 +77,10 @@ test('dry-run läuft vollständig offline und schreibt einen eindeutigen Status'
   const statusPath = path.join(dir, 'status.json');
   writeFileSync(jobPath, JSON.stringify(job));
   const run = spawnSync(process.execPath, [
-    path.resolve('index.js'), 'upload', '--job', jobPath, '--status', statusPath,
+    path.join(sidecarDir, 'index.js'), 'upload', '--job', jobPath, '--status', statusPath,
     '--profile', '/absichtlich/nicht/vorhanden', '--chrome', '/absichtlich/nicht/vorhanden',
     '--dry-run',
-  ], { cwd: path.resolve('.'), encoding: 'utf8' });
+  ], { cwd: sidecarDir, encoding: 'utf8' });
   assert.equal(run.status, 0, run.stdout + run.stderr);
   const status = JSON.parse(readFileSync(statusPath, 'utf8'));
   assert.equal(status.ok, true);

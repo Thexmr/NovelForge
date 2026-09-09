@@ -3,9 +3,9 @@ import SwiftUI
 /// NovelForge's visual language: a quiet editorial workspace with translucent
 /// materials, precise borders and color reserved for state and action.
 enum StudioTheme {
-    static let pageTop = Color(red: 0.040, green: 0.047, blue: 0.058)
-    static let pageMiddle = Color(red: 0.052, green: 0.060, blue: 0.071)
-    static let pageBottom = Color(red: 0.028, green: 0.033, blue: 0.041)
+    static let pageTop = Color(white: 0.085)
+    static let pageMiddle = Color(white: 0.095)
+    static let pageBottom = Color(white: 0.075)
 
     static let surface = Color(red: 0.090, green: 0.101, blue: 0.116)
     static let surfaceElevated = Color(red: 0.128, green: 0.142, blue: 0.160)
@@ -14,8 +14,8 @@ enum StudioTheme {
     static let glassInk = Color(red: 0.024, green: 0.029, blue: 0.036)
     static let hairline = Color.white.opacity(0.10)
     static let hairlineBright = Color.white.opacity(0.20)
-    static let textMuted = Color.white.opacity(0.68)
-    static let textFaint = Color.white.opacity(0.44)
+    static let textMuted = Color.white.opacity(0.78)
+    static let textFaint = Color.white.opacity(0.62)
 
     static let cyan = Color(red: 0.27, green: 0.76, blue: 0.72)
     static let violet = Color(red: 0.49, green: 0.61, blue: 0.94)
@@ -63,8 +63,6 @@ struct StudioBackground: View {
         ZStack {
             LinearGradient(colors: [StudioTheme.pageTop, StudioTheme.pageMiddle, StudioTheme.pageBottom],
                            startPoint: .top, endPoint: .bottom)
-            StudioGrid()
-            Rectangle().fill(.black.opacity(0.14))
         }
         .ignoresSafeArea()
     }
@@ -107,6 +105,7 @@ extension View {
 }
 
 private struct GlassSurface: ViewModifier {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     var cornerRadius: CGFloat
     var bloom: CGFloat
     var tint: Color?
@@ -117,14 +116,14 @@ private struct GlassSurface: ViewModifier {
         content
             .background {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(.ultraThinMaterial)
+                    .fill(reduceTransparency ? AnyShapeStyle(StudioTheme.surface) : AnyShapeStyle(.thinMaterial))
                     .overlay {
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                             .fill(StudioTheme.glassBase.opacity(isInteractiveGlass ? 0.42 : 0.52))
                     }
                     .overlay(alignment: .top) {
                         LinearGradient(colors: [
-                            Color.white.opacity(isInteractiveGlass ? 0.16 : 0.11),
+                            Color.white.opacity(isInteractiveGlass ? 0.07 : 0.04),
                             (tint ?? accent).opacity(0.035),
                             .clear
                         ], startPoint: .top, endPoint: .bottom)
@@ -137,7 +136,6 @@ private struct GlassSurface: ViewModifier {
                     radius: isInteractiveGlass ? 10 : 5,
                     x: 0,
                     y: isInteractiveGlass ? 6 : 3)
-            .shadow(color: accent.opacity(0.035 * Double(bloom)), radius: 8 * bloom, x: 0, y: 2)
     }
 }
 
@@ -190,8 +188,7 @@ private struct StudioHoverModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .scaleEffect(isHovered && !reduceMotion ? 1.008 : 1)
-            .offset(y: isHovered && !reduceMotion ? -1 : 0)
+            .brightness(isHovered ? 0.035 : 0)
             .animation(reduceMotion ? nil : Motion.standard, value: isHovered)
             .onHover { isHovered = $0 }
     }

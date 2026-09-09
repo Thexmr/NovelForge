@@ -218,7 +218,10 @@ enum AIError: Error, LocalizedError, Equatable {
             return "Hinterlegen Sie die Basis-URL des Providers in den Einstellungen."
         case .contentQualityRejected:
             return "NovelForge erzeugt diese Fassung nach einer kurzen Wartezeit automatisch neu."
-        case .systemError:
+        case .systemError(let message):
+            if ProductionStorageGuard.isStorageFailureMessage(message) {
+                return "Geben Sie mindestens 1 GB Speicher frei. Der vorhandene Buchstand bleibt erhalten und kann danach fortgesetzt werden."
+            }
             return "Versuchen Sie es erneut. Bleibt der Fehler bestehen, starten Sie die App neu."
         case .unknown:
             return "Versuchen Sie die Aktion erneut."

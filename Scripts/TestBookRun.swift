@@ -7,7 +7,7 @@ import SwiftUI
 // Qualitätsbefunde (Golden-Eval, Beta-Leser, Figurenstimme, Emotionsschritt,
 // Ton-Angleich …) aus. Konfiguration über Umgebungsvariablen:
 //   NF_OLLAMA_KEY (Pflicht)  API-Key für Ollama Cloud
-//   NF_TEST_PAGES            Zielseiten (Standard: 30)
+//   NF_TEST_PAGES            Zielseiten (Standard/Minimum: 50)
 //   NF_TEST_STORE            Pfad des SwiftData-Stores (Standard: /tmp/nf-testbook.store)
 //   NF_TEST_TIMEOUT          Max. Minuten (Standard: 180)
 
@@ -22,7 +22,11 @@ struct TestBookRun {
             print("FEHLER: NF_OLLAMA_KEY nicht gesetzt")
             exit(2)
         }
-        let pages = Int(env["NF_TEST_PAGES"] ?? "") ?? 30
+        let requestedPages = Int(env["NF_TEST_PAGES"] ?? "") ?? 50
+        let pages = min(1_000, max(50, requestedPages))
+        if pages != requestedPages {
+            print("HINWEIS: Zielseiten auf den gueltigen Bereich 50...1000 angepasst: \(pages)")
+        }
         let timeoutMinutes = Double(env["NF_TEST_TIMEOUT"] ?? "") ?? 180
         let storeURL = URL(fileURLWithPath: env["NF_TEST_STORE"] ?? "/tmp/nf-testbook.store")
         let freshStart = env["NF_TEST_FRESH"] == "1"
@@ -57,7 +61,7 @@ struct TestBookRun {
         var config = ProviderConfiguration(provider: .ollamaCloud)
         config.isActive = true
         config.apiKey = apiKey
-        config.defaultModel = "kimi-k2.6"
+        config.defaultModel = OllamaCloudModelCatalog.recommendedWritingModel
         config.baseURL = AIProvider.ollamaCloud.defaultBaseURL
 
         // Fortsetzen: Existiert im Store bereits ein Projekt, wird genau dieses
@@ -113,7 +117,7 @@ struct TestBookRun {
             context.insert(storyBible)
             try? context.save()
             project = neu
-            print("START Testbuch: \(neu.title) | \(pages) Seiten | Modell: kimi-k2.6")
+            print("START Testbuch: \(neu.title) | \(pages) Seiten | Modell: \(OllamaCloudModelCatalog.recommendedWritingModel)")
         }
         fflush(stdout)
         orchestrator.startPipeline(project: project, providerConfig: config)

@@ -26,6 +26,7 @@ struct NewBookWizardView: View {
     @AppStorage("defaultAuthorBio") private var defaultAuthorBio = DefaultBookSettings.authorBio
 
     @State private var currentStep = 0
+    @State private var authorDetailsExpanded = false
     @State private var briefMode = BriefMode.genre
     @State private var authorStoryBrief = ""
     @State private var storyAnalysisComplete = false
@@ -100,7 +101,7 @@ struct NewBookWizardView: View {
                         "Auktorialer Erzähler", "Wechselnde Perspektiven"]
     let tenses = ["Präteritum", "Präsens"]
 
-    private let stepTitles = ["Basis", "Stil", "Umfang", "KI-Provider", "Prüfen"]
+    private let stepTitles = ["Buchidee", "Schreibstil", "Umfang", "Textmodell", "Start prüfen"]
     private let stepIcons = ["book.closed", "text.quote", "doc.text", "cloud", "checkmark.seal"]
 
     /// Das tatsächlich zu verwendende Genre: bei „Andere…" der frei eingegebene Text,
@@ -343,7 +344,7 @@ struct NewBookWizardView: View {
                         if isGeneratingTitles {
                             HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Titel …") }
                         } else {
-                            Label("Virale Titel vorschlagen", systemImage: "sparkles")
+                            Label("Buchtitel vorschlagen", systemImage: "sparkles")
                         }
                     }
                     .disabled(isGeneratingTitles)
@@ -369,6 +370,7 @@ struct NewBookWizardView: View {
                 }
                 TextField("Autorname oder Pseudonym", text: $authorName)
 
+                DisclosureGroup("Autorprofil & Impressum", isExpanded: $authorDetailsExpanded) {
                 Text("Autorprofil")
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 TextEditor(text: $authorBio)
@@ -436,6 +438,8 @@ struct NewBookWizardView: View {
                         }
                     }
 
+                }
+
                 Picker("Sprache", selection: $language) {
                     ForEach(languages, id: \.self) { Text($0).tag($0) }
                 }
@@ -472,7 +476,7 @@ struct NewBookWizardView: View {
                           text: $subgenre)
 
                 if contentType == .fiction {
-                    TextField("Tropes (kommagetrennt – z.B. Enemies to Lovers, Slow Burn)", text: $tropes)
+                    TextField("Handlungsmotive, z. B. Rivalen verlieben sich", text: $tropes)
                     HStack {
                         Button {
                             generateTropes()
@@ -480,7 +484,7 @@ struct NewBookWizardView: View {
                             if isGeneratingTropes {
                                 HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Tropes …") }
                             } else {
-                                Label("Tropes vorschlagen", systemImage: "tag")
+                                Label("Handlungsmotive vorschlagen", systemImage: "tag")
                             }
                         }
                         .disabled(isGeneratingTropes)
@@ -516,7 +520,7 @@ struct NewBookWizardView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Text("Serie / Reihe (optional – für Read-Through)")
+                Text("Buchreihe (optional)")
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 HStack(spacing: 12) {
                     TextField("Reihenname", text: $seriesName)
@@ -858,7 +862,9 @@ struct NewBookWizardView: View {
             }
 
             Picker("Zeitform", selection: $tense) {
-                ForEach(tenses, id: \.self) { Text($0).tag($0) }
+                ForEach(tenses, id: \.self) {
+                    Text($0 == "Präteritum" ? "Vergangenheit" : "Gegenwart").tag($0)
+                }
             }
         }
     }

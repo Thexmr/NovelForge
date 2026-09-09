@@ -67,6 +67,13 @@ enum PublicationReadiness {
         guard !snapshots.isEmpty else { return ["Keine Kapitel vorhanden."] }
 
         var issues: [String] = []
+        let pendingOpening = (project.qualityReports ?? []).filter {
+            $0.checkType == LocalEditorialAssistant.openingReviewType && !$0.autoFixed
+                && ($0.severity == .error || $0.severity == .critical)
+        }
+        if !pendingOpening.isEmpty {
+            issues.append("Romananfang nicht freigabefaehig: inhaltliche Endabnahme noch offen.")
+        }
         var empty: [Int] = []
         var truncated: [Int] = []
         var contaminated: [Int] = []

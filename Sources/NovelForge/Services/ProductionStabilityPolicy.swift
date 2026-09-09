@@ -1,7 +1,50 @@
 import Foundation
 
+enum ProductionStorageGuard {
+    static let minimumFreeBytes: Int64 = 1_073_741_824
+    static let messageMarker = "Nicht genug freier Speicherplatz"
+    /// Abstand zwischen zwei Speicherprüfungen, solange die Produktion wartet.
+    /// Ein voller Datenträger löst sich typischerweise von selbst (Caches, Snapshots,
+    /// Downloads), deshalb wird regelmäßig nachgesehen statt aufgegeben.
+    static let recheckInterval: TimeInterval = 30
+
+    static func availableBytes(at path: String = NSHomeDirectory()) -> Int64? {
+        guard let attributes = try? FileManager.default.attributesOfFileSystem(forPath: path),
+              let bytes = attributes[.systemFreeSize] as? NSNumber else { return nil }
+        return bytes.int64Value
+    }
+
+    static func blockingError(availableBytes: Int64? = availableBytes()) -> AIError? {
+        guard let availableBytes, availableBytes < minimumFreeBytes else { return nil }
+        let megabytes = max(0, availableBytes / 1_048_576)
+        return .systemError(
+            "\(messageMarker) (noch etwa \(megabytes) MB). NovelForge pausiert das Buch, "
+                + "bevor die Projektdatenbank beschädigt wird. Bitte mindestens 1 GB freigeben."
+        )
+    }
+
+    static func isStorageFailure(_ error: Error) -> Bool {
+        let message = (error as? AIError)?.errorDescription ?? error.localizedDescription
+        return isStorageFailureMessage(message)
+    }
+
+    static func isStorageFailureMessage(_ message: String) -> Bool {
+        let normalized = message.folding(
+            options: [.diacriticInsensitive, .caseInsensitive], locale: .current
+        ).lowercased()
+        return normalized.contains(messageMarker.lowercased())
+            || normalized.contains("database or disk is full")
+            || normalized.contains("disk is full")
+            || normalized.contains("no space left on device")
+    }
+}
+
 enum ProductionStabilityPolicy {
     static let maxRetryDelay: TimeInterval = 300
+    /// Phasen wie Szenen- und Kapitelplanung reparieren intern bereits mehrfach.
+    /// Bleibt die Ausgabe danach unbrauchbar, darf der gesamte Buchlauf nur noch
+    /// begrenzt neu ansetzen. Sonst wird derselbe persistierte Plan endlos geprüft.
+    static let maxContentQualityRestarts = 2
 
     /// HTTP 429 bedeutet nicht immer eine kurzfristige Drosselung. Provider wie
     /// Ollama verwenden denselben Status auch fuer ausgeschoepfte Wochenkontingente.
@@ -58,9 +101,12 @@ enum ProductionStabilityPolicy {
         case .apiKeyInvalid, .modelUnavailable, .quotaExceeded,
              .baseURLMissing, .contextTooLong, .fileTooLarge:
             return true
-        case .providerUnavailable, .networkError,
-             .rateLimitExceeded, .ollamaNotRunning, .contentQualityRejected,
-             .systemError, .unknown:
+        // Speichermangel beendete die Dauerproduktion frueher endgueltig. Er ist aber
+        // ein voruebergehender Zustand des Rechners, den die Pipeline selbst pruefen
+        // kann: Sie wartet jetzt darauf, dass wieder Platz frei wird, statt den Lauf
+        // abzuwerfen und einen manuellen Neustart zu verlangen.
+        case .systemError, .providerUnavailable, .networkError,
+             .rateLimitExceeded, .ollamaNotRunning, .contentQualityRejected, .unknown:
             return false
         }
     }
@@ -82,14 +128,36 @@ enum ProductionStabilityPolicy {
         }
     }
 
+    static func isContentQualityRejection(_ error: Error) -> Bool {
+        guard let aiError = error as? AIError else { return false }
+        if case .contentQualityRejected = aiError { return true }
+        return false
+    }
+
+    /// Objektiv reparierbare Satztechnik wird bis zur Schlusskorrektur sichtbar
+    /// zurueckgestellt, statt den gesamten Buchlauf neu zu starten. Inhaltliche
+    /// Defekte wie Abbruch, Meta-Text oder Sicherheitsverstoss bleiben hart.
+    static func isDeferredTechnicalDraftIssue(_ issue: String) -> Bool {
+        issue.folding(
+            options: [.diacriticInsensitive, .caseInsensitive], locale: .current
+        ).lowercased().contains("beschadigte dialogtypografie")
+    }
+
     /// Ein temporärer Providerfehler darf ein bereits weit geschriebenes Buch
     /// nicht verwaisen lassen. Auch eine nach den phaseninternen Versuchen abgelehnte
     /// Modellfassung wird neu erzeugt: Sie ist kein Bedienfehler und darf deshalb nie
     /// einen manuellen "Fortsetzen"-Klick verlangen. Gateway-Retries bleiben davon
     /// unberuehrt, damit nicht dieselbe Antwort innerhalb eines Requests wiederholt wird.
-    static func shouldResumeInterruptedBook(after error: Error) -> Bool {
+    static func shouldResumeInterruptedBook(after error: Error,
+                                            consecutiveFailures: Int = 0) -> Bool {
+        // Voller Datentraeger: dasselbe, bereits geschriebene Buch wird fortgesetzt.
+        // Ein 500-Seiten-Manuskript darf nicht liegen bleiben, weil kurzzeitig weniger
+        // als 1 GB frei war.
+        if ProductionStorageGuard.isStorageFailure(error) { return true }
         guard let aiError = error as? AIError else { return false }
-        if case .contentQualityRejected = aiError { return true }
+        if case .contentQualityRejected = aiError {
+            return consecutiveFailures < maxContentQualityRestarts
+        }
         return isRetryableProviderError(aiError)
     }
 
@@ -101,8 +169,12 @@ enum ProductionStabilityPolicy {
         switch aiError {
         case .quotaExceeded, .apiKeyInvalid, .modelUnavailable, .baseURLMissing:
             return true
-        case .providerUnavailable, .networkError, .rateLimitExceeded, .ollamaNotRunning,
-             .fileTooLarge, .contextTooLong, .contentQualityRejected, .systemError, .unknown:
+        // Speichermangel gehoert bewusst NICHT mehr hierher: Er ist maschinell pruefbar
+        // und loest sich ohne Konto- oder Konfigurationsaenderung. Die Produktion wartet
+        // ihn ab (siehe `waitForStorageSpace`), statt auf einen Klick zu warten.
+        case .systemError, .providerUnavailable, .networkError, .rateLimitExceeded,
+             .ollamaNotRunning, .fileTooLarge, .contextTooLong, .contentQualityRejected,
+             .unknown:
             return false
         }
     }

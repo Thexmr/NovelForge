@@ -164,6 +164,23 @@ enum ManuscriptQualityAudit {
             print("  TENSE: " + (tenseIssues.isEmpty
                   ? "PASS"
                   : "Bruch in K" + tenseIssues.map(String.init).joined(separator: ", K")))
+            for number in tenseIssues.prefix(4) {
+                guard let chapter = chapters.first(where: { $0.chapterNumber == number }),
+                      let text = chapter.bestText else { continue }
+                let details = AutonomousContentQuality.narrativeTenseIssuesAcrossSections(
+                    in: text, expectedTense: expectedTense
+                )
+                print("  TENSE_DETAIL_K\(number): \(details.joined(separator: " | "))")
+                print("  TENSE_EXCERPT_K\(number): "
+                      + text.prefix(700).replacingOccurrences(of: "\n", with: " "))
+                for (index, paragraph) in text.components(separatedBy: "\n\n").enumerated()
+                    where !AutonomousContentQuality.narrativeTenseIssues(
+                        in: paragraph, expectedTense: expectedTense
+                    ).isEmpty {
+                    print("  TENSE_PARAGRAPH_K\(number)_P\(index + 1): "
+                          + paragraph.prefix(700).replacingOccurrences(of: "\n", with: " "))
+                }
+            }
             print("  PLAN_STAGNATION: " + (planStagnation.isEmpty
                   ? "PASS"
                   : planStagnation.joined(separator: " | ")))
