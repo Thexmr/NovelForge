@@ -10,7 +10,7 @@ struct DashboardView: View {
     @State private var showingNewBookSheet = false
 
     var activeProjects: [Project] {
-        projects.filter { $0.status != .completed && $0.status != .failed }
+        projects.filter { $0.status != .completed }
     }
 
     var completedProjects: [Project] {
@@ -57,7 +57,7 @@ struct DashboardView: View {
             .frame(maxWidth: .infinity)
         }
         .background(StudioBackground())
-        .navigationTitle("Dashboard")
+        .navigationTitle("Übersicht")
         .sheet(isPresented: $showingNewBookSheet) {
             NewBookWizardView()
         }
@@ -136,12 +136,12 @@ struct DashboardView: View {
             }
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 10)], spacing: 10) {
-                commandTile(title: "Provider",
+                commandTile(title: "Textmodell",
                             value: activeProviderName,
                             detail: activeModelName,
                             icon: "cloud.fill",
                             color: providerReady ? StudioTheme.cyan : StudioTheme.amber)
-                commandTile(title: "Pipeline",
+                commandTile(title: "Schreibfortschritt",
                             value: orchestrator.isRunning ? "Schreibt" : "Bereit",
                             detail: orchestrator.isRunning ? orchestrator.currentAgent : "Bereit für den nächsten Auftrag",
                             icon: orchestrator.isRunning ? "bolt.horizontal.fill" : "checkmark.seal",
@@ -153,14 +153,13 @@ struct DashboardView: View {
                             color: StudioTheme.amber)
             }
         }
-        .padding(20)
-        .studioFeaturedPanel(cornerRadius: 8)
+        .padding(.vertical, 8)
     }
 
     private func dashboardTitle(providerReady: Bool) -> some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 8) {
-                StudioStatusPill(text: providerReady ? "Provider bereit" : "Provider fehlt",
+                StudioStatusPill(text: providerReady ? "KI-Verbindung eingerichtet" : "KI-Verbindung fehlt",
                                  systemImage: providerReady ? "checkmark.seal.fill" : "key",
                                  color: providerReady ? StudioTheme.cyan : StudioTheme.amber)
                 if orchestrator.isRunning {
@@ -172,10 +171,9 @@ struct DashboardView: View {
                     .foregroundStyle(StudioTheme.lime)
                 }
             }
-            Text("Produktionsübersicht")
-                .font(.system(size: 32, weight: .bold, design: .rounded))
-                .foregroundStyle(StudioTheme.heroGradient)
-            Text("Projekte, Produktionsstatus und Veröffentlichungsreife auf einen Blick.")
+            Text("Deine Bücher")
+                .font(.system(size: 28, weight: .bold))
+            Text("\(projects.count) insgesamt · \(completedProjects.count) abgeschlossen · \(projects.filter { $0.status == .failed || $0.status == .needsReview }.count) brauchen Aufmerksamkeit")
                 .font(.subheadline)
                 .foregroundStyle(StudioTheme.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -195,7 +193,7 @@ struct DashboardView: View {
             Button {
                 AppState.shared.open(.production)
             } label: {
-                Label("Auto-Modus", systemImage: "infinity")
+                Label("Dauerproduktion", systemImage: "infinity")
             }
             .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.lime))
         }
@@ -226,6 +224,7 @@ struct DashboardView: View {
             }
             .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.cyan))
             .help("Produktion öffnen")
+            .accessibilityLabel("Produktion öffnen")
         }
         .padding(18)
         .studioFeaturedPanel(cornerRadius: 8)
@@ -233,7 +232,7 @@ struct DashboardView: View {
 
     private var statsSection: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 14)], spacing: 14) {
-            StatCard(title: "Aktive Projekte", value: "\(activeProjects.count)",
+            StatCard(title: "Noch nicht fertig", value: "\(activeProjects.count)",
                      icon: "book.fill", color: StudioTheme.cyan)
             StatCard(title: "Abgeschlossen", value: "\(completedProjects.count)",
                      icon: "checkmark.seal.fill", color: StudioTheme.lime)
@@ -247,19 +246,23 @@ struct DashboardView: View {
     private var activeProductionsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                StudioSectionLabel(text: "In Arbeit")
+                StudioSectionLabel(text: "Weiterarbeiten")
                 Spacer()
                 StudioStatusPill(text: "\(activeProjects.count)", systemImage: "tray.full", color: StudioTheme.cyan)
             }
             if activeProjects.isEmpty {
-                Text("Keine aktive Pipeline. Der Auto-Modus kann sofort gestartet werden.")
+                Text("Keine offenen Bücher")
                     .font(.caption)
                     .foregroundStyle(StudioTheme.textMuted)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(14)
                     .studioGlassTile(cornerRadius: 8, accent: StudioTheme.cyan, opacity: 0.82)
             } else {
-                ForEach(activeProjects.prefix(5)) { project in
+                ForEach(activeProjects.sorted { a, b in
+                    let aNeeds = a.status == .failed || a.status == .needsReview
+                    let bNeeds = b.status == .failed || b.status == .needsReview
+                    return aNeeds != bNeeds ? aNeeds : a.updatedAt > b.updatedAt
+                }.prefix(5)) { project in
                     Button {
                         AppState.shared.showProjectDetail(project)
                     } label: {
@@ -281,7 +284,7 @@ struct DashboardView: View {
                 StudioStatusPill(text: "\(completedProjects.count)", systemImage: "checkmark.seal", color: StudioTheme.lime)
             }
             if completedProjects.isEmpty {
-                Text("Fertige KDP-Exporte erscheinen hier mit Wortzahl und Kapitelstand.")
+                Text("Noch kein Buch abgeschlossen")
                     .font(.caption)
                     .foregroundStyle(StudioTheme.textMuted)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -374,7 +377,8 @@ struct DashboardView: View {
                 Text(detail)
                     .font(.caption2)
                     .foregroundStyle(StudioTheme.textMuted)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
@@ -392,21 +396,15 @@ struct StatCard: View {
     let color: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(color)
-                .frame(width: 34, height: 34)
-                .background(color.opacity(0.14), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .strokeBorder(color.opacity(0.22), lineWidth: 1)
-                )
-            StudioStatNumber(value: value, gradient: StudioTheme.accentGradient(color))
-            Text(title.uppercased())
-                .font(.system(.caption2, design: .monospaced).weight(.semibold))
-                .foregroundStyle(StudioTheme.textFaint)
-                .tracking(0.8)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(value).font(.system(size: 26, weight: .semibold)).monospacedDigit()
+                Spacer()
+                Image(systemName: icon).foregroundStyle(color).accessibilityHidden(true)
+            }
+            Text(title)
+                .font(.callout)
+                .foregroundStyle(StudioTheme.textMuted)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
@@ -440,7 +438,9 @@ struct ProjectCard: View {
                 StatusBadge(status: project.status)
             }
 
-            StudioProgressBar(value: project.status.progressFraction, height: 7)
+            StudioProgressBar(value: BookLibraryFilter.wordProgress(
+                written: project.recordedWordCount, target: project.targetWordCount), height: 7)
+                .accessibilityLabel("Textumfang")
 
             HStack {
                 Text("\(FormattingHelpers.formatWordCount(project.recordedWordCount)) von ca. \(FormattingHelpers.formatWordCount(project.targetWordCount)) Wörtern")
@@ -496,6 +496,7 @@ struct StatusBadge: View {
     var color: Color {
         switch status {
         case .completed: return StudioTheme.lime
+        case .needsReview: return StudioTheme.amber
         case .failed: return StudioTheme.danger
         case .paused: return StudioTheme.amber
         case .created: return StudioTheme.textFaint
@@ -527,6 +528,55 @@ struct ProjectsListView: View {
     @State private var showingNewBookWizard = false
     @State private var projectToDelete: Project?
     @State private var navigationPath: [Project] = []
+    @State private var searchText = ""
+    @State private var libraryFilter = BookLibraryFilter.all
+    @State private var sortByTitle = false
+
+    private var visibleProjects: [Project] {
+        projects.filter {
+            libraryFilter.includes($0.status) && BookLibraryFilter.matches(
+                query: searchText, title: $0.title, author: $0.authorName, genre: $0.genre)
+        }.sorted {
+            sortByTitle ? $0.title.localizedStandardCompare($1.title) == .orderedAscending
+                : $0.updatedAt > $1.updatedAt
+        }
+    }
+
+    private var libraryToolbar: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Meine Bücher").font(.title2.weight(.bold))
+                Spacer()
+                Text("\(visibleProjects.count) von \(projects.count)")
+                    .foregroundStyle(StudioTheme.textMuted).monospacedDigit()
+            }
+            HStack(spacing: 12) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(StudioTheme.textMuted)
+                    TextField("Titel, Autor oder Genre suchen", text: $searchText)
+                        .textFieldStyle(.plain)
+                    if !searchText.isEmpty {
+                        Button { searchText = "" } label: { Image(systemName: "xmark.circle.fill") }
+                            .buttonStyle(.plain).help("Suche löschen").accessibilityLabel("Suche löschen")
+                    }
+                }
+                .padding(9)
+                .background(StudioTheme.surface, in: RoundedRectangle(cornerRadius: 6))
+                Picker("Sortierung", selection: $sortByTitle) {
+                    Text("Zuletzt bearbeitet").tag(false)
+                    Text("Titel A–Z").tag(true)
+                }
+                .labelsHidden().frame(width: 165)
+            }
+            Picker("Buchstatus", selection: $libraryFilter) {
+                ForEach(BookLibraryFilter.allCases) { filter in
+                    Text(filter.rawValue).tag(filter)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+        .padding(20)
+    }
 
     private func isRunning(_ project: Project) -> Bool {
         orchestrator.currentProject?.id == project.id || orchestrator.activeProjectIDs.contains(project.id)
@@ -543,7 +593,9 @@ struct ProjectsListView: View {
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
-            Group {
+            VStack(spacing: 0) {
+                libraryToolbar
+                Divider()
                 if projects.isEmpty {
                     VStack(alignment: .leading, spacing: 14) {
                         Image(systemName: "books.vertical.fill")
@@ -551,9 +603,6 @@ struct ProjectsListView: View {
                             .foregroundStyle(StudioTheme.heroGradient)
                         Text("Keine Projekte")
                             .font(.title2.weight(.semibold))
-                        Text("Erstellen Sie ein neues Buchprojekt oder starten Sie die Auto-Produktion im Produktions-Cockpit.")
-                            .font(.subheadline)
-                            .foregroundStyle(StudioTheme.textMuted)
                         Button {
                             showingNewBookWizard = true
                         } label: {
@@ -566,9 +615,16 @@ struct ProjectsListView: View {
                     .frame(maxWidth: 520, alignment: .leading)
                     .studioPanel(cornerRadius: 8, accent: StudioTheme.violet)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if visibleProjects.isEmpty {
+                    VStack(spacing: 14) {
+                        ContentUnavailableView("Keine passenden Bücher", systemImage: "magnifyingglass")
+                        Button("Filter zurücksetzen") { searchText = ""; libraryFilter = .all }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     List {
-                        ForEach(projects) { project in
+                        ForEach(visibleProjects) { project in
+                            HStack(spacing: 8) {
                             NavigationLink(value: project) {
                                 ProjectListRow(project: project)
                             }
@@ -596,8 +652,21 @@ struct ProjectsListView: View {
                                 }
                                 .disabled(isRunning(project))
                             }
+                            Menu {
+                                Button("Buchdetails") { navigationPath = [project] }
+                                Button("Manuskript öffnen") { appState.open(.manuscript, project: project) }
+                                Button("Titel & Verkaufstext") { appState.open(.kdp, project: project) }
+                                Divider()
+                                Button("Buch löschen", role: .destructive) { projectToDelete = project }
+                                    .disabled(isRunning(project))
+                            } label: { Image(systemName: "ellipsis") }
+                            .menuStyle(.borderlessButton)
+                            .frame(width: 28)
+                            .help("Aktionen für \(project.title)")
+                            .accessibilityLabel("Aktionen für \(project.title)")
+                            }
                             .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
+                            .listRowSeparator(.visible)
                         }
                     }
                     .listStyle(.plain)
@@ -605,7 +674,7 @@ struct ProjectsListView: View {
                 }
             }
             .background(StudioBackground())
-            .navigationTitle("Projekte")
+            .navigationTitle("Meine Bücher")
             .navigationDestination(for: Project.self) { project in
                 ProjectDetailView(project: project)
             }
@@ -669,7 +738,7 @@ struct ProjectListRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(project.title)
                     .font(.headline)
-                    .lineLimit(1)
+                    .lineLimit(2)
                 Text("\(project.authorName) · \(project.genre) · \(project.language)")
                     .font(.caption)
                     .foregroundStyle(StudioTheme.textMuted)
@@ -684,7 +753,7 @@ struct ProjectListRow: View {
             }
         }
         .padding(12)
-        .studioGlassTile(cornerRadius: 8, accent: StudioTheme.cyan, opacity: 0.88)
+        .frame(minHeight: 76)
         .studioHoverable()
     }
 }
@@ -701,6 +770,25 @@ struct ProjectDetailView: View {
 
     private var scores: QualityScores {
         QualityScores.cached(for: project)
+    }
+
+    private var chapterScorecards: [ChapterEditorialScorecard] {
+        (project.chapters ?? [])
+            .sorted { $0.chapterNumber < $1.chapterNumber }
+            .compactMap { chapter in
+                guard (chapter.bestText ?? "").wordCount >= 120 else { return nil }
+                return ChapterEditorialScorecard.evaluate(chapter: chapter)
+            }
+    }
+
+    private var editorialReadiness: Double {
+        guard !chapterScorecards.isEmpty else { return 0 }
+        return chapterScorecards.map(\.overall).reduce(0, +) / Double(chapterScorecards.count)
+    }
+
+    private var momentumReadiness: Double {
+        guard !chapterScorecards.isEmpty else { return 0 }
+        return chapterScorecards.map(\.momentum).reduce(0, +) / Double(chapterScorecards.count)
     }
 
     private var isRunningThisProject: Bool {
@@ -826,6 +914,31 @@ struct ProjectDetailView: View {
                     QualityMetricRow(label: "Stil", score: displayedScores.style)
                     QualityMetricRow(label: "Konsistenz", score: displayedScores.consistency)
                     QualityMetricRow(label: "KDP-Format", score: displayedScores.kdp)
+                }
+
+                if !chapterScorecards.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Kapitellektorat")
+                            .font(.headline)
+                        QualityMetricRow(label: "Durchschnittliche Kapitelreife", score: editorialReadiness)
+                        QualityMetricRow(label: "Sog und Szenenfortschritt", score: momentumReadiness)
+                        let revisionCandidates = chapterScorecards.filter { $0.verdict != .ready }
+                        if revisionCandidates.isEmpty {
+                            Text("Alle bewertbaren Kapitel bestehen den aktuellen Lektoratsgrenzwert.")
+                                .font(.caption)
+                                .foregroundStyle(StudioTheme.textMuted)
+                        } else {
+                            ForEach(Array(revisionCandidates.prefix(3).enumerated()), id: \.offset) { _, card in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Kapitel \(card.chapterNumber): \(card.verdict.rawValue)")
+                                        .font(.caption.weight(.semibold))
+                                    Text(card.findings.prefix(2).joined(separator: " · "))
+                                        .font(.caption2)
+                                        .foregroundStyle(StudioTheme.textMuted)
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if !visibleReports.isEmpty {

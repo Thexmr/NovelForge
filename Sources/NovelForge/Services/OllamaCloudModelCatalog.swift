@@ -24,11 +24,12 @@ enum OllamaCloudModelCatalog {
     // entfernt, weil es leeren Text liefert (reines Thinking-Modell).
     static let defaultModel = "kimi-k2.6"
 
-    /// Stärkeres „Autoren-Modell" für die eigentliche Prosa (mehr Tiefe/Ton, aber
-    /// langsamer als der Default). Wird NUR für die kreativen Schritte (Szenen,
-    /// Opening, Cliffhanger, Repair, Konzept, Plot) genutzt; Hilfsschritte
-    /// (Zusammenfassungen, Parsing, KDP) bleiben auf dem schnellen Default-Modell.
-    static let recommendedWritingModel = "mistral-large-3:675b"
+    /// Standard-„Autoren-Modell" für eigentliche Prosa, Konzept und Reparatur.
+    /// Hilfsschritte bleiben auf dem schnellen Default; kreative Langform nutzt das
+    /// stärkere Modell, weil Qualitäts-Gates fehlende Szenenlogik nicht nachträglich
+    /// zuverlässig ersetzen können.
+    /// Leer ⇒ `recommendedWritingModel`; "__standard__" ⇒ wie Standardmodell.
+    static let recommendedWritingModel = "qwen3.5:397b"
 
     /// UserDefaults-Schlüssel für ein vom Nutzer gewähltes Autoren-Modell.
     /// Leer ⇒ `recommendedWritingModel`; "__standard__" ⇒ wie Standardmodell.

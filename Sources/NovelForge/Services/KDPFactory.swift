@@ -42,6 +42,7 @@ final class KDPFactory: ObservableObject {
         case waitingSlot     // fertig, aber Drossel/aus → wartet auf Slot
         case uploading       // Sidecar läuft gerade
         case draftReady      // Entwurf in KDP, Nutzer muss Preis prüfen + veröffentlichen
+        case draftNeedsAttention // Entwurf gespeichert, Pflichtfelder noch offen
         case failed          // Upload fehlgeschlagen (erneut versuchbar)
     }
 
@@ -88,6 +89,7 @@ final class KDPFactory: ObservableObject {
     @Published private(set) var queue: [QueueEntry] = []
     @Published private(set) var history: [UploadRecord] = []
     @Published private(set) var isDispatching = false
+    @Published var isAuthenticating = false
     @Published var loginState: String = "unbekannt"   // "eingeloggt" | "nicht eingeloggt" | "prüft…"
 
     private var timer: Timer?
@@ -118,6 +120,25 @@ final class KDPFactory: ObservableObject {
            let s = try? JSONDecoder().decode(Schedule.self, from: data) { schedule = s }
         queue = ladeListe([QueueEntry].self, aus: Self.queueFile, name: "Upload-Warteschlange") ?? []
         history = ladeListe([UploadRecord].self, aus: Self.historyFile, name: "Upload-Historie") ?? []
+        Self.bereinigeAbgestuerzteUploads(&queue)
+        persist()
+    }
+
+    /// Holt Einträge zurück, die beim Beenden der App mitten im Upload steckten.
+    ///
+    /// `tick()` nimmt nur .queued/.waitingSlot/.failed – wurde die App während eines
+    /// laufenden Sidecar-Uploads beendet (Absturz, Neustart, Update), blieb der Eintrag
+    /// dauerhaft auf .uploading stehen und kam NIE wieder an die Reihe. Das Buch war
+    /// damit still aus der Fabrik verschwunden. Zurück auf .failed mit Versuchszähler:
+    /// die wachsende Wartezeit gilt, ein neuer Versuch wird eingeplant.
+    static func bereinigeAbgestuerzteUploads(_ queue: inout [QueueEntry], jetzt: Date = Date()) {
+        for i in queue.indices where queue[i].stage == .uploading {
+            queue[i].stage = .failed
+            queue[i].attempts += 1
+            queue[i].lastTriedAt = jetzt
+            queue[i].lastMessage = "Upload unterbrochen (App wurde beendet) – neuer Versuch mit Wartezeit."
+            queue[i].updatedAt = jetzt
+        }
     }
 
     /// Lädt eine gespeicherte Liste – und verwirft sie NICHT stillschweigend, wenn das
@@ -241,9 +262,21 @@ final class KDPFactory: ObservableObject {
     func reicheFertigesBuchEin(_ project: Project) -> Bool {
         guard enabled else { return false }
         guard !isQueued(project.id) else { return false }
+        // Der Fabrikmodus darf nicht allein dem Status „completed" vertrauen:
+        // Erst die vollständige Endabnahme trennt einen technisch fertigen Text
+        // von einem wirklich freigabefähigen KDP-Entwurf.
+        guard (try? PublicationReadiness.validateForCompletion(project: project)) != nil else {
+            return false
+        }
         return enqueue(project: project,
                        priceEUR: Self.standardPreisEUR,
-                       aiDisclosure: "ai-assisted")
+                       // KDP-Definition: „AI-generated" = die KI hat den Inhalt
+                       // ERZEUGT (auch bei nachträglicher Bearbeitung); „AI-assisted"
+                       // gilt nur, wenn ein Mensch den Text selbst geschrieben hat.
+                       // Diese Bücher schreibt die Pipeline – die wahrheitsgemäße
+                       // Angabe ist „ai-generated". Eine falsche, weichere Angabe ist
+                       // der klassische Sperrgrund, sobald Amazon sie entdeckt.
+                       aiDisclosure: "ai-generated")
     }
 
     @discardableResult
@@ -262,6 +295,20 @@ final class KDPFactory: ObservableObject {
     func remove(_ entryID: UUID) {
         queue.removeAll { $0.id == entryID }
         persist()
+    }
+
+    func associateDraft(_ entryID: UUID, url: String) -> Bool {
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !isDispatching, KDPUploadService.draftBookID(from: trimmed) != nil,
+              queue.contains(where: { $0.id == entryID && $0.stage == .failed }) else { return false }
+        update(entryID) {
+            $0.draftURL = trimmed
+            $0.stage = .queued
+            $0.attempts = 0
+            $0.lastTriedAt = nil
+            $0.lastMessage = "Vorhandener KDP-Entwurf zugeordnet. Bereit zur Wiederaufnahme."
+        }
+        return true
     }
 
     private func update(_ entryID: UUID, _ mutate: (inout QueueEntry) -> Void) {
@@ -291,7 +338,7 @@ final class KDPFactory: ObservableObject {
     func setProjectResolver(_ r: @escaping (UUID) -> Project?) { projectResolver = r }
 
     private func tick(force: Bool = false, resolveProject: ((UUID) -> Project?)? = nil) async {
-        guard !isDispatching else { return }
+        guard !isDispatching, !isAuthenticating else { return }
         guard force || enabled else { return }
         // Kalender greift nur im automatischen Betrieb; „Jetzt hochladen" (force) übergeht ihn.
         if !force, let reason = scheduleReason {
@@ -320,24 +367,41 @@ final class KDPFactory: ObservableObject {
             update(next.id) { $0.lastMessage = "Projekt nicht gefunden – übersprungen." }
             return
         }
+        // Auch manuell eingereihte oder aus einem älteren Programmstand
+        // wiederhergestellte Jobs dürfen nie an der Endabnahme vorbeiuploaden.
+        // Sie bleiben mit wachsender Wartezeit in der Queue und werden nach einer
+        // Produktionsreparatur automatisch erneut geprüft, ohne KDP zu berühren.
+        do {
+            try PublicationReadiness.validateForCompletion(project: project)
+        } catch {
+            update(next.id) {
+                $0.stage = .failed
+                $0.attempts += 1
+                $0.lastTriedAt = Date()
+                $0.lastMessage = "Qualitätsfreigabe offen – KDP-Entwurf wird erst nach Reparatur erneut geprüft: "
+                    + ((error as? AIError)?.errorDescription ?? error.localizedDescription)
+            }
+            return
+        }
         isDispatching = true
         update(next.id) { $0.stage = .uploading; $0.lastMessage = "Upload läuft …" }
         do {
             let result = try await KDPUploadService.uploadDraft(
                 project: project, priceEUR: next.priceEUR, aiDisclosure: next.aiDisclosure,
+                existingDraftURL: next.draftURL,
                 progress: { [weak self] msg in
                     Task { @MainActor in self?.update(next.id) { $0.lastMessage = msg } }
                 })
             history.append(UploadRecord(id: UUID(), projectID: next.projectID, title: next.title, uploadedAt: Date()))
             update(next.id) {
-                $0.stage = .draftReady
+                $0.stage = result.isComplete ? .draftReady : .draftNeedsAttention
                 $0.attempts = 0
                 $0.lastTriedAt = Date()
                 $0.draftURL = result.draftURL
                 // Offene Pflichtfelder ehrlich anzeigen statt pauschal "fertig".
                 // Vorher meldete der Sidecar hier immer Erfolg; ein Entwurf mit
                 // fehlendem Cover sah aus wie ein vollständiger.
-                $0.lastMessage = result.offenePunkte.isEmpty
+                $0.lastMessage = result.isComplete
                     ? "Entwurf in KDP – Preis prüfen und veröffentlichen."
                     : "Entwurf gespeichert, aber \(result.offenePunkte.count) Pflichtfeld(er) offen: "
                         + result.offenePunkte.prefix(4).joined(separator: " · ")
@@ -357,6 +421,7 @@ final class KDPFactory: ObservableObject {
     // MARK: - Login-Status
 
     func refreshLoginState() async {
+        guard !isDispatching, !isAuthenticating else { return }
         loginState = "prüft…"
         let ok = await KDPUploadService.checkLogin()
         loginState = ok ? "eingeloggt" : "nicht eingeloggt"

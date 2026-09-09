@@ -5,13 +5,21 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 echo "▸ Release-Build …"
-swift build -c release
+swift build -c release -Xswiftc -num-threads -Xswiftc 4
 
 APP="build/NovelForge.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp .build/release/NovelForge "$APP/Contents/MacOS/NovelForge"
+
+# App-Icon mitbündeln. Ohne CFBundleIconFile + .icns zeigt Finder/Dock das
+# generische App-Platzhalter-Icon – das neue Markenzeichen wäre unsichtbar.
+if [ -f "Assets/AppIcon.icns" ]; then
+  cp Assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+else
+  echo "  ⚠ Assets/AppIcon.icns fehlt – App erscheint mit Standard-Icon."
+fi
 
 # KDP-Upload-Sidecar mitbündeln (Node/Puppeteer).
 #
@@ -33,7 +41,8 @@ if [ -d "kdp-sidecar" ]; then
 
   echo "▸ Bündle KDP-Sidecar …"
   mkdir -p "$APP/Contents/Resources/kdp-sidecar"
-  cp kdp-sidecar/index.js kdp-sidecar/package.json "$APP/Contents/Resources/kdp-sidecar/" 2>/dev/null || true
+  cp kdp-sidecar/index.js kdp-sidecar/upload-core.js kdp-sidecar/auth-core.js kdp-sidecar/draft-core.js kdp-sidecar/package.json \
+    "$APP/Contents/Resources/kdp-sidecar/"
   if [ -d "kdp-sidecar/node_modules" ]; then
     cp -R kdp-sidecar/node_modules "$APP/Contents/Resources/kdp-sidecar/node_modules"
     echo "  ✓ Sidecar einsatzbereit ($(find kdp-sidecar/node_modules -maxdepth 1 -type d | wc -l | tr -d ' ') Pakete)"
@@ -55,6 +64,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <string>NovelForge</string>
     <key>CFBundleIdentifier</key>
     <string>com.novelforge.app</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
@@ -62,9 +73,9 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>2.1.2</string>
+    <string>2.4.2</string>
     <key>CFBundleVersion</key>
-    <string>42</string>
+    <string>86</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
     <key>LSMinimumSystemVersion</key>

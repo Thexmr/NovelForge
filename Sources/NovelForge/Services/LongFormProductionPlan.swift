@@ -24,8 +24,23 @@ struct LongFormProductionPlan {
         max(1, targetWordCount / chapterCount)
     }
 
+    /// Szenen je Kapitel – so viele, dass eine Szene ihre natürliche Länge behält.
+    ///
+    /// Die Untergrenze stand auf 4 und erzwang bei kurzen Kapiteln absurd kleine Ziele:
+    /// Ein 50-Seiten-Buch (12.500 Wörter, 12 Kapitel) ergab 1.041 Wörter je Kapitel,
+    /// geteilt durch 4 also 260 Wörter je Szene. Das ist keine Szene mit Einstieg,
+    /// Konflikt und Wendung – das ist ein Absatz.
+    ///
+    /// Gemessen am Testbuch „Wo der Wind die Briefe trägt": Bei einem Ziel von 287–312
+    /// Wörtern schrieb das Modell 451–696 – Faktor 1,45 bis 2,43, Median 2,2. Danach
+    /// scheiterte die automatische Verdichtung „nach drei Versuchen" und meldete den
+    /// größten Befundblock des ganzen Laufs (38 von 125 Warnungen). Das Modell war nicht
+    /// zu geschwätzig; die Vorgabe war unerfüllbar.
+    ///
+    /// 600 als Divisor und 2 als Untergrenze treffen quer über alle Buchgrößen
+    /// 520–572 Wörter je Szene – genau den gemessenen natürlichen Bereich.
     var scenesPerChapter: Int {
-        max(4, min(7, Int(ceil(Double(targetWordsPerChapter) / 750.0))))
+        max(2, min(7, Int(ceil(Double(targetWordsPerChapter) / 600.0))))
     }
 
     var targetWordsPerScene: Int {
@@ -34,6 +49,20 @@ struct LongFormProductionPlan {
 
     var totalPlannedScenes: Int {
         chapterCount * scenesPerChapter
+    }
+
+    /// Once prose exists, the dominant persisted chapter rhythm is part of the
+    /// manuscript contract. New sizing rules apply only to new books.
+    static func effectiveScenesPerChapter(defaultCount: Int,
+                                          persistedCounts: [Int],
+                                          hasWrittenProse: Bool) -> Int {
+        guard hasWrittenProse else { return max(1, defaultCount) }
+        let counts = persistedCounts.filter { $0 > 0 }
+        guard !counts.isEmpty else { return max(1, defaultCount) }
+        let frequencies = Dictionary(grouping: counts, by: { $0 }).mapValues(\.count)
+        return frequencies.max { lhs, rhs in
+            lhs.value == rhs.value ? lhs.key < rhs.key : lhs.value < rhs.value
+        }?.key ?? max(1, defaultCount)
     }
 
     static func draftMaxTokens(forTargetWords words: Int) -> Int {

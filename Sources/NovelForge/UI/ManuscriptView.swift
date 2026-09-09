@@ -119,7 +119,7 @@ struct ManuscriptView: View {
             .frame(minWidth: 400, maxWidth: .infinity)
         }
         .background(StudioBackground())
-        .navigationTitle("Manuskript")
+        .navigationTitle("Lesen & Bearbeiten")
         .onAppear { autoSelect() }
         .onChange(of: projects.count) { autoSelect() }
         .onChange(of: appState.selectedProject) {
@@ -295,20 +295,21 @@ struct ChapterDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Picker("Ansicht", selection: $viewMode) {
-                    ForEach(ManuscriptView.ViewMode.allCases, id: \.self) { mode in
-                        Text(mode.rawValue).tag(mode)
-                    }
+            // Der segmentierte Picker hat eine feste Mindestbreite (vier deutsche
+            // Segmenttitel) und lässt sich nicht weiter komprimieren. Reicht die
+            // Detail-Spalte nicht für Picker + Wortzahl (z. B. bei minimalem
+            // Fenster), blendet ViewThatFits die Wortzahl aus, statt sie
+            // abzuschneiden – sie steht ohnehin in der Kapitelliste daneben.
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    viewModePicker
+                    Spacer()
+                    wordCountLabel
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 380)
-
-                Spacer()
-
-                Text("\(FormattingHelpers.formatWordCount(chapter.displayWordCount)) Wörter")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack {
+                    viewModePicker
+                    Spacer()
+                }
             }
             .padding(12)
             .background(.ultraThinMaterial)
@@ -329,6 +330,25 @@ struct ChapterDetailView: View {
         .onAppear { loadEditor(for: chapter) }
         .onChange(of: chapter.chapterNumber) { _, _ in loadEditor(for: chapter) }
         .onDisappear { saveEdits() }
+    }
+
+    private var viewModePicker: some View {
+        Picker("Ansicht", selection: $viewMode) {
+            ForEach(ManuscriptView.ViewMode.allCases, id: \.self) { mode in
+                Text(mode.rawValue).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(maxWidth: 420)
+    }
+
+    private var wordCountLabel: some View {
+        Text("\(FormattingHelpers.formatWordCount(chapter.displayWordCount)) Wörter")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+            .fixedSize(horizontal: true, vertical: false)
     }
 
     /// Lädt den Editor-Text für ein Kapitel und sichert vorher ungespeicherte
@@ -591,7 +611,7 @@ struct StoryBibleView: View {
             .frame(minWidth: 420, maxWidth: .infinity)
         }
         .background(StudioBackground())
-        .navigationTitle("Story Bible")
+        .navigationTitle("Figuren & Handlung")
     }
 
     private func bibleTextView(text: String, emptyHint: String) -> some View {

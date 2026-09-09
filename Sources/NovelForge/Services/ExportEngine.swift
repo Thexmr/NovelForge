@@ -59,11 +59,28 @@ struct BookExportSnapshot: Sendable {
                       !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                     return nil
                 }
+                // SICHERHEITSNETZ für die Typografie.
+                //
+                // Belegt am ausgelieferten Buch „Das Schweigen der Imkerin“: 31 öffnende
+                // deutsche Anführungszeichen und 31 GERADE schließende – ein sichtbarer
+                // Satzfehler auf jeder Dialogzeile eines verkauften Titels.
+                //
+                // Die Vereinheitlichung hing bisher ausschließlich an `humanizeProse`,
+                // also an den Schreibpfaden. Jeder Textpfad daran vorbei (Import,
+                // Handkorrektur, Altbestand, künftige Reparaturwege) landete ungeprüft in
+                // der Datei. Der Snapshot ist der EINE Punkt, den alle drei Formate
+                // (EPUB, PDF, DOCX) passieren – deshalb steht die Absicherung hier.
+                // Zusammen mit der Typografie auch die Rechtschreibung: Vor-1996-Formen
+                // („daß“, „muß“, „wußte“) dürfen in einem verkauften Buch von 2026 nicht
+                // stehen. Beides hier, weil der Snapshot der einzige Punkt ist, den EPUB,
+                // PDF und DOCX gemeinsam passieren.
+                var sauber = SpellCheckService.korrigiereVeralteteRechtschreibung(text)
+                sauber = AutonomousContentQuality.vereinheitlicheAnfuehrungszeichen(sauber)
                 return Chapter(
                     chapterNumber: chapter.chapterNumber,
                     displayTitle: chapter.displayTitle,
-                    text: text,
-                    wordCount: text.wordCount
+                    text: sauber,
+                    wordCount: sauber.wordCount
                 )
             }
         if project.isNonfiction, !bibliography.isEmpty {
@@ -84,6 +101,7 @@ struct ExportEngine {
     /// UserDefaults-Schlüssel für einen benutzerdefinierten Ausgabeordner
     /// (z.B. für die Dauerproduktion). Leer = Standard.
     static let exportRootDefaultsKey = "novelforge.exportRoot"
+    private static let legacyExportRootDefaultsKey = "export_directory"
 
     /// Startet rechen- und dateiintensive Exporte ohne MainActor-Bindung und
     /// reicht einen Stop an den Worker weiter. Die Exportloops prüfen das
@@ -105,6 +123,13 @@ struct ExportEngine {
     /// Wurzel des Exportordners: benutzerdefiniert oder ~/Documents/NovelForge.
     static func exportRootDirectory() throws -> URL {
         let defaults = UserDefaults.standard
+        if defaults.string(forKey: exportRootDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
+           let legacy = defaults.string(forKey: legacyExportRootDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !legacy.isEmpty {
+            defaults.set(legacy, forKey: exportRootDefaultsKey)
+        }
         if let custom = defaults.string(forKey: exportRootDefaultsKey) {
             let normalizedPath = custom.trimmingCharacters(in: .whitespacesAndNewlines)
             if !normalizedPath.isEmpty {
@@ -801,6 +826,15 @@ struct ExportEngine {
             "© \(year) \(authorName)",
             "Alle Rechte vorbehalten."
         ]
+        // KI-Kennzeichnung IM BUCH. Die Meldung bei KDP (aiDisclosure = „ai-generated")
+        // ist das Eine; die wahrheitsgemäße Angabe gehört auch ins Frontmatter – Amazon
+        // verlangt Transparenz über KI-erzeugte Inhalte, und ein Buch, das sie intern
+        // verschweigt, während das Konto sie deklariert, ist der klassische Widerspruch,
+        // der bei Prüfung auffliegt. Diese Zeile entsteht erst hier beim Export und
+        // steht in keinem Projektfeld – der PublicContentGuard (Produktionshinweise in
+        // Nutzertexten) wird davon nicht berührt.
+        lines.append("")
+        lines.append("Dieses Buch wurde mit KI-Unterstützung erstellt.")
         let cleanImprint = imprint.trimmingCharacters(in: .whitespacesAndNewlines)
         if !cleanImprint.isEmpty {
             lines.append("")

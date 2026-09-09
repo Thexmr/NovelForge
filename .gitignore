@@ -13,3 +13,7 @@ Scratch/
 
 # macOS
 .DS_Store
+
+# Arbeitsausgaben der Proben (PDF-Vorschauen, Zwischenstände)
+output/
+tmp/

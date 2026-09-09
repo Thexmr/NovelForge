@@ -82,7 +82,12 @@ enum ProofService {
                       targetPages: Int = 0) -> Report {
         let texts = chapterTexts(project)
         let words = texts.reduce(0) { $0 + wordCount($1) }
-        let pages = PrintCoverService.estimatePages(words: words)
+        // Format-abhängige Seitenschätzung. Vorher lief alles im 5×8-Default
+        // (280 Wörter/Seite), die Bücher werden aber in 6×9 gesetzt (~330 W/Seite):
+        // die Selbstprüfung wies ~18 % zu viele Seiten nach – ein 33.000-Wörter-Buch
+        // zeigte 118 statt ~100 Seiten und „erfüllte" den Zielumfang damit zu früh.
+        let buchTrim = PrintCoverService.printTrim(forBookTrimRaw: project.trimSizeRaw)
+        let pages = PrintCoverService.estimatePages(words: words, trim: buchTrim)
 
         var groups: [Group] = []
         groups.append(Group(title: "Manuskript",
@@ -91,7 +96,7 @@ enum ProofService {
         groups.append(Group(title: "EPUB-Datei", checks: epubChecks(url: epubURL, chapterCount: texts.count)))
         groups.append(Group(title: "eBook-Cover", checks: coverChecks(url: coverURL)))
         groups.append(Group(title: "Amazon-Metadaten",
-                            checks: metadataChecks(project: project, fullText: texts.joined(separator: "\n").lowercased())))
+                            checks: metadataChecks(project: project, fullText: texts.joined(separator: "\n"))))
         if let wrapURL, let wrapDimensions {
             groups.append(Group(title: "Druckcover (Vorder- + Rückseite + Rücken)",
                                 checks: printCoverChecks(url: wrapURL, dim: wrapDimensions)))
@@ -450,6 +455,7 @@ enum ProofService {
     private static func metadataChecks(project: Project, fullText: String) -> [Check] {
         let profile = project.bookProfile
         var checks: [Check] = []
+        let searchableFullText = fullText.lowercased()
         let title = (profile?.kdpTitle.isEmpty == false ? profile!.kdpTitle : project.title)
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -458,6 +464,30 @@ enum ProofService {
         checks.append(Check("Titel klickstark (≤ 32 Zeichen, kein Doppelpunkt)",
                             title.count <= 32 && !title.contains(":") && !title.contains("–"),
                             "\(title.count) Zeichen\(title.contains(":") ? ", enthält Doppelpunkt" : "")"))
+
+        // Ein verkaufsfähiger KDP-Eintrag beginnt nicht erst beim Klappentext. Die
+        // Zielgruppe und das konkrete Leserbedürfnis sind die Leitplanken für Titel,
+        // Cover, Beschreibung und Keywords. Sie bleiben ein Hinweis, weil nicht jede
+        // valide Buchveröffentlichung diese internen Planfelder benötigt.
+        let targetAudience = (profile?.targetAudience ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let readerBenefit = (profile?.readerBenefit ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        checks.append(Check("Marktprofil hinterlegt (Zielgruppe und Leserbedürfnis)",
+                            targetAudience.wordCount >= 3 && readerBenefit.wordCount >= 3,
+                            "Zielgruppe: \(targetAudience.isEmpty ? "fehlt" : targetAudience.truncated(to: 70)); "
+                                + "Leserbedürfnis: \(readerBenefit.isEmpty ? "fehlt" : readerBenefit.truncated(to: 70))",
+                            required: false))
+
+        let seriesName = project.seriesName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !seriesName.isEmpty {
+            checks.append(Check("Reihe hat eine Bandnummer", project.seriesNumber >= 1,
+                                "\(seriesName), Band \(project.seriesNumber)"))
+            if project.seriesNumber > 1 {
+                let sequelContext = project.sequelContext.trimmingCharacters(in: .whitespacesAndNewlines)
+                checks.append(Check("Folgeband-Kontext hinterlegt", sequelContext.wordCount >= 8,
+                                    sequelContext.isEmpty ? "kein Anschlusskontext" : sequelContext.truncated(to: 120),
+                                    required: false))
+            }
+        }
 
         let sub = (profile?.kdpSubtitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         checks.append(Check("Untertitel unterscheidet sich vom Titel",
@@ -472,6 +502,31 @@ enum ProofService {
             .map { $0.trimmingCharacters(in: CharacterSet.whitespaces) }.filter { !$0.isEmpty }
         checks.append(Check("Verkaufsdramaturgie (Haken, Einsatz, Einsatzverlust, Frage, Leseransprache)",
                             paragraphs.count >= 4, "\(paragraphs.count) Absätze"))
+
+        // WERBE-VERBOT in den kundensichtbaren Texten selbst. Bisher wurden nur die
+        // KEYWORDS auf Rang-/Preiswörter geprüft – stand „Bestseller" oder „kostenlos"
+        // in der Produktbeschreibung, lief sie durch, obwohl Amazon genau das im
+        // Beschreibungstext untersagt (irreführende Werbeangabe → Sperrgrund).
+        let werbeVerstoesse = KDPSalesSheet.promoViolations(in: [title, sub, desc].joined(separator: "\n"))
+        checks.append(Check("Keine Werbe-/Rangversprechen in Titel und Beschreibung",
+                            werbeVerstoesse.isEmpty,
+                            werbeVerstoesse.isEmpty
+                                ? "keine gefunden"
+                                : "verbotene Begriffe: \(werbeVerstoesse.joined(separator: ", "))"))
+
+        // GENERIK-GATE fürs Verkaufsblatt. Die Formatprüfungen oben messen Länge und
+        // Absätze – nicht, ob der Text VERKAUFT. KI-Blurbs fallen ohne Gegenwehr in
+        // Floskeln („Ein fesselnder Roman über …"), verlieren den konkreten Konflikt
+        // und enden ohne Zugfrage. Hinweis statt Blocker: Dramaturgie ist teilweise
+        // Geschmack; das Gate zählt nur maschinell eindeutige Mängel.
+        if !desc.isEmpty {
+            let generik = KDPSalesSheet.blurbIssues(desc)
+            checks.append(Check("Verkaufstext konkret (Haken, Konflikt, Zugfrage, keine Floskeln)",
+                                generik.isEmpty,
+                                generik.isEmpty ? "kein Generik-Befund"
+                                                : generik.joined(separator: " · "),
+                                required: false))
+        }
 
         let keywords = (profile?.kdpKeywords ?? "")
             .components(separatedBy: ",").map { $0.trimmingCharacters(in: CharacterSet.whitespaces) }.filter { !$0.isEmpty }
@@ -509,7 +564,7 @@ enum ProofService {
             let concrete = k.split(separator: " ").map { String($0).lowercased() }
                 .filter { wort in wort.count >= 5 && !searchVocabulary.contains { wort.contains($0) } }
             if concrete.isEmpty { return false }        // reine Genre-/Tonphrase ist zulässig
-            return !concrete.contains { imTextBelegt($0, fullText) }
+            return !concrete.contains { imTextBelegt($0, searchableFullText) }
         }
         // HINWEIS, KEIN UPLOAD-BLOCKER.
         //
@@ -551,6 +606,12 @@ enum ProofService {
             for figur in metaFiguren { namen.insert(figur.name) }
             let metaOrte: [LocationProfile] = project.storyBible?.locations ?? []
             for ort in metaOrte { namen.insert(ort.name) }
+            // Die Story-Bible kann nach spaeten Revisionen veraltet sein. Ein echter
+            // Lauf enthielt im Manuskript Liv Kronborg, Klitmoller und Thisted, waehrend
+            // die Bible noch Freja Holbek und Tjare Wessel fuehrte. Wiederholt
+            // grossgeschriebene Woerter aus dem fertigen Text sind deshalb die
+            // verlaesslichere zweite Quelle fuer Figuren- und Ortsnamen.
+            namen.formUnion(repeatedCapitalizedWords(in: fullText))
             for wort in project.title.split(separator: " ") { namen.insert(String(wort)) }
             namen.insert(project.authorName)
             let befunde = SpellCheckService.pruefe(text: verkaufstexte, eigennamen: namen)
@@ -566,6 +627,27 @@ enum ProofService {
                             (1...3).contains(categories.count),
                             categories.isEmpty ? "keine" : categories.joined(separator: " | ")))
         return checks
+    }
+
+    static func repeatedCapitalizedWords(in text: String, minimumOccurrences: Int = 2) -> Set<String> {
+        guard let regex = try? NSRegularExpression(
+            pattern: #"\b[\p{Lu}][\p{L}'’-]{2,}\b"#
+        ) else { return [] }
+        let ns = text as NSString
+        var originalByLowercase: [String: String] = [:]
+        var counts: [String: Int] = [:]
+        regex.enumerateMatches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            match, _, _ in
+            guard let match else { return }
+            let word = ns.substring(with: match.range)
+            let key = word.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+                .lowercased()
+            originalByLowercase[key] = originalByLowercase[key] ?? word
+            counts[key, default: 0] += 1
+        }
+        return Set(counts.compactMap { key, count in
+            count >= minimumOccurrences ? originalByLowercase[key] : nil
+        })
     }
 
     // MARK: - Hilfen

@@ -3,6 +3,11 @@ import SwiftData
 
 @MainActor
 struct NewBookWizardView: View {
+    private enum BriefMode: String, CaseIterable, Identifiable {
+        case genre = "Genre wählen"
+        case story = "Geschichte vorgeben"
+        var id: String { rawValue }
+    }
     static let availableGenres = UnlimitedSettings.genrePool
     /// Sentinel-Tag für „eigenes Genre frei eingeben" im Genre-Picker.
     static let customGenreTag = "__eigenes_genre__"
@@ -21,6 +26,10 @@ struct NewBookWizardView: View {
     @AppStorage("defaultAuthorBio") private var defaultAuthorBio = DefaultBookSettings.authorBio
 
     @State private var currentStep = 0
+    @State private var authorDetailsExpanded = false
+    @State private var briefMode = BriefMode.genre
+    @State private var authorStoryBrief = ""
+    @State private var storyAnalysisComplete = false
 
     // Schritt 1: Basisdaten
     @State private var title = ""
@@ -92,7 +101,7 @@ struct NewBookWizardView: View {
                         "Auktorialer Erzähler", "Wechselnde Perspektiven"]
     let tenses = ["Präteritum", "Präsens"]
 
-    private let stepTitles = ["Basis", "Stil", "Umfang", "KI-Provider", "Prüfen"]
+    private let stepTitles = ["Buchidee", "Schreibstil", "Umfang", "Textmodell", "Start prüfen"]
     private let stepIcons = ["book.closed", "text.quote", "doc.text", "cloud", "checkmark.seal"]
 
     /// Das tatsächlich zu verwendende Genre: bei „Andere…" der frei eingegebene Text,
@@ -278,6 +287,55 @@ struct NewBookWizardView: View {
     private var basicDataSection: some View {
         Group {
             Section("Basisdaten") {
+                Picker("Ausgangspunkt", selection: $briefMode) {
+                    ForEach(BriefMode.allCases) { mode in Text(mode.rawValue).tag(mode) }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: briefMode) { _, mode in
+                    storyAnalysisComplete = false
+                    ideaSuggestions = []
+                    ideaError = nil
+                    if mode == .story {
+                        title = ""
+                        genre = ""
+                        customGenre = ""
+                        subgenre = ""
+                        seedPremise = ""
+                    }
+                }
+
+                if briefMode == .story {
+                    TextEditor(text: $authorStoryBrief)
+                        .frame(minHeight: 150)
+                        .overlay(alignment: .topLeading) {
+                            if authorStoryBrief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Text("Figuren, Ausgangslage, wichtige Wendungen und gewünschtes Ende beschreiben …")
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.top, 8)
+                                    .padding(.leading, 5)
+                                    .allowsHitTesting(false)
+                            }
+                        }
+                        .onChange(of: authorStoryBrief) { _, _ in
+                            storyAnalysisComplete = false
+                        }
+                    Button {
+                        generateIdeas()
+                    } label: {
+                        Label(isGeneratingIdeas ? "Geschichte wird analysiert …" : "Genre und Titel ableiten",
+                              systemImage: isGeneratingIdeas ? "hourglass" : "wand.and.stars")
+                    }
+                    .disabled(isGeneratingIdeas
+                              || authorStoryBrief.trimmingCharacters(in: .whitespacesAndNewlines).wordCount < 12
+                              || usableIdeaConfig() == nil)
+                    if storyAnalysisComplete {
+                        Label("Vorgabe analysiert und als verbindlicher Story-Auftrag übernommen.",
+                              systemImage: "checkmark.seal.fill")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    }
+                }
+
                 TextField("Titel", text: $title)
                 HStack {
                     Button {
@@ -286,7 +344,7 @@ struct NewBookWizardView: View {
                         if isGeneratingTitles {
                             HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Titel …") }
                         } else {
-                            Label("Virale Titel vorschlagen", systemImage: "sparkles")
+                            Label("Buchtitel vorschlagen", systemImage: "sparkles")
                         }
                     }
                     .disabled(isGeneratingTitles)
@@ -312,6 +370,7 @@ struct NewBookWizardView: View {
                 }
                 TextField("Autorname oder Pseudonym", text: $authorName)
 
+                DisclosureGroup("Autorprofil & Impressum", isExpanded: $authorDetailsExpanded) {
                 Text("Autorprofil")
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 TextEditor(text: $authorBio)
@@ -379,6 +438,8 @@ struct NewBookWizardView: View {
                         }
                     }
 
+                }
+
                 Picker("Sprache", selection: $language) {
                     ForEach(languages, id: \.self) { Text($0).tag($0) }
                 }
@@ -415,7 +476,7 @@ struct NewBookWizardView: View {
                           text: $subgenre)
 
                 if contentType == .fiction {
-                    TextField("Tropes (kommagetrennt – z.B. Enemies to Lovers, Slow Burn)", text: $tropes)
+                    TextField("Handlungsmotive, z. B. Rivalen verlieben sich", text: $tropes)
                     HStack {
                         Button {
                             generateTropes()
@@ -423,7 +484,7 @@ struct NewBookWizardView: View {
                             if isGeneratingTropes {
                                 HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Tropes …") }
                             } else {
-                                Label("Tropes vorschlagen", systemImage: "tag")
+                                Label("Handlungsmotive vorschlagen", systemImage: "tag")
                             }
                         }
                         .disabled(isGeneratingTropes)
@@ -459,7 +520,7 @@ struct NewBookWizardView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Text("Serie / Reihe (optional – für Read-Through)")
+                Text("Buchreihe (optional)")
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 HStack(spacing: 12) {
                     TextField("Reihenname", text: $seriesName)
@@ -540,22 +601,55 @@ struct NewBookWizardView: View {
         isGeneratingIdeas = true
         ideaError = nil
 
-        let request = GenerationRequest(
-            prompt: PromptFactory.bookIdeas(genre: effectiveGenre, language: language),
-            systemPrompt: "Du bist ein Verlagslektor mit sicherem Gespür für verkäufliche, originelle Buchideen.",
-            model: config.defaultModel ?? config.provider.suggestedModels.first ?? "",
-            provider: config.provider,
-            maxTokens: 800,
-            temperature: 0.9
-        )
+        let storyMode = briefMode == .story
+        let genre = storyMode
+            ? "automatisch aus dem Geschichtenauftrag erkennen"
+            : (effectiveGenre.isEmpty ? "frei wählbar" : effectiveGenre)
+        let sprache = language
+        let modell = config.defaultModel ?? config.provider.suggestedModels.first ?? ""
+        let storySeed = storyMode ? authorStoryBrief : ""
 
         Task { @MainActor in
             defer { isGeneratingIdeas = false }
+            // Eine Story-Vorgabe zuerst streng und schnell analysieren. Die allgemeine
+            // Ideenfunktion recherchiert weiterhin den Markt, würde hier aber mehrere
+            // abweichende Handlungen erzeugen und den Pflichtvertrag verwässern.
+            let trends = storyMode ? nil : await TitleTrendAgent.shared.report(
+                genre: genre, language: sprache,
+                modellRecherche: { prompt in
+                    let anfrage = GenerationRequest(
+                        prompt: prompt,
+                        systemPrompt: "Du bist Marktanalyst für Buchhandel und kennst die Bestsellerlisten und Amazon-Kindle-Charts der letzten Jahre genau. Du nennst ausschließlich real erschienene Bücher und erfindest nichts.",
+                        model: modell, provider: config.provider,
+                        maxTokens: 700, temperature: 0.2
+                    )
+                    return try await ProviderGateway.shared
+                        .generateText(request: anfrage, configuration: config).text
+                })
+            let prompt = storyMode
+                ? PromptFactory.storyBriefIdea(storySeed, language: sprache)
+                : PromptFactory.bookIdeas(
+                    genre: genre, language: sprache,
+                    trendBriefing: trends?.briefing ?? ""
+                )
+            let request = GenerationRequest(
+                prompt: prompt,
+                systemPrompt: storyMode
+                    ? "Du bist ein präziser Story-Editor. Du befolgst das verlangte Einzeilenformat exakt."
+                    : "Du bist ein Verlagslektor mit sicherem Gespür für verkäufliche, originelle Buchideen.",
+                model: modell,
+                provider: config.provider,
+                maxTokens: storyMode ? 450 : 800,
+                temperature: storyMode ? 0.35 : 0.9
+            )
             do {
                 let response = try await ProviderGateway.shared.generateText(request: request, configuration: config)
                 ideaSuggestions = StructureParser.parseIdeas(response.text)
                 if ideaSuggestions.isEmpty {
                     ideaError = "Keine Ideen erkannt – bitte erneut versuchen."
+                } else if storyMode, let first = ideaSuggestions.first {
+                    applyIdea(first)
+                    storyAnalysisComplete = true
                 }
             } catch let error as AIError {
                 ideaError = error.errorDescription
@@ -633,25 +727,62 @@ struct NewBookWizardView: View {
         isGeneratingTitles = true
         titleError = nil
 
-        let request = GenerationRequest(
-            prompt: PromptFactory.viralTitles(genre: effectiveGenre, premise: seedPremise, language: language),
-            systemPrompt: "Du bist ein Bestseller-Titel-Experte für virale, unverwechselbare Buchtitel, die beim Scrollen sofort hängenbleiben.",
-            model: config.defaultModel ?? config.provider.suggestedModels.first ?? "",
-            provider: config.provider,
-            maxTokens: 400,
-            temperature: 0.95
-        )
+        let genre = effectiveGenre
+        let sprache = language
+        let prämisse = seedPremise
+        let modell = config.defaultModel ?? config.provider.suggestedModels.first ?? ""
 
         Task { @MainActor in
             defer { isGeneratingTitles = false }
+            // Erst der Markt, dann die Erfindung – dieselbe Reihenfolge wie in der
+            // Auto-Produktion, damit beide Wege dieselben Titel liefern.
+            let trends = await TitleTrendAgent.shared.report(
+                genre: genre, language: sprache,
+                modellRecherche: { prompt in
+                    let anfrage = GenerationRequest(
+                        prompt: prompt,
+                        systemPrompt: "Du bist Marktanalyst für Buchhandel und kennst die Bestsellerlisten und Amazon-Kindle-Charts der letzten Jahre genau. Du nennst ausschließlich real erschienene Bücher und erfindest nichts.",
+                        model: modell, provider: config.provider,
+                        maxTokens: 700, temperature: 0.2
+                    )
+                    return try await ProviderGateway.shared
+                        .generateText(request: anfrage, configuration: config).text
+                })
+            let request = GenerationRequest(
+                prompt: PromptFactory.viralTitles(genre: genre, premise: prämisse,
+                                                  language: sprache,
+                                                  trendBriefing: trends.briefing),
+                systemPrompt: "Du bist ein Bestseller-Titel-Experte für virale, unverwechselbare Buchtitel, die beim Scrollen sofort hängenbleiben.",
+                model: modell,
+                provider: config.provider,
+                maxTokens: 400,
+                temperature: 0.95
+            )
             do {
                 let response = try await ProviderGateway.shared.generateText(request: request, configuration: config)
                 let titles = StructureParser.parseTitleLines(response.text)
-                if titles.isEmpty {
+                // Zwei harte Filter, bevor überhaupt sortiert wird:
+                //
+                // 1. Kopien echter Buchtitel fliegen raus. Die Titel-Prompts nennen echte
+                //    Bestseller als Muster – genau deshalb besteht die Gefahr, dass das
+                //    Modell sie übernimmt. Buchtitel genießen Werktitelschutz.
+                // 2. Verkopfte Titel fliegen raus: „Das Gewicht von Seide" – ein
+                //    Gegenstand ohne Menschen, ohne Ort, mit schwerem Abstraktum. Genau
+                //    dieser Titel kam aus der bisherigen Fassung.
+                // 3. Deko- und Baukasten-Titel fliegen raus: „Unser Sommer in der blauen
+                //    Küche" – eine hübsche Kulisse ohne Versprechen. `titelAblehnungsgrund`
+                //    fasst alle drei Prüfungen zusammen.
+                let brauchbar = titles.filter {
+                    AutonomousContentQuality.titelAblehnungsgrund($0) == nil
+                }
+                // Wenn ALLE durchfallen, lieber die ungefilterte Liste zeigen als gar
+                // nichts – der Nutzer soll nie vor einem leeren Feld stehen.
+                let anzuzeigen = brauchbar.isEmpty ? titles : brauchbar
+                if anzuzeigen.isEmpty {
                     titleError = "Keine Titel erkannt – bitte erneut versuchen."
                 } else {
                     // Stärksten Titel nach oben (gleiche Heuristik wie die Auto-Produktion).
-                    titleSuggestions = titles.sorted {
+                    titleSuggestions = anzuzeigen.sorted {
                         AutonomousContentQuality.titleViralityScore($0)
                             > AutonomousContentQuality.titleViralityScore($1)
                     }
@@ -709,7 +840,9 @@ struct NewBookWizardView: View {
         if genres.contains(idea.genre) {
             genre = idea.genre
         } else if !idea.genre.isEmpty {
-            subgenre = idea.genre
+            genre = Self.customGenreTag
+            customGenre = idea.genre
+            subgenre = ""
         }
         seedPremise = idea.premise
     }
@@ -729,7 +862,9 @@ struct NewBookWizardView: View {
             }
 
             Picker("Zeitform", selection: $tense) {
-                ForEach(tenses, id: \.self) { Text($0).tag($0) }
+                ForEach(tenses, id: \.self) {
+                    Text($0 == "Präteritum" ? "Vergangenheit" : "Gegenwart").tag($0)
+                }
             }
         }
     }
@@ -896,6 +1031,7 @@ struct NewBookWizardView: View {
             return !title.trimmingCharacters(in: .whitespaces).isEmpty
                 && !authorName.trimmingCharacters(in: .whitespaces).isEmpty
                 && !effectiveGenre.isEmpty
+                && (briefMode == .genre || storyAnalysisComplete)
         case 1:
             return !styleProfile.isEmpty
         case 2:
@@ -913,6 +1049,7 @@ struct NewBookWizardView: View {
             if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Titel eintragen" }
             if authorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Autor eintragen" }
             if effectiveGenre.isEmpty { return "Genre wählen" }
+            if briefMode == .story && !storyAnalysisComplete { return "Geschichte analysieren" }
         case 1:
             if styleProfile.isEmpty { return "Stilprofil wählen" }
         case 2:
@@ -943,7 +1080,7 @@ struct NewBookWizardView: View {
             return
         }
 
-        let publicInputs = [title, authorBio, imprint, tropes, seedPremise]
+        let publicInputs = [title, authorBio, imprint, tropes, seedPremise, authorStoryBrief]
         guard !publicInputs.contains(where: PublicContentGuard.disclosureViolation) else {
             currentStep = 0
             validationMessage = "Bitte Produktionshinweise aus den öffentlich sichtbaren Buchdaten entfernen."
@@ -993,13 +1130,26 @@ struct NewBookWizardView: View {
         )
 
         let bookProfile = BookProfile(
-            premise: seedPremise,
+            premise: briefMode == .story
+                ? authorStoryBrief + (seedPremise.isEmpty ? "" : "\n\nABGELEITETE PRAEMISSE:\n" + seedPremise)
+                : seedPremise,
             theme: "",
             targetAudience: targetAudience,
             tonality: tonality.isEmpty ? styleProfile : tonality,
             narrativePerspective: narrativePerspective,
             tense: tense
         )
+        if briefMode == .story {
+            bookProfile.storyBriefMode = true
+            bookProfile.authorStoryBrief = authorStoryBrief
+            bookProfile.storyRequirements = authorStoryBrief
+            bookProfile.storyBriefAnalysis = [
+                "Genre: \(effectiveGenre)",
+                subgenre.isEmpty ? "" : "Subgenre: \(subgenre)",
+                "Titel: \(title)",
+                seedPremise.isEmpty ? "" : "Praemisse: \(seedPremise)",
+            ].filter { !$0.isEmpty }.joined(separator: "\n")
+        }
         bookProfile.project = project
 
         let storyBible = StoryBible()

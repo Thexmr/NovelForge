@@ -101,9 +101,10 @@ final class Chapter: NovelForgePersistentModel {
     var bestText: String? {
         let raw = rawBestText
         guard let raw, !raw.isEmpty else { return nil }
-        var cleaned = AutonomousContentQuality.humanizeProse(
-            AutonomousContentQuality.strippingInlineFormatting(
-                AutonomousContentQuality.strippingPromptArtifacts(raw)))
+        var cleaned = AutonomousContentQuality.cleaningStoredBookText(
+            raw,
+            bookTitle: project?.title ?? ""
+        )
         cleaned = AutonomousContentQuality.strippingLeadingTitleEcho(cleaned, title: title)
         return cleaned.isEmpty ? nil : cleaned
     }
@@ -115,6 +116,9 @@ final class Chapter: NovelForgePersistentModel {
     var displayTitle: String {
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
         if t.isEmpty { return "Kapitel \(chapterNumber)" }
+        if AutonomousContentQuality.isInternalPlanningTitle(t) {
+            return "Kapitel \(chapterNumber)"
+        }
         if t.range(of: #"^(aufbruch|eskalation|krise|auflösung|kapitel|teil)\s+\d+$"#,
                    options: [.regularExpression, .caseInsensitive]) != nil {
             return "Kapitel \(chapterNumber)"

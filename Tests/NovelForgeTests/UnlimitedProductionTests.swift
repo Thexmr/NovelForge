@@ -347,6 +347,8 @@ final class UnlimitedProductionTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(plan.scenesPerChapter, 4)
         XCTAssertLessThanOrEqual(plan.targetWordsPerScene, 900)
         XCTAssertGreaterThanOrEqual(plan.totalPlannedScenes, 200)
+        // Eine Szene darf nie so klein geplant werden, dass sie unerfüllbar ist.
+        XCTAssertGreaterThanOrEqual(plan.targetWordsPerScene, 400)
     }
 
     func testLongFormPlanScalesToThousandPages() {
@@ -355,9 +357,16 @@ final class UnlimitedProductionTests: XCTestCase {
 
         XCTAssertEqual(plan.targetWordCount, 250_000)
         XCTAssertEqual(plan.chapterCount, 80)
-        XCTAssertEqual(plan.scenesPerChapter, 5)
-        XCTAssertEqual(plan.totalPlannedScenes, 400)
+        // 6 statt vorher 5: Die Szenenformel zielt jetzt auf ~600 Wörter je Szene
+        // (Divisor 600 statt 750, Untergrenze 2 statt 4). Hintergrund ist die
+        // Messung am Testbuch – bei 287–312 Wörtern Vorgabe schrieb das Modell
+        // 451–696, also das 1,45- bis 2,43-fache. Die alte Untergrenze von 4
+        // erzwang bei kurzen Kapiteln 260-Wort-Ziele, die kein Modell einhält.
+        XCTAssertEqual(plan.scenesPerChapter, 6)
+        XCTAssertEqual(plan.totalPlannedScenes, 480)
         XCTAssertLessThanOrEqual(plan.targetWordsPerScene, 900)
+        // Untergrenze: Eine Szene braucht Raum für Einstieg, Konflikt und Wendung.
+        XCTAssertGreaterThanOrEqual(plan.targetWordsPerScene, 400)
 
         // 1000 wird nicht mehr auf 500 gedeckelt.
         let settings = UnlimitedSettings(
@@ -404,6 +413,47 @@ final class UnlimitedProductionTests: XCTestCase {
                                                                                consecutiveFailures: 1))
     }
 
+    func testStorageGuardBlocksOnlyBelowTheSafetyThreshold() {
+        XCTAssertNil(ProductionStorageGuard.blockingError(
+            availableBytes: ProductionStorageGuard.minimumFreeBytes
+        ))
+        XCTAssertNil(ProductionStorageGuard.blockingError(availableBytes: 8 * 1_073_741_824))
+
+        let blocked = ProductionStorageGuard.blockingError(
+            availableBytes: ProductionStorageGuard.minimumFreeBytes - 1
+        )
+        XCTAssertNotNil(blocked)
+        XCTAssertTrue(ProductionStorageGuard.isStorageFailure(
+            blocked ?? AIError.systemError("kein Speicherfehler")
+        ))
+        XCTAssertTrue(ProductionStorageGuard.isStorageFailureMessage("database or disk is full"))
+        XCTAssertTrue(ProductionStorageGuard.isStorageFailureMessage("No space left on device"))
+        XCTAssertFalse(ProductionStorageGuard.isStorageFailureMessage("Modell antwortet nicht"))
+    }
+
+    /// Ein voller Datentraeger beendete frueher die Dauerproduktion und verlangte einen
+    /// manuellen Neustart – auch dann noch, wenn Minuten spaeter wieder Platz frei war.
+    /// Er zaehlt jetzt als voruebergehende Stoerung: warten, dann weiterschreiben.
+    func testFullDiskPausesButNeverEndsAutonomousProduction() {
+        guard let storageError = ProductionStorageGuard.blockingError(
+            availableBytes: 327 * 1_048_576
+        ) else {
+            return XCTFail("Speichermangel unter 1 GB muss einen Fehler liefern")
+        }
+
+        XCTAssertFalse(ProductionStabilityPolicy.shouldHaltUnlimitedProduction(
+            after: storageError, consecutiveFailures: 1
+        ), "Speichermangel darf die Dauerproduktion nicht mehr beenden")
+        XCTAssertFalse(ProductionStabilityPolicy.shouldHaltUnlimitedProduction(
+            after: storageError, consecutiveFailures: 30
+        ))
+        XCTAssertFalse(ProductionStabilityPolicy.shouldPauseForUserAction(after: storageError),
+                       "Freier Speicher entsteht ohne Konto- oder Konfigurationsaenderung")
+        XCTAssertTrue(ProductionStabilityPolicy.shouldResumeInterruptedBook(after: storageError),
+                      "Dasselbe Buch muss automatisch fortgesetzt werden")
+        XCTAssertGreaterThan(ProductionStorageGuard.recheckInterval, 0)
+    }
+
     func testStabilityPolicyUsesCappedBackoffForTransientBookFailures() {
         XCTAssertEqual(ProductionStabilityPolicy.retryDelay(forConsecutiveFailures: 0), 0)
         XCTAssertEqual(ProductionStabilityPolicy.retryDelay(forConsecutiveFailures: 1), 5)
@@ -429,6 +479,19 @@ final class UnlimitedProductionTests: XCTestCase {
         XCTAssertFalse(ProductionStabilityPolicy.shouldResumeInterruptedBook(
             after: NSError(domain: "NovelForgeTests", code: 1)
         ))
+    }
+
+    func testStabilityPolicyRegeneratesRejectedContentWithoutManualResume() {
+        let rejection = AIError.contentQualityRejected(
+            "Plotplanung: nicht vorgegebener oder veraenderter Personenname"
+        )
+
+        XCTAssertTrue(ProductionStabilityPolicy.shouldResumeInterruptedBook(after: rejection))
+        XCTAssertFalse(ProductionStabilityPolicy.shouldResumeInterruptedBook(
+            after: rejection,
+            consecutiveFailures: ProductionStabilityPolicy.maxContentQualityRestarts
+        ))
+        XCTAssertFalse(ProductionStabilityPolicy.shouldPauseForUserAction(after: rejection))
     }
 
     func testReadinessShortfallRemainsRetryableForAutonomousProduction() {

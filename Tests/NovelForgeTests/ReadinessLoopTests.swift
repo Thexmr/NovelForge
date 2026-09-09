@@ -17,14 +17,16 @@ import XCTest
 @MainActor
 final class ReadinessLoopTests: XCTestCase {
 
-    func testNurDieDreiBehebbarenArtenRechtfertigenEineWiederholung() {
-        // Genau diese drei kann die Reparatur anfassen.
+    func testBehebbareArtenRechtfertigenEineWiederholung() {
+        // Jede hier aufgeführte Meldung hat einen konkreten, begrenzten Reparaturpfad.
         XCTAssertTrue(PipelineOrchestrator.hatReparierbareBeanstandung(
             ["Offene Qualitätsbefunde: 2 kritisch, 1 Fehler."]))
         XCTAssertTrue(PipelineOrchestrator.hatReparierbareBeanstandung(
             ["Kapitel 12 liegt über Zielumfang."]))
         XCTAssertTrue(PipelineOrchestrator.hatReparierbareBeanstandung(
             ["3 wiederholte ganze Sätze im Manuskript."]))
+        XCTAssertTrue(PipelineOrchestrator.hatReparierbareBeanstandung(
+            ["Mechanisch wiederholte Reaktionsformeln im Manuskript: drehte sich um."]))
     }
 
     func testUnbehebbaresLoestKeineWiederholungAus() {
@@ -123,5 +125,23 @@ final class ReadinessLoopTests: XCTestCase {
         // Und die Rundenzahl darf nicht wieder ins Unbegrenzte wachsen.
         XCTAssertLessThanOrEqual(PipelineOrchestrator.maxQualityRepairRounds, 3,
                                  "Gemessen wurde in 329 Runden null behobene Punkte – mehr als drei Anläufe sind belegbar sinnlos")
+    }
+
+    func testVollstaendigesManuskriptWirdNachReparaturgrenzeNichtZumProduktionsfehler() {
+        XCTAssertTrue(ProductionCompletionPolicy.shouldRequireReview(
+            chapterTexts: ["Ein vollständiges erstes Kapitel.", "Ein vollständiges zweites Kapitel."],
+            readinessShortfall: true,
+            retriesExhausted: true
+        ))
+        XCTAssertFalse(ProductionCompletionPolicy.shouldRequireReview(
+            chapterTexts: ["Ein vollständiges Kapitel.", ""],
+            readinessShortfall: true,
+            retriesExhausted: true
+        ))
+    }
+
+    func testReviewStatusIsVisibleAndNotAFailure() {
+        XCTAssertEqual(ProjectStatus.needsReview.displayName, "Prüfung erforderlich")
+        XCTAssertNotEqual(ProjectStatus.needsReview, .failed)
     }
 }

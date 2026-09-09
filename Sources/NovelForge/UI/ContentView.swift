@@ -43,6 +43,22 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
 
     var id: String { rawValue }
 
+    var title: String {
+        switch self {
+        case .dashboard: return "Übersicht"
+        case .projects: return "Meine Bücher"
+        case .production: return "Bücher schreiben"
+        case .agents: return "Arbeitsprotokoll"
+        case .manuscript: return "Lesen & Bearbeiten"
+        case .storyBible: return "Figuren & Handlung"
+        case .editorChat: return "Lektorat"
+        case .export: return "Dateien exportieren"
+        case .kdp: return "Titel & Verkaufstext"
+        case .factory: return "Amazon KDP"
+        case .settings: return "Einstellungen"
+        }
+    }
+
     var icon: String {
         switch self {
         case .dashboard: return "square.grid.2x2"
@@ -82,9 +98,7 @@ struct ContentView: View {
                 detailContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .id(appState.selectedSidebarItem)
-                    .transition(reduceMotion
-                                ? .opacity
-                                : .opacity.combined(with: .move(edge: .trailing)))
+                    .transition(.opacity)
             }
         }
         .animation(reduceMotion ? nil : Motion.standard, value: appState.selectedSidebarItem)
@@ -96,15 +110,66 @@ struct ContentView: View {
         .onAppear {
             let orchestrator = PipelineOrchestrator.shared
             orchestrator.configure(with: modelContext)
+
+            // Die Buchfabrik muss ein fertiges Buch zu seinem Projekt auflösen können,
+            // sonst überspringt der Upload-Takt es mit „Projekt nicht gefunden".
+            //
+            // Der Auflöser wurde bisher NUR gesetzt, wenn jemand die Buchfabrik-Seite
+            // öffnete (FactoryView). Wer sie nie aufrief, bei dem lag das fertige Buch
+            // in der Warteschlange und wurde bei jedem Takt verworfen – gemessen an
+            // „Wo wir zuletzt tanzten": Status completed, EPUB exportiert, Eintrag in
+            // der Queue, Meldung „Projekt nicht gefunden – übersprungen." Der Dispatcher
+            // startet seit Kurzem beim App-Start; ohne Auflöser läuft er dennoch leer.
+            let context = modelContext
+            KDPFactory.shared.setProjectResolver { id in
+                // Ohne #Predicate: Das Macro-Plugin fehlt in der Kommandozeilen-
+                // Toolchain dieses Rechners. Bei der Handvoll Projekte ist das
+                // Nachfiltern ohnehin nicht messbar.
+                (try? context.fetch(FetchDescriptor<Project>()))?
+                    .first { $0.id == id }
+            }
+
+            // Fertige Bücher nachtragen, die es nie in die Warteschlange geschafft haben.
+            //
+            // `reicheFertigesBuchEin` läuft nur im Moment des Übergangs auf `completed`.
+            // Scheitert der Upload danach ein einziges Mal – etwa weil der Auflöser noch
+            // fehlte –, verschwindet der Eintrag und das Buch wird NIE wieder eingereiht.
+            // Gemessen an „Wo wir zuletzt tanzten": fertig, exportiert, und trotzdem
+            // dauerhaft draußen. Deshalb beim Start einmal nachziehen.
+            if KDPFactory.shared.enabled,
+               let fertige = try? context.fetch(FetchDescriptor<Project>()) {
+                for projekt in fertige where projekt.status == .completed {
+                    KDPFactory.shared.reicheFertigesBuchEin(projekt)
+                }
+            }
+
+            ProductionRecoveryService.reclassifyCompletedManuscripts(in: modelContext)
+            ProductionRecoveryService.repairLegacyCharacterCanon(in: modelContext)
+            ProductionRecoveryService.sanitizePersistedScenes(in: modelContext)
             ProductionRecoveryService.recoverInterruptedJobs(in: modelContext)
-            if let project = ProductionRecoveryService.automaticResumeCandidate(
-                in: modelContext
-            ) {
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 800_000_000)
-                    guard !orchestrator.isRunning, project.status == .paused else { return }
+            starteSelbstheilungsWache()
+        }
+    }
+
+    /// Holt abgerissene Produktionen zurück – nicht nur beim App-Start, sondern
+    /// dauerhaft. Buch 10 riss bei laufender App nach 13 Sekunden ab und lag danach
+    /// stundenlang unangetastet, weil die Prüfung ausschließlich beim Start lief.
+    /// Eine von Hand gedrückte Pause bleibt unberührt: `shouldAutoResume` erkennt
+    /// nur unfreiwillige Abrisse.
+    @MainActor
+    private func starteSelbstheilungsWache() {
+        let context = modelContext
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            while !Task.isCancelled {
+                let orchestrator = PipelineOrchestrator.shared
+                if !orchestrator.isRunning,
+                   let project = ProductionRecoveryService.automaticResumeCandidate(
+                    in: context
+                   ) {
                     orchestrator.resumePipeline(project: project)
                 }
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
             }
         }
     }
@@ -147,10 +212,10 @@ struct StudioSidebar: View {
     @Binding var showingNewBookSheet: Bool
 
     private let sections: [(String, [SidebarItem])] = [
-        ("Studio", [.dashboard, .projects, .production, .agents]),
-        ("Inhalt", [.manuscript, .storyBible, .editorChat]),
-        ("Ausgabe", [.export, .kdp, .factory]),
-        ("System", [.settings])
+        ("Bibliothek", [.dashboard, .projects, .production]),
+        ("Am Buch arbeiten", [.manuscript, .storyBible, .editorChat]),
+        ("Veröffentlichen", [.kdp, .export, .factory]),
+        ("Aktivität", [.agents])
     ]
 
     var body: some View {
@@ -170,8 +235,8 @@ struct StudioSidebar: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    VStack(alignment: .leading, spacing: 17) {
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 12) {
                         ForEach(sections, id: \.0) { section in
                             VStack(alignment: .leading, spacing: 6) {
                                 StudioSectionLabel(text: section.0)
@@ -189,12 +254,18 @@ struct StudioSidebar: View {
                         }
                     }
 
-                    productionCapsule
+                    if orchestrator.isRunning { productionCapsule }
                 }
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .scrollIndicators(.hidden)
+
+            SidebarButton(item: .settings, isSelected: appState.selectedSidebarItem == .settings, badge: nil) {
+                appState.open(.settings)
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 8)
 
             Button {
                 showingNewBookSheet = true
@@ -229,10 +300,9 @@ struct StudioSidebar: View {
             }
 
             HStack(spacing: 8) {
-                StudioStatusPill(text: "Cloud", systemImage: "cloud.fill", color: StudioTheme.cyan)
-                StudioStatusPill(text: orchestrator.isUnlimitedMode ? "Loop aktiv" : "Bereit",
-                                 systemImage: orchestrator.isUnlimitedMode ? "infinity" : "bolt.fill",
-                                 color: orchestrator.isUnlimitedMode ? StudioTheme.lime : StudioTheme.violet)
+                StudioStatusPill(text: orchestrator.isRunning ? "Schreibt gerade" : "Keine Produktion aktiv",
+                                 systemImage: orchestrator.isRunning ? "pencil.line" : "pause.circle",
+                                 color: orchestrator.isRunning ? StudioTheme.lime : StudioTheme.textMuted)
             }
         }
         .padding(.horizontal, 2)
@@ -298,7 +368,7 @@ struct SidebarButton: View {
                     .font(.system(size: 14, weight: .semibold))
                     .frame(width: 22)
                     .foregroundStyle(isSelected ? StudioTheme.cyan : StudioTheme.textMuted)
-                Text(item.rawValue)
+                Text(item.title)
                     .font(.callout.weight(isSelected ? .semibold : .medium))
                     .foregroundStyle(isSelected ? Color.primary : StudioTheme.textMuted)
                     .lineLimit(1)
@@ -315,7 +385,7 @@ struct SidebarButton: View {
                 }
             }
             .padding(.horizontal, 10)
-            .frame(height: 39)
+            .frame(height: 36)
             .background {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .fill(isSelected
@@ -340,7 +410,8 @@ struct SidebarButton: View {
         .onHover { isHovered = $0 }
         .animation(Motion.fast, value: isHovered)
         .animation(Motion.standard, value: isSelected)
-        .help(item.rawValue)
+        .help(item.title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -361,14 +432,21 @@ struct ProductionView: View {
 
     private var resumableProjects: [Project] {
         allProjects.filter { project in
-            project.status != .completed && project.id != orchestrator.currentProject?.id
+            project.status != .completed
+                && (!orchestrator.isRunning || project.id != orchestrator.currentProject?.id)
+                && !orchestrator.activeProjectIDs.contains(project.id)
         }
     }
 
     private var displayedInterruption: String? {
+        if orchestrator.currentProject?.status == .paused { return nil }
         if let error = orchestrator.lastError, !error.isEmpty { return error }
+        // Eine gespeicherte Meldung beschreibt einen frueheren Abbruch. Laeuft die
+        // Produktion gerade, ist sie damit Vergangenheit und gehoert nicht als roter
+        // Hinweis ins laufende Fenster – ein aktuelles Problem stuende in `lastError`.
+        guard !orchestrator.isRunning else { return nil }
         let persisted = persistedInterruption.trimmingCharacters(in: .whitespacesAndNewlines)
-        return persisted.isEmpty ? nil : persisted
+        return ProductionIncidentStore.isActionable(persisted) ? persisted : nil
     }
 
     var body: some View {
@@ -389,7 +467,7 @@ struct ProductionView: View {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(StudioTheme.danger)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Letzte Produktion unterbrochen")
+                            Text("Gespeicherte Fehlermeldung")
                                 .font(.headline)
                             Text(error)
                                 .font(.caption)
@@ -461,7 +539,7 @@ struct ProductionView: View {
             .frame(maxWidth: .infinity)
         }
         .background(StudioBackground())
-        .navigationTitle("Produktion")
+        .navigationTitle("Bücher schreiben")
         .sheet(isPresented: $showingNewBookSheet) {
             NewBookWizardView()
         }
@@ -486,31 +564,31 @@ struct ProductionView: View {
                                              color: StudioTheme.cyan)
                         }
                     }
-                    Text("Produktions-Cockpit")
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
-                    Text("Steuert Einzelprojekte, Dauerproduktion, Fortschritt, Restzeit und parallele Buch-Worker an einem Ort.")
-                        .font(.subheadline)
-                        .foregroundStyle(StudioTheme.textMuted)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Bücher schreiben")
+                        .font(.system(size: 28, weight: .bold))
                 }
                 Spacer(minLength: 12)
+                // Beide Aktionen in einer festen Spalte gleicher Breite: Die
+                // primäre Auto-Produktion und das sekundäre „Neues Buch" wirken
+                // so ausgewogen statt unterschiedlich breit untereinander.
                 VStack(alignment: .trailing, spacing: 10) {
                     if !orchestrator.isRunning {
                         Button {
                             showingUnlimitedSheet = true
                         } label: {
-                            Label("Auto-Produktion starten", systemImage: "play.fill")
+                            Label("Dauerproduktion starten", systemImage: "play.fill")
                         }
                         .buttonStyle(StudioPrimaryButtonStyle())
-                        .frame(width: 230)
                     }
                     Button {
                         showingNewBookSheet = true
                     } label: {
                         Label("Neues Buch", systemImage: "plus")
+                            .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(StudioSecondaryButtonStyle(accent: StudioTheme.violet))
                 }
+                .frame(width: 230)
             }
 
             HStack(spacing: 10) {

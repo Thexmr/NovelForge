@@ -11,19 +11,25 @@ extension ModelContext {
     /// fehlgeschlagener Save unterbricht die App nicht –, aber Disk-voll-/Constraint-
     /// Fehler landen jetzt im Log statt spurlos zu verschwinden (In-Memory- und Disk-
     /// Zustand konnten so unbemerkt divergieren).
-    func saveOrLog(_ label: String = "", file: String = #fileID, line: Int = #line) {
+    @discardableResult
+    func saveOrLog(_ label: String = "", file: String = #fileID, line: Int = #line) -> Bool {
         do {
             try save()
+            return true
         } catch {
             Logger(subsystem: "com.novelforge.app", category: "persistence")
                 .error("SwiftData-Speicherfehler [\(label, privacy: .public)] \(file):\(line) – \(error.localizedDescription, privacy: .public)")
+            return false
         }
     }
 }
 
 struct AppConstants {
     static let appName = "NovelForge"
-    static let appVersion = "2.1.1"
+    static var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            ?? "2.4.2"
+    }
     static let maxPageCount = 1000 // bis zu 1000 Seiten (~250.000 Wörter); Plan skaliert automatisch
     static let minPageCount = 50
     static let wordsPerPage = 250
@@ -47,6 +53,7 @@ extension ProjectStatus {
         case .kdpFormatting: return "KDP-Formatierung"
         case .export: return "Export"
         case .completed: return "Abgeschlossen"
+        case .needsReview: return "Prüfung erforderlich"
         case .failed: return "Fehlgeschlagen"
         case .paused: return "Pausiert"
         }
@@ -69,6 +76,7 @@ extension ProjectStatus {
         case .kdpFormatting: phase = .kdpFormatting
         case .export: phase = .export
         case .completed: return 1.0
+        case .needsReview: return 1.0
         case .failed, .paused: phase = nil
         }
         guard let phase else { return 0 }

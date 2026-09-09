@@ -15,6 +15,8 @@ enum AgentName {
     static let consistency = "Consistency Checker"
     static let proofreader = "Proofreader"
     static let repairEditor = "Repair Editor"
+    static let globalEditor = "Global Editor"
+    static let qualityJudge = "Quality Judge"
     static let copyright = "Copyright Checker"
     static let kdpFormatter = "KDP Formatter"
     static let exporter = "Export Agent"
@@ -56,10 +58,11 @@ enum PromptFactory {
     /// eigene Idee des Autors, die zu einer vollwertigen Buchidee ausgebaut wird.
     /// Generiert 10 virale Titel-Kandidaten (grounded in der Story) + die stärkste Wahl.
     /// Liefert klare, neugierig machende Kauf-Titel statt schwacher oder kryptischer.
-    static func viralTitles(genre: String, premise: String, language: String, count: Int = 10) -> String {
+    static func viralTitles(genre: String, premise: String, language: String, count: Int) -> String {
         if BookContentType.infer(from: genre) == .nonfiction {
             return nonfictionTitles(genre: genre, premise: premise, language: language, count: count)
         }
+        let trendBlock = ""
         return """
         Erfinde \(count) extrem starke, klickstarke Titel für diesen Roman (Genre: \(genre), Sprache: \(language)) – Titel, die im Amazon-Suchergebnis sofort Neugier wecken und zum Kauf treiben.
 
@@ -75,7 +78,14 @@ enum PromptFactory {
         - Direkte Ansprache (du/dich/mein/dein) erzeugt Nähe und Sofort-Spannung.
         Starke Bauarten (mischen): Bevor/Wenn/Warum/Was ...; Das Mädchen, das ...; eine Drohung oder ein Versprechen als Satz; ein Geständnis oder eine Anschuldigung in der Ich-/Du-Form; ein aufgeladenes konkretes Objekt; eine Negation (Niemand ..., Kein ...); ein Name plus Einsatz.
 
-        STRENG VERBOTEN: Genre-Wörter als Titel (Liebesroman, Erotik-Roman, Thriller); Platzhalter (Titel); kryptische Wort-Collagen oder Nonsens (z. B. Schluckauf im Erdboden); Berufs-/Ort-Klischees (Die [Beruf] von [Ort]); mehr als 6 Wörter; Tippfehler; alles, was auf zehn anderen Büchern stehen könnte.
+        WAS IN DEN AKTUELLEN DEUTSCHEN BESTSELLERLISTEN STEHT (Muster erkennen, nicht übernehmen): „Warte auf mich am Meer", „All das Ungesagte zwischen uns", „Unser Tag ist heute", „Es endet mit uns", „Nur noch ein einziges Mal". Gemeinsam ist ihnen NICHT die Kulisse, sondern das VERSPRECHEN: Jeder dieser Titel sagt, was auf dem Spiel steht – ein Warten, ein Verschweigen, ein Ende, eine letzte Gelegenheit.
+
+        DER ENTSCHEIDENDE PUNKT – VERSPRECHEN SCHLÄGT KULISSE: Ein Ort, eine Jahreszeit oder ein Possessivpronomen sind für sich genommen KEIN Titel und KEIN Gütesiegel. „Unser Sommer in der blauen Küche" hat Beziehung, Zeit UND Ort – und ist trotzdem wertlos, weil er nichts verspricht: kein Konflikt, kein Geheimnis, kein Einsatz. Niemand klickt darauf. Ein erfundenes Detail („die blaue Küche", „das gelbe Haus") ersetzt kein Versprechen, es tarnt nur dessen Fehlen.
+        PFLICHT: Jeder Titel muss mindestens EINES tragen – einen Konflikt, ein Geheimnis, einen Verlust, ein Begehren, eine Drohung, ein Versprechen oder eine direkte Anrede. Kulissenwörter sind erlaubt, aber NUR zusätzlich, nie als Ersatz.
+        VERBOTEN ist die Bauart Possessiv/Artikel + Jahreszeit + Ortsangabe („Unser Sommer in der blauen Küche", „Die Tage im gelben Haus", „Mein Winter im alten Leuchtturm").
+        \(trendBlock)
+
+        STRENG VERBOTEN: Genre-Wörter als Titel (Liebesroman, Erotik-Roman, Thriller); Platzhalter (Titel); kryptische Wort-Collagen oder Nonsens (z. B. Schluckauf im Erdboden); Berufs-/Ort-Klischees (Die [Beruf] von [Ort]); mehr als 6 Wörter; Tippfehler; alles, was auf zehn anderen Büchern stehen könnte. VERBOTEN sind außerdem abstrakte Objekt-Metaphern nach dem Muster „Das [abstraktes Nomen] von [Material]" – etwa „Das Gewicht von Seide" oder „Die Farbe des Schweigens". Solche Titel klingen nach Literaturpreis-Bewerbung und werden im Amazon-Thumbnail überscrollt.
 
         Antworte exakt in diesem Format:
         KANDIDATEN:
@@ -86,11 +96,22 @@ enum PromptFactory {
     }
 
     static func bookIdeas(genre: String, language: String, avoidanceBrief: String = "",
-                          authorSeed: String = "") -> String {
+                          authorSeed: String = "", trendBriefing: String = "",
+                          titelKritik: String = "") -> String {
         if BookContentType.infer(from: genre) == .nonfiction {
             return nonfictionIdeas(genre: genre, language: language,
                                    avoidanceBrief: avoidanceBrief, authorSeed: authorSeed)
         }
+        // Recherchierte Marktdaten stehen VOR den Regeln: konkrete Beispiele steuern
+        // ein Modell verlässlicher als jede weitere Vorschrift.
+        let trendBlock = trendBriefing.isEmpty ? "" : "\n\(trendBriefing)\n"
+        // Wörtliche Rückkopplung aus dem vorigen Fehlversuch.
+        let kritikBlock = titelKritik.isEmpty ? "" : """
+
+        DEIN VORIGER TITEL WURDE ABGELEHNT: \(titelKritik)
+        Wiederhole diesen Fehler nicht. Liefere Titel mit klarem Versprechen und echtem Einsatz.
+
+        """
         let memoryBlock = avoidanceBrief.isEmpty ? "" : "\n\(avoidanceBrief)\n"
         let seed = authorSeed.trimmingCharacters(in: .whitespacesAndNewlines)
         let seedBlock = seed.isEmpty ? "" : """
@@ -107,7 +128,7 @@ enum PromptFactory {
         Ziel sind Bücher, über die Leser online reden und die sie weiterempfehlen (BookTok/Amazon-Bestseller-Niveau) – \
         jede Idee braucht einen frischen, überraschenden Dreh und einen klaren zentralen Konflikt. \
         Keine Klischee-Plots, keine Nacherzählung bestehender Werke.
-        \(seedBlock)\(memoryBlock)
+        \(seedBlock)\(memoryBlock)\(trendBlock)\(kritikBlock)
         \(genreViralAngle(genre))
 
         GENRE ERNST NEHMEN (verbindlich): Liefere echte Genre-Ware, kein verkapptes Alltagsdrama.
@@ -121,7 +142,7 @@ enum PromptFactory {
         KONZEPT-PFLICHT (was ein Buch viral macht): Jede Idee braucht
         – einen High-Concept-Hook, der sich in EINEM Satz erzählen lässt und sofort neugierig macht ("Was wäre, wenn …"),
         – eine sofort verständliche Zielgruppe und ein starkes emotionales Versprechen,
-        – eine konkrete Kernwunde der Hauptfigur und einen Einsatz, bei dem viel zu verlieren ist,
+        – einen konkreten inneren Konflikt der Hauptfigur und einen Einsatz, bei dem viel zu verlieren ist,
         – eine Eskalation mit Wendung, die man nicht kommen sieht.
 
         TITEL-PFLICHT – EXTREM stark und viral, aber NIE komisch oder kryptisch (die besten Bestseller-Titel sind BEIDES zugleich: magnetisch UND sofort verständlich):
@@ -131,6 +152,8 @@ enum PromptFactory {
         – AMAZON-KDP-MARKTFIT: im Amazon-KDP-Suchergebnis und als kleines Thumbnail sofort lesbar, klickbar und genre-richtig.
         – STRENG VERBOTEN, weil es „komisch"/künstlich klingt: kryptische, prätentiöse oder rätselhafte Titel; synästhetische oder paradoxe Wort-Collagen („Salz im Stromnetz", „Die Farbe deiner Stimme"); Wörter, die zusammen keinen Sinn ergeben; gewollt „literarische" Bilder, die kein echter Leser als Buchtitel sucht oder beim ersten Lesen versteht.
         – EBENFALLS VERBOTEN: Berufs-Ort-Klischee („Die Kassiererin von X"), Berufs-Genitiv („Das Schweigen der Imkerin", „Die Tochter des …"), blasse Einzelwörter („Feuerprobe", „Schicksal", „Neuanfang"), brave Allerwelts-Sätze ohne Sog.
+        – VERBOTEN, DER HÄUFIGSTE FEHLER: der BAUKASTEN-DEKO-TITEL aus Possessiv + Jahreszeit + Ortsangabe mit erfundenem Detail („Unser Sommer in der blauen Küche", „Mein Winter im alten Leuchtturm", „Die Tage im gelben Haus"). Er beschreibt eine hübsche Kulisse und verspricht NICHTS – niemand erfährt, was auf dem Spiel steht, und niemand klickt darauf. Ein erfundenes Detail („die blaue Küche") ist KEIN Aufhänger.
+        – PFLICHT-GEGENPROBE: Jeder Titel muss mindestens EINES tragen – einen Konflikt, ein Geheimnis, einen Verlust, ein Begehren, eine Drohung, ein Versprechen oder eine direkte Anrede des Lesers. Ein Titel, der nur einen Ort, eine Jahreszeit oder eine Stimmung benennt, ist durchgefallen.
         – STÄRKSTE, NATÜRLICHE BAUARTEN (je Idee eine andere, ALLE eingängig UND magnetisch): eine provokante Aussage/Drohung/ein Versprechen mit echtem Einsatz; eine Du-/Ich-Anrede, die den Leser direkt trifft; eine zugespitzte Frage; ein konkretes, aufgeladenes Bild aus der Welt der Geschichte; eine emotional gespannte Situation, die man sofort versteht. Konkret und klar – nicht abstrakt verrätselt.
         – HÄRTETEST (BEIDES muss stimmen): 1) Würde ein Leser beim Scrollen sofort klicken? 2) Versteht er den Titel beim ersten Lesen, und würde ein echter Verlag ihn so aufs Cover drucken? Nur wenn BEIDES ja ist, behalten. Kein Titel darf austauschbar auf zehn anderen Büchern des Genres stehen. Jeder der 5 Titel klingt anders – alle natürlich UND extrem zugkräftig.
         – NUR MUSTER, NICHT KOPIEREN: Übernimm KEINEN der Beispieltitel oben und keines ihrer markanten Wörter. Jeder Titel entsteht FRISCH aus DEINER eigenen Prämisse.
@@ -139,6 +162,29 @@ enum PromptFactory {
         IDEE|Titel|Genre|Prämisse in 2 Sätzen – Satz 1 ist der High-Concept-Hook, Satz 2 nennt Konflikt und Einsatz
 
         Keine weiteren Erklärungen.
+        """
+    }
+
+    /// Focused analysis for a user-authored story brief. One idea is intentional:
+    /// alternatives must not mutate mandatory events merely to create variety.
+    static func storyBriefIdea(_ brief: String, language: String) -> String {
+        """
+        Analysiere den folgenden verbindlichen Geschichtenauftrag auf \(language).
+        Erkenne das passende Hauptgenre oder ein klares Mischgenre und entwickle
+        EINEN natürlichen, eigenständigen Buchtitel. Der Titel muss grammatisch
+        korrektes, idiomatisches Deutsch sein und darf Tod, Rettung oder Schlusswendung
+        nicht vorwegnehmen. Bei einem Namen im Genitiv muss die korrekte Form stehen
+        (z. B. „Lias Weg", niemals „Lia letzter Weg"); im Zweifel verwende eine andere
+        natürliche Titelkonstruktion. Bewahre alle ausdrücklich
+        genannten Figuren, Beziehungen, Altersangaben, Orte, Ereignisse, Zeitfolgen
+        und das gewünschte Ende. Behaupte keine zusätzliche Vorgeschichte, Ursache
+        oder Folge, die im Auftrag nicht steht, und ergänze keine alternative Handlung.
+
+        GESCHICHTENAUFTRAG:
+        \(brief.truncated(to: 5_000))
+
+        Antworte mit GENAU einer Zeile, ohne Markdown und ohne Erklärung:
+        IDEE|Titel|Genre oder Mischgenre|Prämisse in zwei konkreten Sätzen
         """
     }
 
@@ -272,7 +318,7 @@ enum PromptFactory {
             """
         }
         return """
-        VIRALES THEMA: Eine universelle emotionale Wunde, hochkonzeptionell zugespitzt und teilbar – eine Frage,
+        VIRALES THEMA: Ein universeller emotionaler Konflikt, hochkonzeptionell zugespitzt und teilbar – eine Frage,
         die man weitererzählen will. Vertrautes Gefühl, überraschender Dreh.
         TITEL-KLANG: kurz, bildstark, anziehend. Beispiele für die Stoßrichtung (nicht übernehmen):
         "Was bleibt, wenn alle gehen" · "Die zweite Hälfte von uns" · "Hundert Namen für Schweigen" · "Bevor das Licht ausgeht".
@@ -352,6 +398,22 @@ enum PromptFactory {
         if !ideaSeed.isEmpty {
             seedBlock = "\nIDEENKERN (verbindlicher Ausgangspunkt, weiterentwickeln statt ersetzen):\n\(ideaSeed)\n"
         }
+        let seedNames = CharacterCanonAudit.personNames(in: ideaSeed)
+        let nameBlock = seedNames.isEmpty
+            ? """
+
+            NAMENREGEL: Der Ideenkern benennt keine Personen. Vergib in Konzept, Praemisse,
+            Logline und Expose noch KEINE Personennamen; nutze Rollen wie Hauptfigur,
+            Jugendliebe, Schwester oder Gegenspieler. Katalogweit freie Namen werden erst
+            in der Figurenphase zentral vergeben.
+            """
+            : """
+
+            NAMENREGEL: Diese Namen aus dem Ideenkern bleiben buchstabengetreu und vollstaendig
+            unveraendert: \(seedNames.joined(separator: ", ")). Ergaenze keinen Vor- oder Nachnamen,
+            kuerze keinen Namen und fuehre keine weitere benannte Person ein. Noch unbenannte
+            Menschen bleiben bis zur Figurenphase als Rollen bezeichnet.
+            """
         var tropeBlock = ""
         let trimmedTropes = tropes.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedTropes.isEmpty {
@@ -367,7 +429,7 @@ enum PromptFactory {
         let sequelBlock = isSequel ? "\nSERIE / FOLGEBAND (VERBINDLICH): Führe die bestehende Reihe konsequent weiter. Behalte die wiederkehrenden Figuren (gleiche Namen, Eigenschaften, Beziehungen) und die etablierte Welt bei, entwickle sie weiter, greife offene Fäden auf und erhöhe den Einsatz. Eröffne einen neuen, in sich abgeschlossenen Hauptkonflikt für GENAU DIESEN Band – kein Wiedererzählen des Vorbands. Bisheriger Verlauf der Reihe:\n\(trimmedSequel)\n" : ""
         return """
         \(openingLine)\(sequelBlock)
-        \(seedBlock)
+        \(seedBlock)\(nameBlock)
         Titel: \(title)
         Genre: \(genreLine)
         Sprache des Buches: \(language)
@@ -400,12 +462,43 @@ enum PromptFactory {
         - AKTIVE HAUPTFIGUR (Agency): Die Hauptfigur TREIBT die Handlung durch eigene Entscheidungen mit Konsequenzen; sie reagiert nicht nur passiv, sondern riskiert etwas, macht Fehler und verändert sich sichtbar.
         - STARKER GEGENPART: Antagonist bzw. Love Interest ist scharf gezeichnet, präsent und erzeugt echte, spürbare Chemie und Reibung – kein vager „Nebel".
 
+        VOM SKELETT ZUM ROMAN – diese sieben Punkte trennen ein Handlungsgerüst von einem
+        Roman. Fehlt einer, bleibt die Geschichte ein Ablauf von Ereignissen ohne Tiefe:
+
+        1. DER INNERE KONFLIKT: Die Hauptfigur braucht eine konkrete Überzeugung, Sehnsucht,
+           Angst oder Bindung, die ihre heutigen Entscheidungen erklärt. Das kann aus Erfahrung
+           entstehen, ist aber nicht zwingend ein Trauma, Verlust oder Todesfall. Zeige den Konflikt
+           durch Entscheidungen und Beziehungen statt durch eine austauschbare tragische Biografie.
+        2. DER ANTAGONIST HANDELT: Ein Unglück, ein Sturm oder ein fehlender Gegenstand sind
+           Hindernisse, KEIN Antagonist. Es braucht einen Menschen, der aktiv gegen die Hauptfigur
+           arbeitet, ihr begegnet, lügt, manipuliert, angreift – und der selbst etwas Persönliches
+           will, das man verstehen kann. Je persönlicher der Konflikt, desto besser. Auch der
+           Antagonist braucht einen nachvollziehbaren Grund, kein reines Böse.
+        3. DAS THEMA IST EINE FRAGE, KEINE MORAL: Der Roman stellt eine Frage und beantwortet sie
+           am Ende – etwa „Ist Vertrauen ein Gefühl oder eine Entscheidung?". Nicht „Familie ist
+           wichtig". Das Thema muss sich in der Handlung beweisen, nicht in einem Merksatz.
+        4. EIN SUBPLOT, DER SPIEGELT: Eine Nebenhandlung, die dieselbe Frage in anderer Form
+           stellt – und die im Finale mit der Haupthandlung KOLLIDIERT, statt daneben herzulaufen.
+           Ideal: Eine Nebenfigur stellt der Hauptfigur genau die Frage, der sie ausweicht.
+        5. DIE INNERE REISE: Was glaubt die Hauptfigur am Anfang über sich oder die Welt – und
+           was widerlegt sie am Ende? Diese Überzeugung muss zu Beginn ausgesprochen oder
+           gezeigt werden, damit der Bruch später zählt.
+        6. RISIKO AUF ZWEI EBENEN: Was verliert sie, wenn sie scheitert – äußerlich (Mensch,
+           Existenz, Beweis) UND seelisch (Selbstbild, letzte Bindung, Hoffnung)? Nur äußerer
+           Einsatz erzeugt Spannung ohne Bedeutung.
+        7. EIN VERDIENTES ENDE: Kein glattes Happy End. Die Hauptfigur muss einen Preis zahlen
+           und die Lösung durch ihre eigene Veränderung erreichen. Ein ehrliches Ende darf offen
+           bleiben („Ich vertraue dir noch nicht. Aber ich bin bereit, es zu lernen.").
+
         Antworte ausschließlich in diesem Format (Labels exakt so verwenden):
         PRÄMISSE: [1-2 Sätze]
         LOGLINE: [Ein Satz]
-        EXPOSÉ: [5-8 Sätze, die den kompletten Handlungsbogen umreißen]
-        HAUPTKONFLIKT: [1-2 Sätze]
-        THEMA: [1-3 Wörter]
+        EXPOSÉ: [6-10 Sätze. Sie MÜSSEN enthalten: den inneren Konflikt der Hauptfigur, den Antagonisten mit \
+        seinem persönlichen Ziel, den Subplot und wie er im Finale mit der Haupthandlung kollidiert, \
+        die innere Reise (Anfangsüberzeugung → was sie am Ende widerlegt) und den Preis, den die \
+        Hauptfigur am Ende zahlt]
+        HAUPTKONFLIKT: [1-2 Sätze – dazu, was die Hauptfigur äußerlich UND seelisch verliert, wenn sie scheitert]
+        THEMA: [Als FRAGE formuliert, die der Roman stellt, plus die Antwort, die er am Ende gibt]
         ZIELGRUPPE: [Kurze Beschreibung]
         """
     }
@@ -453,6 +546,9 @@ enum PromptFactory {
         tatsächlich anders funktionieren und dürfen nicht bloß eine umbenannte Drei-Akt-Fassung sein.
 
         Zusätzlich:
+        - KANONTREUE: Bewahre alle festen Tatsachen des Konzepts unverändert, insbesondere
+          Beruf, Beziehungen, Verwandtschaft, Besitz, Todesfälle, Herkunft, Ort und Zeitspanne.
+          Ersetze keinen Beruf durch einen anderen und erfinde keine alternative Vorgeschichte.
         - Formuliere die zentrale dramatische Frage in einem Satz.
         - Webe mindestens eine Nebenhandlung ein, die den Hauptplot am Ende verstärkt.
         - Platziere offene Fragen (Open Loops), die erst spät beantwortet werden – sie halten den Leser im Buch.
@@ -461,7 +557,113 @@ enum PromptFactory {
         - HANDLUNGSDICHTE & TEMPO: In regelmäßigen Abständen (etwa alle 1-2 Kapitel) eine echte Wendung, Enthüllung oder Eskalation – keine langen Strecken ohne Fortschritt. Das Erzähltempo wechselt mit dem Geschehen (treibend in Zuspitzungen, ruhiger in Wendepausen). Atmosphäre dient der Handlung, ersetzt sie nie.
         - Der Umfang muss tragfähig für den Zielumfang sein: keine Kurzgeschichten-Struktur für lange KDP-Romane.
 
-        Schreibe als zusammenhängenden, klar gegliederten Text.
+        REIHENFOLGE DER AUSGABE – bitte genau so, das ist wichtig:
+        ZUERST die BEAT-Liste, DANN der Fahrplan des Gegenspielers, ERST DANACH der
+        Fließtext. Die beiden Listen sind das Gerüst; der Fließtext führt sie aus.
+
+        BEGINNE MIT DER BEAT-LISTE – eine Zeile je Funktion, in genau diesem Format
+        und mit genau diesen acht Schlüsselwörtern im zweiten Feld:
+        BEAT|Ausloeser|Was die Handlung in Gang setzt
+        BEAT|Entscheidung|Die irreversible Entscheidung der Hauptfigur
+        BEAT|Umkehr|Die zentrale Wende, die Ziel oder Bedeutung verändert
+        BEAT|Preis|Was die Hauptfigur unvermeidbar verliert
+        BEAT|Finale|Die letzte Entscheidung, Konfrontation oder Enthüllung
+        BEAT|Aufloesung|Wie es ausgeht und wie die neue Normalität aussieht
+        BEAT|Frage|Die zentrale dramatische Frage in einem Satz
+        BEAT|Nebenhandlung|Der Nebenstrang, der den Hauptplot am Ende verstärkt
+
+        Diese acht Zeilen sind Pflicht und stehen zusätzlich zum Fließtext – sie fassen ihn
+        zusammen, sie ersetzen ihn nicht. Jede Zeile nennt konkret, was in DIESEM Buch
+        passiert, nicht die Funktion allgemein. Die Schlüsselwörter im zweiten Feld werden
+        exakt so geschrieben wie oben, auch wenn dein Fließtext andere Überschriften benutzt.
+
+        DANN – und das ist der Teil, der ein langes Buch trägt – gib den FAHRPLAN DES
+        GEGENSPIELERS aus: was er tut, während die Hauptfigur woanders ist. Ein Roman spannt
+        sich nicht daran, dass der Gegner auftritt, sondern daran, dass er weiterarbeitet,
+        während man wegsieht. Ohne diesen Fahrplan entsteht Widerstand nur dort, wo eine Szene
+        ihn vorsieht, und das Buch zerfällt in Episoden.
+
+        Eine Zeile je Zug, mindestens \(max(3, chapterCount / 5)) Züge, verteilt über das ganze
+        Buch bis in den letzten Buchteil:
+        GEGENZUG|2|Was er tut|Woran die Hauptfigur es merkt oder was sie übersieht
+
+        Das zweite Feld enthält ausschließlich die Kapitelnummer als Ziffer, zum Beispiel 2,
+        niemals das Wort "abKapitel".
+
+        Regeln dafür:
+        - Jeder Zug bringt ihn seinem eigenen Ziel näher – kein Zug wiederholt einen früheren.
+        - Er handelt aus seinem Interesse, nicht als Reaktion auf die Hauptfigur.
+        - „Woran sie es merkt“ ist ein kleines, konkretes Detail: eine Nachricht, die niemand
+          geschrieben haben will; ein Termin, der plötzlich vorgezogen ist; jemand, der gestern
+          noch anders geantwortet hätte. Kein Auftritt, keine Erklärung.
+        - Zwischen zwei Zügen dürfen nie mehr als etwa fünf Kapitel liegen.
+
+        ZULETZT der Fließtext: die zusammenhängende, klar gegliederte Bucharchitektur, die
+        die beiden Listen oben ausführt.
+
+        UMFANG: Der gesamte Plot hat höchstens 1.800 Wörter. Schreibe keine ausformulierten
+        Romanszenen und keinen Dialog; konkrete kausale Architektur ist wichtiger als Länge.
+        Schließe die Antwort nach dem vollständigen Fließtext mit dieser alleinstehenden Zeile ab:
+        PLOT_ENDE
+        """
+    }
+
+    static func plotCanonAudit(concept: String, plot: String) -> String {
+        """
+        Prüfe ausschließlich, ob der Plot feste Tatsachen des Konzepts verändert.
+
+        KONZEPT:
+        \(concept.truncated(to: 5_000))
+
+        PLOT:
+        \(plot.truncated(to: 14_000))
+
+        Als Widerspruch gelten nur klare Faktenwechsel: anderer Beruf, andere Beziehung oder
+        Verwandtschaft, anderer Besitz, anderer Lebens-/Todesstatus, andere Herkunft, anderer
+        zentraler Ort oder eine unvereinbare Zeitangabe. Neue kausale Plotereignisse sind erlaubt.
+        Stilunterschiede, Synonyme und zusätzliche Details sind keine Widersprüche.
+
+        Wenn alles vereinbar ist, antworte exakt:
+        OK
+
+        Sonst eine Zeile pro sicherem Widerspruch. Fakt A und Fakt B sind jeweils kurze,
+        WÖRTLICHE Auszüge aus den Texten oben (höchstens 12 Wörter), keine Paraphrasen:
+        WIDERSPRUCH|Figur oder Gegenstand|Feld|exakter Fakt A|exakter Fakt B
+
+        Keine Erklärung und keine Vermutung.
+        """
+    }
+
+    static func characterCanonAudit(concept: String, plot: String,
+                                    characters: String) -> String {
+        """
+        Prüfe das Figurenensemble gegen Konzept, Plot und gegen sich selbst.
+
+        KONZEPT:
+        \(concept.truncated(to: 4_000))
+
+        PLOT:
+        \(plot.truncated(to: 10_000))
+
+        FIGURENPROFILE:
+        \(characters.truncated(to: 10_000))
+
+        Melde nur eindeutige Widersprüche, die später Szenen beschädigen würden:
+        - dieselbe Person erhält unvereinbare Rollen, Berufe, Ziele oder Beziehungen;
+        - eine im Plot getrennte Rolle wird fälschlich einer anderen Figur zugeschrieben;
+        - Verwandtschaft, Besitz, Lebensstatus oder Vorgeschichte widersprechen sich;
+        - ein Profil bezeichnet eine Figur etwa als Nachbarin/Pächterin, ein anderes aber
+          ohne Grundlage als die Investorin, für die gekauft wird.
+        Zusätzliche vereinbare Facetten und unterschiedlich formulierte Ziele sind erlaubt.
+
+        Wenn alles vereinbar ist, antworte exakt:
+        OK
+
+        Sonst eine Zeile pro sicherem Widerspruch. Fakt A und Fakt B sind jeweils kurze,
+        WÖRTLICHE Auszüge aus den Texten oben (höchstens 12 Wörter), keine Paraphrasen:
+        WIDERSPRUCH|Figur|Feld|exakter Fakt A|exakter Fakt B
+
+        Keine Erklärung, keine Stilkritik und keine Vermutung.
         """
     }
 
@@ -479,18 +681,170 @@ enum PromptFactory {
         VERBINDLICHER BUCHKANON:
         \(concept.truncated(to: 3500))
 
-        Erstelle den Protagonisten, den Antagonisten und 3-5 wichtige Nebenfiguren.
+        Erstelle ausschließlich die im Plot oder Kanon benannten Menschen als Figurenprofile.
+        Sind dort weniger als vier Menschen benannt, ergänze nur so viele wirklich notwendige
+        Nebenfiguren, bis das Ensemble vier Profile umfasst. Zusätzliche Namen dürfen ausschließlich
+        aus einer nachfolgend als verbindlich vorgegebenen Namensliste stammen. Keine Haustiere,
+        Orte, Gegenstände oder Metaphern als FIGUR-Zeile. Eine nur mit Nachnamen benannte Person
+        behält diesen Namen; erfinde keinen Vornamen. Lege niemals zwei Profile für dieselbe Person
+        an und gib nie zwei verschiedenen Figuren denselben Vornamen, sofern der Kanon das nicht
+        ausdrücklich festlegt.
         Gib für JEDE Figur GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
-        FIGUR|Name|Rolle|Alter|Beruf|Ziel|Angst|Schwäche|Sprechweise|Markantes Äußeres|Beziehungen|Kanonische Fakten
+        FIGUR|Name|Rolle|Alter|Beruf|Ziel|Angst|Schwäche|Sprechweise|Markantes Äußeres|Beziehungen|Kanonische Fakten|Inneres Brauchen
 
-        Sprechweise = 1 kurzer Marker, der die Figur im Dialog UNVERWECHSELBAR macht \
-        (Satzlänge, Lieblingsausdruck, was sie nie sagen würde) – jede Figur klingt anders. \
-        Markantes Äußeres = 2-3 unveränderliche Merkmale (bleiben das ganze Buch kanonisch).
-        Beziehungen = konkrete Verwandtschaft und Beziehung zu allen zentralen Figuren. Kanonische
+        ZIEL und INNERES BRAUCHEN sind NICHT dasselbe – daraus entsteht der Figurenbogen:
+        - ZIEL (Want) = was die Figur BEWUSST will, konkret und benennbar, treibt die Handlung.
+          Sie könnte es auf Nachfrage in einem Satz sagen. Beispiel: „Sie will beweisen, dass
+          ihre Schwester nicht freiwillig gegangen ist."
+        - INNERES BRAUCHEN (Need) = was sie WIRKLICH braucht, um heil zu werden. Es ist ihr
+          NICHT bewusst, sie würde es bestreiten, und es steht meist im Widerspruch zum Ziel.
+          Beispiel: „Sie muss aufhören, sich für den Tod der Schwester verantwortlich zu fühlen."
+        Regel: Das Ziel führt in die Katastrophe, erst das Brauchen löst sie. Wenn beide
+        dasselbe sagen, hat die Figur keinen Bogen – dann formuliere das Brauchen neu.
+
+        Sprechweise = Rhythmus, Wortwahl und Gespraechsstrategie, die aus Bildung, Ziel und \
+        Beziehung entstehen. KEINE Catchphrase, kein Lieblingssatz, kein immer wiederholtes \
+        Fuellwort und keine mechanische Dialoganrede. Figuren unterscheiden sich durch Absicht \
+        und Haltung, nicht durch ein sprachliches Etikett. \
+        Markantes Äußeres = hoechstens 1-2 neutrale Identifikationsmerkmale als interne Referenz. \
+        Keine dauernd getragene Kleidung, Narbe, Hand-/Nagelbeschreibung, Geruch, Schmuck- oder \
+        Gegenstandsrequisite als Szenen-Tick; das Merkmal muss nicht im Prosatext erscheinen.
+        Beziehungen = konkrete Verwandtschaft und wichtige direkte Beziehungen zu den zentralen
+        Figuren. Jede Figur nennt mindestens eine andere kanonische Figur; zusammen muessen die
+        Beziehungen ein einziges verbundenes Ensemble bilden. Nicht jede Figur muss jede andere
+        direkt kennen. Wenn Plot oder Kanon eine Figur relational benennt (zum Beispiel
+        „der Antagonist ist ihre Schwester"), muss diese Identitaet in ROLLE und BEZIEHUNGEN
+        erhalten bleiben: „Antagonistin/Schwester der Protagonistin" und die Beziehung mit
+        den danach vergebenen exakten Vollnamen. Erfinde fuer dieselbe relationale Rolle
+        niemals spaeter eine zweite, anders benannte Person. Kanonische
         Fakten = nur unveränderliche, handlungsrelevante Tatsachen aus Buchkanon und Plot, besonders
         Besitz, Tod/Leben, Herkunft und frühere Ereignisse. Erfinde hier KEINE Alternative zum Kanon.
 
         Danach darfst du zu jeder Figur 2-3 Sätze Hintergrund ergänzen.
+        """
+    }
+
+    /// Schreibt EINZELNE Saetze neu, die einen Tick enthalten.
+    ///
+    /// Ersetzt das bisherige Alles-oder-nichts: Statt die ganze Szene zu verwerfen oder
+    /// nach drei Versuchen durchzuwinken, werden nur die betroffenen Saetze ausgetauscht.
+    /// Die Produktion laeuft weiter, der Fehler verschwindet trotzdem.
+    static func repairSentences(_ treffer: [(satz: String, grund: String)],
+                                context: String, language: String) -> String {
+        let liste = treffer.prefix(8).enumerated().map { i, t in
+            "\(i + 1)) \(t.satz)\n   PROBLEM: \(t.grund)"
+        }.joined(separator: "\n")
+        return """
+        Schreibe einzelne Saetze neu. Sprache: \(language).
+
+        Umgebung dieser Saetze (nur zum Verstehen, nicht neu schreiben):
+        \(context.truncated(to: 1200))
+
+        Diese Saetze muessen ersetzt werden:
+        \(liste)
+
+        Regeln:
+        - Ersetze jeden Satz durch einen NEUEN, der dieselbe Handlung transportiert, aber
+          das genannte Problem nicht mehr enthaelt.
+        - Kein Zaehlen, keine kribbelnden oder tauben Gliedmassen, keine zitternden Haende,
+          keine Dreier-Aufzaehlungen, keine Tuer, die ins Schloss faellt, kein
+          "nicht X, sondern Y".
+        - Zeig die Anspannung stattdessen durch etwas, das die Figur TUT und das zu
+          ihrem aktuellen Ziel, ihrer Beziehung und dieser Szene passt.
+        - Gleiche Laenge und gleicher Ton wie das Original. Keine neuen Ereignisse,
+          keine neuen Figuren, keine neuen Gegenstaende.
+
+        Gib fuer JEDEN Satz genau eine Zeile aus, in dieser Form:
+        ERSATZ|<Nummer>|<der neue Satz>
+
+        Keine Erklaerungen.
+        """
+    }
+
+    /// Logik-Vorprüfung: Bevor eine Szene geschrieben wird, prüft das Modell den
+    /// Plan gegen den bisherigen Stand.
+    ///
+    /// Fängt Widersprüche ab, die in fertiger Prosa kaum noch zu reparieren sind:
+    /// ein Handy, das vorher kaputt war und plötzlich funktioniert; eine Figur an
+    /// zwei Orten gleichzeitig; ein Gegenstand, den jemand hält, ohne ihn genommen
+    /// zu haben (in einem Testbuch stand ein Brillenglas plötzlich in der Hand).
+    static func sceneLogicCheck(chapterNumber: Int, sceneNumber: Int,
+                                sceneGoal: String, sceneLocation: String,
+                                sceneTime: String, sceneObstacle: String,
+                                sceneTurn: String, charactersState: String,
+                                previousSceneSummary: String,
+                                previousSceneEnding: String,
+                                storySoFar: String) -> String {
+        """
+        LOGIKPRÜFUNG vor dem Schreiben – kein Prosatext, nur Prüfung.
+
+        Geplante Szene \(sceneNumber) in Kapitel \(chapterNumber):
+        Ziel: \(sceneGoal)
+        Ort: \(sceneLocation)
+        Zeit: \(sceneTime)
+        Hindernis: \(sceneObstacle)
+        Wendung: \(sceneTurn)
+
+        Stand der Figuren (Wissen, Stimmung, letzte Handlung und Ort):
+        \(charactersState.truncated(to: 2500))
+
+        Zusammenfassung der unmittelbar vorherigen Szene:
+        \(previousSceneSummary.truncated(to: 1800))
+
+        So endete die vorige Szene:
+        \(previousSceneEnding.truncated(to: 1200))
+
+        Bereits erzählte Handlung:
+        \(storySoFar.truncated(to: 5000))
+
+        Prüfe GENAU diese sechs Punkte:
+        1. ORT: Kann jede beteiligte Figur überhaupt hier sein? Wo war sie zuletzt,         ist der Weg zeitlich möglich?
+        2. WISSEN: Setzt die Szene voraus, dass jemand etwas weiß, das ihm noch         niemand gesagt hat?
+        3. GEGENSTÄNDE: Braucht die Szene einen Gegenstand, den die Figur nicht hat,         nie genommen hat oder der defekt/verloren war?
+        4. ZEIT: Passt die Tageszeit zur vorigen Szene? Sind Uhrzeiten und Abstände stimmig?
+        5. ZUSTAND: Passt die Stimmung zum Ende der vorigen Szene, oder springt sie ohne Anlass?
+        6. WIEDERHOLUNG: Erzählt diese Szene einen Fund, eine Entscheidung, Ankunft,
+           Enthüllung oder Konfrontation erneut? Ein bereits genommener, geöffneter,
+           übergebener, verlorener oder zerstörter Gegenstand darf nicht erneut im alten
+           Zustand auftauchen oder noch einmal gefunden werden. Die Szene muss bei der
+           Folge des letzten Ereignisses beginnen, nicht erneut beim Ereignis selbst.
+
+        Antworte in genau einer dieser beiden Formen:
+        OK
+        oder
+        PROBLEM|<Punktnummer>|<was genau widersprüchlich ist>|<wie die Szene stattdessen ablaufen muss>
+
+        Bei mehreren Problemen eine Zeile je Problem. Keine Erklärungen, keine Prosa.
+        """
+    }
+
+    /// Schreibt den Figurenzustand nach einem Kapitel fort.
+    ///
+    /// Über 40+ Kapitel verliert ein Modell sonst den Überblick: Figuren wissen
+    /// plötzlich Dinge, die ihnen niemand gesagt hat, oder ihre Stimmung springt
+    /// ohne Anlass. Der Zustand wird deshalb nach jedem Kapitel neu erhoben und
+    /// geht in den nächsten Schreibauftrag ein.
+    static func characterStateUpdate(chapterNumber: Int, chapterText: String,
+                                     characters: [String]) -> String {
+        """
+        Aktualisiere den Figurenzustand nach Kapitel \(chapterNumber).
+
+        Kapiteltext:
+        \(chapterText.truncated(to: 6000))
+
+        Figuren: \(characters.joined(separator: ", "))
+
+        Bestimme für JEDE Figur, die in diesem Kapitel vorkam, exakt drei Dinge –
+        ausschließlich aus dem Text oben, nichts hinzuerfinden:
+        1. WISSEN: Was weiß sie jetzt, was sie vorher nicht wusste? Und was weiß sie
+           ausdrücklich NICHT (wichtig, damit sie es später nicht plötzlich weiß)?
+        2. STIMMUNG: Ihr emotionaler Stand am Kapitelende, in drei bis fünf Wörtern.
+        3. ZULETZT: Ihre letzte Handlung und wo sie sich am Kapitelende befindet.
+
+        Gib für JEDE Figur GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
+        FIGUR|Name|Wissen|Stimmung|Letzte Handlung und Ort
+
+        Keine weiteren Erklärungen. Figuren, die im Kapitel nicht vorkamen, weglässt du.
         """
     }
 
@@ -516,6 +870,10 @@ enum PromptFactory {
         Plane so, dass jedes Kapitel später in mindestens \(scenesPerChapter) eigenständige Szenen zerlegt werden kann.
         Langform-Pflicht: Der Konflikt muss groß genug für alle \(chapterCount) Kapitel sein; keine Abkürzungen,
         keine summarischen Sprünge, kein Kurzgeschichtenbogen mit künstlicher Streckung.
+
+        VERBINDLICHE SPANNUNGSKURVE (Einsatz-Stufe 1-10 je Kapitel; Tempo-Atempausen ja, fallende EINSÄTZE nie):
+        \(AutonomousContentQuality.spannungskurvenBrief(chapterCount: chapterCount))
+        MIDPOINT-WENDE: Hier ändern sich die Spielregeln (enthüllte Wahrheit, Verrat, neue Allianz oder ein Verlust, der den bisherigen Plan zerstört). DUNKLE NACHT: größter Verlust / scheinbare Niederlage kurz vor dem Finale. HÖHEPUNKT: unvermeidliche Konfrontation, alles steht auf dem Spiel. AUFLÖSUNG: keine neue Eskalation, echte Auszahlung. Die Kapitelziele und -konflikte MÜSSEN diese Eskalation tragen – ein Kapitel mit Stufe 8 darf kein ruhiges Zwischenkapitel mit Stufe-4-Einsatz sein.
         \(signatureBlock)
         \(genreDirectiveBlock(genreBrief))
         VERBINDLICHER BUCHKANON (steht über jeder kreativen Ergänzung):
@@ -523,6 +881,71 @@ enum PromptFactory {
 
         Plot:
         \(plot.truncated(to: 6000))
+
+        VIER-TEILE-AUFBAU (verbindlich, über die \(chapterCount) Kapitel verteilt):
+        1. VERSPRECHEN (erstes Viertel): Hauptfigur und ihr besonderes Problem zeigen, Genre und Ton festlegen, auslösendes Ereignis, und die Figur trifft eine ENTSCHEIDUNG, die sie in die Haupthandlung führt.
+        2. VERTIEFUNG: Konflikte und Beziehungen entwickeln, erste Teilerfolge, Geheimnisse und Nebenstränge. Am Ende die Wende: Die bisherige Sichtweise war unvollständig oder falsch.
+        3. ESKALATION: Die Folgen werden schwerer, der Gegner oder das Hindernis wird stärker, Beziehungen zerbrechen oder verändern sich, größter Verlust bzw. Tiefpunkt.
+        4. ENTSCHEIDUNG (letzte Kapitel): Die Hauptfigur erkennt, was sie tun muss, letzte Konfrontation, zentrale emotionale Entscheidung, die Hauptfrage wird beantwortet, Folgen und Ausblick.
+
+        KAPITEL 1 IST EIN VERSPRECHEN – es muss beantworten:
+        - WER ist die Hauptfigur (Name, Lage, was sie ausmacht – der Leser muss sie kennenlernen, bevor etwas explodiert)?
+        - WAS stimmt in ihrem Leben nicht?
+        - WAS kann sie verlieren (der Einsatz)?
+        - WELCHE FRAGE will der Leser unbedingt beantwortet haben?
+
+        NATÜRLICHER ROMANSTART (VERBINDLICH): Beginne in einer für Leser sofort
+        verständlichen, konkreten Alltagssituation mit sozialem oder praktischem Gewicht:
+        ein erwartetes Treffen, ein Arbeitstermin, eine Fahrt, ein Gespräch, eine Aufgabe zuhause
+        oder eine andere Lage, deren Ausgang der Figur persönlich etwas bedeutet. Die Hauptfigur
+        verfolgt schon in den ersten Absätzen ein klares kleines Ziel. Erst DANN verschiebt eine
+        einzelne glaubwürdige Störung die Lage. Der Sog entsteht aus dem menschlichen Konflikt
+        und der Reaktion der Figur – nicht aus einer Sammlung von Rätseln.
+
+        Gib dem Leser zunächst genau EINEN dominanten Konfliktfaden. Keine Kette aus anonymem
+        Umschlag, kryptischer Nachricht, altem Foto, unbekannter Akte und neuer Bedrohung auf
+        den ersten Seiten. Solche Elemente sind nur zulässig, wenn sie organisch aus der bereits
+        etablierten Situation folgen und die Figur vorher verständlich verankert ist. Es braucht
+        keinen Mord auf Seite 1. Es braucht eine VERÄNDERUNG und eine ERWARTUNG. Beispiel: Eine
+        Frau wartet auf den Mann, den sie vor zehn Jahren ohne Erklärung verlassen hat, um einen
+        Vertrag zu unterschreiben. Er bleibt aus, und erst dadurch entsteht die Frage: Warum?
+        Liebt sie ihn noch? Was hat er verschwiegen?
+
+        Verboten als Kapitel 1: mit Wetter, Landschaft oder Rückblende beginnen, ohne dass die
+        Hauptfigur etwas will; künstliche Bedeutungsschwere; Mystery-Requisiten ohne zuvor
+        etablierten persönlichen Kontext.
+
+        ZWEI ZIELEBENEN DER HAUPTFIGUR (durchgehend):
+        - ÄUSSERES ZIEL: konkret und überprüfbar (jemanden finden, einen Mord aufklären, eine Beziehung retten, eine Gefahr abwenden).
+        - INNERES BEDÜRFNIS: was sie lernen oder überwinden muss (Vertrauen, Schuld, Verantwortung, Angst).
+        Beide Ebenen müssen sich gegenseitig beeinflussen; die äußere Handlung zwingt die innere Entwicklung.
+
+        DIE VIER TIEFENEBENEN MÜSSEN IN DEN KAPITELN VORKOMMEN (nicht nur im Konzept stehen):
+        - INNERER KONFLIKT: Die prägende Überzeugung, Sehnsucht, Angst oder Bindung der Hauptfigur
+          wird in Akt I sichtbar, im Mittelteil geprüft und im Finale durch eine Entscheidung
+          beantwortet. Sie ist nicht zwingend ein Trauma und braucht keinen Verlust oder Todesfall.
+        - ANTAGONIST: Er tritt regelmäßig persönlich auf und HANDELT gegen die Hauptfigur
+          (lügt, manipuliert, greift an, nimmt ihr etwas). Ein Antagonist, der nur im
+          Hintergrund existiert oder ausschließlich am Ende auftaucht, ist falsch geplant.
+          Plane mindestens vier Kapitel, in denen er direkt eingreift.
+        - INNERE REISE: Der „Emotionale Schritt" jedes Kapitels muss zusammen einen Bogen
+          ergeben: Die Überzeugung, mit der die Hauptfigur startet, wird Schritt für Schritt
+          erschüttert und am Ende widerlegt. Nie zweimal derselbe innere Stand.
+        - PREIS: Im Finale zahlt die Hauptfigur etwas – kein Kapitel, in dem sie alles bekommt,
+          ohne etwas zu verlieren.
+
+        LANGFORM TRÄGT NUR MIT NEBENSTRÄNGEN (ab etwa 20 Kapiteln verbindlich):
+        Ein Hauptkonflikt allein füllt keine 500 Seiten – der Versuch endet in Wiederholung und Leerlauf.
+        Plane deshalb zwei bis drei Nebenhandlungen mit eigenen kleinen Bögen (eigenes Ziel, eigener
+        Rückschlag, eigene Auflösung), getragen von Nebenfiguren, die etwas Eigenes wollen.
+        ENTSCHEIDEND: Die Nebenstränge dürfen NICHT parallel neben der Haupthandlung herlaufen.
+        Jeder muss mit ihr kollidieren – spätestens im letzten Viertel muss jeder Nebenstrang die
+        Hauptfigur behindern, ihr helfen oder sie zu einer Entscheidung zwingen. Ein Nebenstrang,
+        den man streichen könnte, ohne dass sich am Hauptplot etwas ändert, ist falsch geplant.
+
+        ESKALATION STATT WIEDERHOLUNG: Nicht \(chapterCount) Kapitel derselbe Konflikt. Die Kette lautet:
+        Problem → erster Lösungsversuch scheitert → dadurch ein GRÖSSERES Problem → neue Information verändert die Lage → die Figur muss etwas riskieren → schwerer Rückschlag → endgültige Entscheidung.
+        Jedes Kapitel muss mindestens EINES leisten: die Handlung verändern, die Figur vertiefen oder den Konflikt verschärfen. Starke Kapitel leisten mehreres zugleich. Kapitel, die man streichen könnte, ohne dass sich etwas ändert, sind verboten.
 
         Regeln für Bestseller-Kapitelstruktur:
         - Die meisten Kapitel enden mit Vorwärtsbewegung oder einer offenen Erwartung. Nutze harte Cliffhanger nur an dramaturgisch passenden Stellen; ruhige emotionale Nachwirkungen und abgeschlossene Teilziele sind ausdrücklich erlaubt.
@@ -535,7 +958,18 @@ enum PromptFactory {
         - KAPITELTITEL kreativ, eigenständig, doppelbödig: jeder Titel ist ein BILD, ein VERSPRECHEN oder eine FRAGE, macht schon im Inhaltsverzeichnis neugierig und verrät NICHT, was passiert (kein Spoiler), klingt im Rückblick aber anders. STRENG VERBOTEN: „Kapitel N", „Teil N", Phasennamen (Aufbruch/Eskalation/Krise/Auflösung), Durchnummerierung und jedes über mehrere Kapitel wiederholte Titelwort. Mische die Bauarten über das Buch (konkretes geladenes Objekt, abgebrochener Halbsatz, Dialog-Echo mit Subtext, sinnliche Wahrnehmung, Paradox, offene Frage, Zeit/Countdown, Drohung/Versprechen); mindestens jeder dritte Titel zielt auf die Beziehungsebene. Kurz (2-6 Wörter), jeder Titel unverwechselbar anders.
 
         Gib für JEDES Kapitel GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
-        KAPITEL|Nummer|Titel|Ziel des Kapitels|Zentraler Konflikt|Emotionaler Schritt
+        KAPITEL|Nummer|Titel|Auslöser/Folge|Aktive Entscheidung|Neue Lage|Zentraler Konflikt|Emotionaler Schritt
+
+        Auslöser/Folge = in Kapitel 1 exakt „AUSLÖSER: [konkretes Ereignis]". Ab Kapitel 2
+        exakt „FOLGE AUS KAPITEL N: [welche konkrete neue Lage des DIREKTEN Vorgängers
+        dieses Kapitel jetzt notwendig macht]". Kein Zufall, kein unabhängiges neues Problem.
+        Aktive Entscheidung = was die Hauptfigur in diesem Kapitel selbst wählt oder riskiert.
+        Neue Lage = was am Ende nachweisbar anders ist (Wissen, Macht, Risiko oder Beziehung)
+        und deshalb das folgende Kapitel auslöst. Entscheidung und neue Lage nie wiederholen.
+        Im LETZTEN Kapitel beginnt das Feld „Neue Lage" exakt mit „AUFLÖSUNG:" und nennt
+        konkret: Ausgang des äußeren Konflikts, bleibenden Preis der Hauptfigur und ihre
+        neue Normalität. Die zentrale Buchfrage wird beantwortet. Ein offener Serienfaden
+        darf erst DANACH stehen und ersetzt niemals den Abschluss dieses Bandes.
 
         Emotionaler Schritt = wie sich der innere Zustand bzw. die Beziehung der Hauptfigur \
         in DIESEM Kapitel verändert (z. B. „Misstrauen kippt in erstes Vertrauen") – der \
@@ -546,11 +980,72 @@ enum PromptFactory {
         """
     }
 
+    static func repairFinalChapter(bookTitle: String, genre: String, chapterNumber: Int,
+                                   planSummary: String, currentChapter: String,
+                                   resolutionBeat: String, canonicalStory: String) -> String {
+        """
+        Repariere ausschliesslich das Schlusskapitel des Romans "\(bookTitle)" (\(genre)).
+        Der vorhandene Plan ist vollstaendig, aber Kapitel \(chapterNumber) schliesst die
+        zentrale Buchfrage noch nicht belastbar ab. Alle frueheren Kapitel bleiben unveraendert.
+
+        GESAMTVERLAUF:
+        \(planSummary.truncated(to: 8_000))
+
+        BISHERIGES SCHLUSSKAPITEL:
+        \(currentChapter.truncated(to: 1_500))
+
+        VERBINDLICHE AUFLOESUNG AUS DEM PLOT:
+        \(resolutionBeat.truncated(to: 1_500))
+
+        VERBINDLICHER BUCHKANON:
+        \(canonicalStory.truncated(to: 5_000))
+
+        Das neue Kapitel muss kausal aus Kapitel \(max(1, chapterNumber - 1)) folgen. Die
+        Hauptfigur trifft eine aktive, irreversible Entscheidung. Das Feld "Neue Lage"
+        beginnt exakt mit "AUFLÖSUNG:" und nennt konkret:
+        - den Ausgang des aeusseren Konflikts,
+        - den bleibenden Preis,
+        - die neue Normalitaet,
+        - die eindeutige Antwort auf die zentrale Frage.
+        Ein moeglicher Serienfaden darf erst danach stehen. Fuehre keine neue Figur, keinen
+        neuen Gegenstand und keine neue Tatsache ein, die nicht im Verlauf oder Kanon belegt ist.
+
+        Gib NUR eine Zeile aus, ohne Erklaerung:
+        KAPITEL|\(chapterNumber)|Titel|Auslöser/Folge|Aktive Entscheidung|Neue Lage|Zentraler Konflikt|Emotionaler Schritt
+        """
+    }
+
+    static func scenePlanStagnationRepair(reason: String) -> String {
+        """
+
+        DRITTE, GEZIELTE FORTSCHRITTSFASSUNG:
+        Der vorige Szenenplan scheiterte an diesem buchweiten Befund:
+        \(reason.truncated(to: 900))
+
+        Das geplante Kapitelende und die kanonischen Fakten bleiben erhalten, aber der WEG
+        dorthin muss eine andere dramatische Funktion bekommen. Plane KEINEN weiteren Fund,
+        keine weitere Suche, Durchsuchung, Beobachtung oder Flucht derselben Art. Erfinde
+        auch kein neues Beweisstueck als Ersatz.
+
+        Nutze stattdessen eine aktive Entscheidung, Konfrontation, Verhandlung, Preisgabe,
+        Beziehungskonsequenz oder einen folgerichtigen Gegenzug. Wenn die letzten Kapitel am
+        selben Ort spielten, wechsle den Schauplatz durch eine nachvollziehbare Entscheidung.
+        Ist der Ort durch den Kanon fest, veraendere dort Macht, Beziehung und Handlungsoption
+        so deutlich, dass das Kapitel keine Variante des vorigen ist.
+
+        Gib wieder GENAU die geforderte Zahl SZENE|-Zeilen aus und sonst nichts.
+        """
+    }
+
     static func scenePlan(bookTitle: String, chapterNumber: Int, chapterTitle: String,
                           chapterGoal: String, chapterConflict: String,
                           perspective: String, plotContext: String, targetWords: Int,
                           scenesPerChapter: Int = 4, isFinalChapter: Bool = false,
-                          canonicalStory: String = "") -> String {
+                          canonicalStory: String = "",
+                          pacingGewichte: [Double] = [], pacingEtiketten: [String] = [],
+                          bisherigePreise: [String] = [],
+                          priorSceneLedger: String = "",
+                          chapterRoadmap: String = "") -> String {
         if plotContext.contains("SACHBUCH-ARCHITEKTUR") {
             return nonfictionSectionPlan(bookTitle: bookTitle, chapterNumber: chapterNumber,
                                          chapterTitle: chapterTitle, chapterGoal: chapterGoal,
@@ -558,6 +1053,25 @@ enum PromptFactory {
                                          targetWords: targetWords, sectionCount: scenesPerChapter,
                                          isFinalChapter: isFinalChapter)
         }
+        // BISHER GEZAHLTE PREISE. Ohne diese Liste kann der Planer nicht steigern – er
+        // kennt seinen eigenen Verlauf nicht und setzt in Kapitel 20 denselben Einsatz wie
+        // in Kapitel 3. Nur die letzten sechs: Der aktuelle Stand entscheidet, nicht die
+        // Vollständigkeit, und eine Liste über 50 Kapitel wäre reiner Kontext-Ballast.
+        let preisVerlauf: String = {
+            let letzte = bisherigePreise
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty && $0 != "-" }
+                .suffix(6)
+            guard !letzte.isEmpty else { return "" }
+            return """
+
+
+                BISHER HAT SIE DAS BEZAHLT (in dieser Reihenfolge):
+                \(letzte.map { "- \($0)" }.joined(separator: "\n"))
+                Jeder Preis in diesem Kapitel muss schwerer wiegen als der letzte hier. \
+                Keinen davon wiederholen.
+                """
+        }()
         // Schlusskapitel: kein erzwungener Haken – die letzten Szenen gehören der Auszahlung.
         // (Vorher erzwang der Plan auch im Finale einen Cliffhanger → abrupte, unbefriedigende
         // Enden, der häufigste 1-Stern-Trigger.)
@@ -580,6 +1094,52 @@ enum PromptFactory {
               Buch am Kapitelende nicht weglegen können. Haken-Typ für dieses Kapitel:
               \(hookTypes[abs(chapterNumber) % hookTypes.count]).
               """
+        // Szenen-Rhythmus: ungleiche Längen sind ein verbindlicher Teil des Plans,
+        // nicht nur der späteren Wortzielverteilung – das Modell soll Beats,
+        // Informationsdichte und Tempo jeder Szene auf ihre Längenklasse zuschneiden.
+        let pacingBlock: String
+        if pacingGewichte.count == scenesPerChapter,
+           pacingEtiketten.count == scenesPerChapter,
+           targetWords > 0 {
+            let summe = pacingGewichte.reduce(0, +)
+            let zeilen = (0..<scenesPerChapter).map { index in
+                let worte = max(1, Int((Double(targetWords) * pacingGewichte[index] / summe).rounded()))
+                return "Szene \(index + 1): \(pacingEtiketten[index]) (ca. \(worte) Wörter)"
+            }.joined(separator: "\n")
+            pacingBlock = """
+            SZENENRHYTHMUS (verbindlich): Gleich lange Szenen ermüden das Ohr des Lesers.
+            Plane Konflikt, Informationsdichte und Tempo jeder Szene passend zu ihrer
+            vorgesehenen Länge:
+            \(zeilen)
+            Kurze Szenen: sofort mitten im Geschehen, genau EIN Konflikt, hartes Ende.
+            Lange Szenen: Raum für Atmosphäre, Beziehung und Innenschau – ohne Leerlauf.
+
+            """
+        } else {
+            pacingBlock = ""
+        }
+        let roadmapBlock = chapterRoadmap.trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ? "" : """
+
+            KAPITEL-FAHRPLAN (Nachbarn und Buchende; verbindlich):
+            \(chapterRoadmap.truncated(to: 5_000))
+            Die Szenen dieses Kapitels muessen aus dem Vorkapitel entstehen, das konkrete
+            Kapitelziel erfuellen und die naechste hier genannte Lage vorbereiten. Loese
+            keine spaetere Wendung vorzeitig aus und ersetze das geplante Ende nicht.
+
+            """
+        let ledgerBlock = priorSceneLedger.trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ? "" : """
+
+            BEREITS GEPLANT UND DAMIT VERBRAUCHT:
+            \(priorSceneLedger.truncated(to: 7_000))
+            Diese Ereignisse sind abgeschlossen. Plane ihre FOLGEN, nicht dieselbe Suche,
+            Flucht, Beobachtung, Konfrontation oder Entdeckung mit einem neuen Gegenstand.
+            Drei Kapitel hintereinander am selben Schauplatz mit derselben Handlungsfunktion
+            sind Stillstand. Wechsle dann Ziel, Konfliktart, Beziehung oder Ort aufgrund einer
+            Entscheidung, nicht willkuerlich.
+
+            """
         return """
         Plane die Szenen für Kapitel \(chapterNumber) ("\(chapterTitle)") des Romans "\(bookTitle)".
         Kapitelziel: \(chapterGoal)
@@ -595,14 +1155,38 @@ enum PromptFactory {
 
         Plotkontext:
         \(plotContext.truncated(to: 3000))
+        \(roadmapBlock)\(ledgerBlock)
 
-        Plane mindestens \(scenesPerChapter) Szenen (bei Bedarf mehr, aber nicht weniger).
+        Plane GENAU \(scenesPerChapter) Szenen, weder mehr noch weniger.
         Für 500-Seiten-Langform braucht jede Szene eine eigene dramatische Funktion:
         neues Ziel, neue Reibung, neue Information, veränderte Beziehung oder verschärfter Einsatz.
         KEINE ZWEI SZENEN dürfen dasselbe Ereignis erzählen. Jede Szene hat ein ANDERES Ziel als
         die vorige – wiederhole niemals denselben Fund, denselben Anruf, dieselbe Entdeckung oder
         denselben Aufbruch. Das Kapitelziel wird über die Szenen HINWEG erreicht, nicht in jeder
         Szene neu. Ordne die Szenen als Fortschritt: Einstieg → Komplikation → Zuspitzung → Wende.
+
+        DIE „ALSO-WAS"-PROBE (bei JEDER geplanten Szene durchführen, sonst umbauen):
+        - „Also was?" – Was ändert sich durch diese Szene? Ändert sich nichts, wird die Szene gestrichen.
+        - „Also was jetzt?" – Was tut die Figur als Nächstes? Sie darf nicht einfach abwarten.
+        - „Also was kostet das?" – Was riskiert sie? Ohne Risiko keine Spannung.
+
+        JEDE SZENE BRAUCHT EINEN KONFLIKT: Nichts passiert einfach so. Auch wenn zwei Figuren nur
+        Kaffee trinken, muss mindestens eine ein Geheimnis haben, etwas verbergen oder vor etwas
+        Angst haben. Eine Szene ohne Reibung ist eine gestrichene Szene.
+
+        DIE FIGUR HANDELT, SIE ERLEIDET NICHT NUR: In mindestens jeder dritten Szene trifft die
+        Hauptfigur eine EIGENE Entscheidung, die den weiteren Verlauf verändert und Folgen hat.
+        Verboten sind Szenen, in denen sie nur beobachtet, nachdenkt, am Fenster steht, verfolgt
+        oder bedrängt wird. Eine Figur, die ausschließlich reagiert, ist erzählerisch tot – sie
+        wird zur Projektionsfläche statt zur Protagonistin. Auch der Gegenpart braucht in jeder
+        Szene ein konkretes Ziel und eine Handlung, die entweder gelingt oder scheitert.
+
+        GEHEIMNISSE BRAUCHEN EINEN VERTRAG MIT DEM LESER: Für jedes Rätsel, das dieses Kapitel
+        aufwirft oder berührt, gilt die Kette Rätsel → Hinweis → falsche Fährte → Auflösung.
+        Ein Hinweis folgt spätestens im nächsten Kapitel; kein Geheimnis bleibt länger als drei
+        Kapitel unberührt liegen. Ein Buch, das Rätsel stapelt und keines auflöst, erzeugt keine
+        Spannung, sondern Frustration – der Leser merkt, dass keine Antworten kommen, und hört auf.
+        Wirf hier also KEIN neues Rätsel auf, ohne zugleich eine Spur zu einem bereits offenen zu legen.
         KANON-GRENZE: Konkretisiere ausschließlich das vorgegebene Kapitelziel. Erfinde KEINE neue
         Vorgeschichte, Verwandtschaft, Schwangerschaft, Geburt, Todesursache, Todesort, Datumsfolge,
         Besitzurkunde, geheime Abstammung oder frühere Tat. Plane keine Briefe, Fotos, Tagebücher,
@@ -613,48 +1197,122 @@ enum PromptFactory {
         Jede Information im Feld „Wendung“ muss sich wörtlich aus Primärkanon, Kapitelziel oder
         Kapitelkonflikt begründen lassen. Bei Unsicherheit plane eine Entscheidung oder
         Beziehungsverschiebung statt einer neuen Tatsache.
-        \(endingNote)
+        \(pacingBlock)\(endingNote)
 
         Gib für JEDE Szene GENAU eine Zeile in diesem Format aus (Felder mit | getrennt):
-        SZENE|Nummer|Perspektive|Ort|Zeit|Ziel der Szene|Hindernis|Wendung am Szenenende
+        SZENE|Nummer|Perspektive|Ort|Zeit|Ziel der Szene|Hindernis|Wendung am Szenenende|Takt|Preis|Antrieb
+
+        ANTRIEB – wer die Wendung verursacht. Genau einer dieser drei Werte:
+        - „Figur“ = Die Perspektivfigur löst sie selbst aus, durch eine Entscheidung oder Handlung.
+        - „Gegenspieler“ = Ein Mensch mit eigenem Interesse handelt gegen sie.
+        - „Zufall“ = Umstände: ein Fund, eine Nachricht, ein Unfall, eine Behörde, das Wetter.
+        Mindestens jede dritte Szene hat den Antrieb „Figur“. Eine Hauptfigur, der nur Dinge
+        zustoßen, ist eine Zuschauerin ihrer eigenen Geschichte – der Leser wartet dann darauf,
+        dass endlich jemand handelt. Höchstens jede dritte Szene hat „Zufall“: Zufall darf
+        auslösen und verschärfen, aber nicht das Erzählprinzip sein, sonst folgt nichts aus
+        dem Vorherigen und das Buch wirkt beliebig.
+
+        PREIS – was diese Szene die Figur KOSTET. Der zweite Punkt, an dem Romane flach werden:
+        Es passiert viel, aber es kostet nie etwas. Dann liest sich ein 500-Seiten-Buch wie eine
+        Aufzählung, weil nichts schwerer wiegt als das Vorige.
+        Nenne konkret, was sie verliert oder aufgibt: eine Möglichkeit, ein Vertrauen, eine Lüge,
+        die nicht mehr hält, Geld, Zeit, den Rückweg, den guten Ruf, die Achtung eines Menschen.
+        Kein Gefühlswort („sie ist erschüttert“) – ein Verlust, den man benennen kann.
+        Der Preis STEIGT über das Buch: Was in Kapitel 20 auf dem Spiel steht, muss schwerer
+        wiegen als das aus Kapitel 3. Zweimal derselbe Preis heißt, dass die zweite Szene
+        folgenlos war. Ganz ohne Preis ist eine Szene Beiwerk: dann streiche sie.\(preisVerlauf)
+
+        TAKT – der Punkt, an dem die meisten Romane flach werden. Zwei Werte sind erlaubt:
+        - „Szene“ = Ziel → Konflikt → Rückschlag. Die Figur WILL etwas und stößt auf Widerstand.
+        - „Nachklang“ = Reaktion → Dilemma → Entscheidung. Kein neues Ziel, kein neuer Gegner:
+          Die Figur verarbeitet, was gerade passiert ist, wägt schlechte Optionen gegeneinander
+          ab und entscheidet sich für den nächsten Schritt. Daraus entsteht das nächste Ziel.
+
+        Plane nach JEDEM schweren Rückschlag einen Nachklang, insgesamt etwa jede dritte bis
+        vierte Szene. Ein Nachklang ist kürzer als eine Vollszene. Ohne Nachklang sieht der
+        Leser zwar, was geschieht, fühlt es aber nicht mit – das Buch liest sich dann wie eine
+        Zusammenfassung im Tempo. Zwei Nachklänge dürfen NIE aufeinanderfolgen.
 
         Keine weiteren Erklärungen.
         """
     }
 
-    /// Genre-spezifische Handwerksregeln auf Bestseller-Niveau.
-    /// Synthese aus zwei Experten-Modulen (Stimme/Subtext + Lexik/Rhythmus).
-    /// Bricht gezielt die statistischen und lexikalischen Muster, an denen
-    /// KI-Detektoren maschinell erzeugte Prosa erkennen (Burstiness/Perplexität),
-    /// OHNE die literarische Qualität oder Lesbarkeit zu senken.
+    /// Genre-spezifische Handwerksregeln für natürliche, veröffentlichungsreife Prosa.
+    /// Die Regeln priorisieren Lesefluss, Stimme, Subtext und klare Kausalität.
     static var humanCraftRules: String {
         """
-        MENSCHLICH SCHREIBEN – DAMIT ES NICHT NACH KI KLINGT (diese Regeln stehen über dem reinen Glattschreiben; erzähl die Szene trotzdem vollständig zu Ende und kommentiere sie nie):
-        - ZEITGEMÄSSE, PROFESSIONELLE SPRACHE (KEIN historischer/mittelalterlicher Klang): Schreibe wie ein aktueller deutschsprachiger Bestseller von heute – klar, natürlich, gegenwärtig, sofort verständlich. STRENG VERBOTEN sind altertümliche oder geschwollene Wörter/Wendungen wie „alsbald", „ward", „fürwahr", „sodann", „dünkte", „Antlitz", „Gemach", „Maid", „Jüngling", „Weib" (für Frau), „holde/edle", „auf dass", „es begab sich", „harrte", „allerorten", „weilte", „sann", „vermochte" sowie pathetische Inversionen und feierlich-erhabener Ton. Moderne Wortwahl, normale Wortstellung, heutige Begriffe (es sei denn, das Genre ist ausdrücklich historisch).
-        - DIREKT ERZÄHLEN – UMSCHREIBUNGEN STRENG BEGRENZEN: Nenne Dinge, Gefühle und Ereignisse beim konkreten Namen, statt sie zu umschreiben. Der Leser muss in JEDEM Absatz ohne Rätseln verstehen, wer was tut und was gerade passiert. STRENG VERBOTEN sind gehäufte Umschreibungs-Ketten: Benennungs-Vermeidung („das, was sie waren", „etwas, das sie nicht benennen konnte"), Korrekturfiguren in Serie („Nicht leergezogen, sondern ausgelöscht"), abstrakte Vergleiche ins Ungefähre („wie eine Wand aus etwas Härterem als Luft"), Substantiv-Kaskaden, die dieselbe Sache dreimal neu umschreiben. HÖCHSTENS EINE Umschreibung pro Szene – alles andere in klaren, direkten Sätzen. Wenn ein Satz beim ersten Lesen nicht sofort verständlich ist, schreibe ihn einfacher.
-        - ALLTAGSSPRACHE STATT FACHVOKABULAR: Verwende AUSSCHLIESSLICH Wörter, die ein normaler Leser kennt und im Alltag benutzt. KEINE akademischen Fachbegriffe, Bildungswörter, bildungssprachlichen Adjektive oder seltenen Fremdwörter (z. B. NIEMALS „Mediävistiker", „Komparatistik", „kartographisch", „diaphan", „ephemer", „Ökonometrie", „Habilitand", „proliferieren", „evozieren", „konzedieren"). Braucht eine Figur einen Fachberuf, beschreibe ihn so, wie Menschen wirklich reden („Professor für mittelalterliche Geschichte" statt „Mediävistiker"; „ein Fleck wie eine Landkarte" statt „kartographisch"). Auch KEINE unerklärten Bildungs-Anspielungen (antike Dramen, Dissertationsthemen, Literaturtheorie), die nur Akademiker verstehen – wenn eine Figur studiert, bleibt ihr Fachgebiet in einfachen Worten beschrieben. Härtetest: Würde jemand das Wort in einem Gespräch unter Freunden sagen? Wenn nein, ersetze es.
-        - INHALTLICH STIMMIG (muss Sinn ergeben): Jeder Satz schließt logisch an den vorigen an; keine schön klingenden, aber leeren, widersprüchlichen oder unverständlichen Sätze. Lieber klar und konkret als kunstvoll und vage. Handlung, Zeit und Ort müssen nachvollziehbar bleiben.
-        - KLARE KAUSALITÄT UND ABSICHT: Der Leser erkennt jederzeit, WER handelt, WAS konkret geschieht, WARUM die Figur es jetzt tut und WELCHE unmittelbare Folge daraus entsteht. Geheim gehalten werden darf eine benannte Information, niemals die sichtbare Handlung oder die aktuelle Absicht. Keine Absätze, die nur Stimmung, Vermutung oder Reaktion umkreisen. Spätestens nach einer kurzen Wahrnehmung folgt Entscheidung, Dialog oder Handlung.
-        - ERZÄHLTEMPO VARIIEREN (passend zum Geschehen, NIE durchgehend langsam): Spannung, Action, Konfrontation, Gefahr und Wendepunkte schnell und treibend erzählen – kurze Sätze, harte Schnitte, wenig Innenschau, Fokus auf Handlung und Dialog. Ruhige, emotionale oder verbindende Momente dürfen kurz atmen, bleiben aber zielgerichtet. Steigere das Tempo zum Szenen- und Kapitelende. Lange Wetter-, Stimmungs- oder Reflexionspassagen, die die Handlung nicht vorantreiben, sind verboten (höchstens wenige Sätze, dann weiter).
-        - SATZRHYTHMUS ORGANISCH VARIIEREN: Satzlänge folgt Wahrnehmung, Stimme und Tempo der konkreten Szene. Kurze Sätze und Fragmente nur als echte Akzente, niemals nach Quote oder wiederkehrendem Muster. Lesefluss ist wichtiger als demonstrative Variation.
-        - ABSATZRHYTHMUS: Absätze nach Gedanken-, Handlungs- und Sprecherwechsel setzen. Ein-Satz-Absätze sparsam verwenden; keine sichtbare Längenschablone erzeugen.
-        - ABSATZ-ENDEN (das wichtigste Verbot): Kein Absatz endet mit einem zusammenfassenden, deutenden oder moralisierenden Satz („Und so begriff sie …", „Es war ein Moment, der alles veränderte", „Nichts würde mehr sein wie zuvor"). Brich auf einer konkreten Handlung, einem Gegenstand oder einem halben Gedanken ab. Auch der Schlusssatz der Szene bleibt nüchtern, nicht feierlich, nicht aphoristisch – hör auf, bevor die Bedeutung sauber ist.
-        - SATZANFÄNGE BRECHEN: Nicht jeder Satz beginnt mit dem Subjekt (Sie/Er/Name). Keine gehäuften Partizip- oder Adverb-Auftakte („Langsam …", „Mit zitternden Händen …") – höchstens einmal pro Absatz. Stell Sätze ruhig hart und unverbunden nebeneinander (Parataxe).
-        - KONNEKTOREN-DIÄT: Höchstens EIN Satz-Anfangs-Konnektor pro Absatz; streiche „jedoch", „dennoch", „indes", „gleichwohl", „nichtsdestotrotz", „letztlich", „letztendlich", „mit anderen Worten", „in der Tat".
-        - KEINE TRIKOLA / KEINE ANTITHESE-SCHABLONE: Keine Dreierreihung als Reflex („müde, hungrig und allein") – kürze auf zwei Glieder oder überlade asymmetrisch auf vier. Kein „Nicht X, sondern Y", kein „Nicht X. Nicht Y. Sondern Z." – schreib eine schlichte Aussage.
-        - ADJEKTIV-DIÄT: Höchstens ein wertendes Adjektiv pro Satz. Keine synonymen Adjektivpaare („kalt und unbarmherzig", „leise und vorsichtig"). Lieber ein präzises Substantiv oder ein starkes Verb.
-        - ZEIGEN, NICHT BENENNEN: Benenne kein Gefühl und liefere keine Begründung dazu („sie war nervös, weil …"). Zeig die Handlung: was die Hände tun, wie kurz die Antwort ausfällt, was die Figur zählt. Eine Geste bleibt stehen – etikettiere sie nicht („…, ein Zeichen ihrer Unsicherheit" ist verboten).
-        - KEINE VAGE INNENSCHAU, KEINE STANDARD-GEFÜHLSVERBEN: Weg mit „ein Gefühl von …", „etwas in ihr/ihm", „eine Mischung aus … und …", „in diesem Moment/Augenblick", „einen Herzschlag lang"; ebenso „machte sich breit", „breitete sich aus", „durchströmte", „überkam", „überrollte". Zeig stattdessen, was die Figur konkret tut.
-        - KEINE HEDGES: Streiche „gewissermaßen", „gleichsam", „durchaus", „ein Stück weit", „kaum merklich", „unweigerlich", „zweifellos", „gewiss". Eine menschliche Stimme behauptet oder schweigt, sie versichert nicht.
-        - STIMME & EIGENHEIT: Gib der Erzählstimme eine feste Marotte (ein schräges Lieblingswort, einen wiederkehrenden Vergleich aus der Erfahrungswelt genau dieser Figur). Vergleiche nur mit Bildern aus dem Leben DIESER Figur. Greif gelegentlich zu einem unerwarteten, milieuspezifischen Wort, einem echten Orts- oder Markennamen, einer exakten Uhrzeit. Meide die glatteste, wahrscheinlichste Vokabel.
-        - WIEDERHOLUNG DARF SEIN: „sagte" darf mehrfach hintereinander stehen – kein Zwangs-Synonym-Karussell bei Redebegleitern („erwiderte/entgegnete/bemerkte" in Folge ist verboten).
-        - SELEKTIVE SINNLICHKEIT & WETTER: Pro Moment EIN Sinneseindruck, gern ein unerwarteter – kein Geruch-Klang-Sicht-Inventar. Wetter und Umgebung spiegeln NICHT die Gefühlslage; es darf regnen, während jemand glücklich ist.
-        - VERGLEICHS-KRÜCKE BEGRENZEN: „als hätte …", „als ob …", „als wäre …", „als würde …" sowie der Reflex-Vergleich „wie ein …" höchstens EINMAL pro Szene. Sonst das Konkrete unvermittelt hinstellen (statt „Ihre Hände zitterten, als hätte jemand die Kälte aufgedreht" lieber „Ihre Hände zitterten. Sie schob sie unter die Oberschenkel."). Keine vagen Innenschau-Formeln wie „etwas, das sie nicht benennen konnte/wollte", „etwas, das sie nicht in Worte fassen konnte" – benenne das Konkrete oder lass es weg.
-        - MOTIV NICHT HÄMMERN: Ein abstraktes Themen-Substantiv (z.B. Kontrolle, Nähe, Schweigen, Protokoll) NICHT als Leitmotiv wiederholen, und das Thema NIE als abstrakten Begriff aussprechen. Zeig es an konkreten Dingen, benenne es nie.
-        - KEINE WIEDERKEHRENDEN BEATS/GESTEN: Greife dieselbe Körpergeste oder Erzähl-Formel NIE als Reflex wieder auf. STRENG VERBOTEN als Standard-Beat (überstrapaziert, killt den Lesefluss): „öffnete den Mund und schloss ihn (wieder)", „drehte sich nicht um", die Formel „…", sagte sie. Keine Frage." und „etwas, das sie nicht [sehen/deuten/benennen] konnte". Jede emotionale Reaktion wird ANDERS und konkret gezeigt; variiere Gesten von Szene zu Szene.
-        - HARTE FREQUENZ-LIMITS pro Szene (werden maschinell gezählt): Sätze, die mit „Nicht/Kein/Keine" beginnen: höchstens 1 (die Verneinungs-Rhetorik „Nicht X. Sondern Y." ist DAS Erkennungszeichen von KI-Prosa). Körpersignale (schlucken, Atem stocken/anhalten, Herz hämmern, Magen, zittern, kribbeln): zusammen höchstens 1. „leise/langsam/plötzlich/einfach": zusammen höchstens 2. Was ein Körpersignal sagen soll, zeigt stattdessen eine konkrete Handlung, ein Objekt oder ein Satz Dialog.
-        - TELLING SPARSAM: Formeln wie „sie wusste, dass …", „sie kannte …", „etwas in …" nur selten. Statt zu behaupten, was eine Figur weiß oder fühlt, zeig die Handlung oder das konkrete Detail, aus dem es hervorgeht.
-        - SELBSTCHECK vor der Ausgabe (still, nicht in den Text schreiben): Endet ein Absatz auf einer Deutung? Drei gleich lange Sätze in Folge? Ein Gefühl benannt statt gezeigt? Eine Trikola oder ein „nicht X, sondern Y"? Mehr als ein „als hätte/wäre/würde"? Ist bei jedem Absatz klar, wer handelt, was geschieht und was sich dadurch ändert? – umbauen. Gib nur die korrigierte Prosa aus.
+        NATUERLICHE, PROFESSIONELLE PROSA:
+        - SZENENZIEL UND KAUSALITAET: Jede Szene hat ein konkretes Ziel, aktiven Widerstand und
+          eine Folge. Der Leser versteht jederzeit, wer handelt, warum die Handlung jetzt geschieht
+          und was sich dadurch veraendert. Stimmung begleitet den Vorgang, sie ersetzt ihn nicht.
+        - KLARE GEGENWART DER SZENE: Beginne beim fruehesten interessanten Moment. Erklaere keine
+          Vorgeschichte auf Vorrat. Vergangenes erscheint nur, wenn ein aktueller Reiz es ausloest
+          und es die gegenwaertige Entscheidung veraendert.
+        - KONKRET STATT VAGE: Nenne Person, Gegenstand, Absicht und Gefahr. Vermeide unbestimmte
+          Formeln wie "etwas in ihr", "das, was zwischen ihnen war" oder bedeutungsschwere
+          Umschreibungen. Ein klarer Satz ist wertvoller als ein kunstvoll unlesbarer.
+        - FIGURENPERSPEKTIVE: Wahrnehmung, Wortwahl und Aufmerksamkeit gehoeren zur jeweiligen
+          Perspektivfigur. Sie bemerkt, was zu Erfahrung, Beruf, Beziehung und momentaner Absicht
+          passt. Keine Erzählerweisheit, die die Figur noch nicht haben kann.
+        - ORGANISCHER RHYTHMUS: Satzlänge folgt Stimme, Handlung und Tempo, niemals einer Quote.
+          Kurze Saetze setzen Akzente; mittlere Saetze tragen den Lesefluss; laengere Saetze bleiben
+          beim ersten Lesen klar. Keine Stakkato-Ketten und keine Schachtelsaetze, die zum
+          Zurueckspringen zwingen.
+        - NATUERLICHER DIALOG: Menschen antworten aus eigener Absicht, weichen aus, widersprechen
+          oder unterbrechen. Dialog darf knapp und unvollstaendig sein, muss aber zur Figur passen.
+          Keine Informationsvortraege und keine Orakel-Saetze. Wo niemand sinnvoll sprechen kann,
+          wird kein Dialog erzwungen. Wo gesprochen wird, steht die Rede korrekt in deutschen
+          Anfuehrungszeichen.
+        - SUBTEXT STATT ERKLAERUNG: Zeige Spannung durch das, was eine Figur tut, verschweigt oder
+          falsch beantwortet. Benenne danach nicht noch die Bedeutung der Geste. Kein nachträglicher
+          Deutungssatz wie „Das zeigte, dass …“, „Sie wusste, dass das …“ oder „Es war nicht nur …“.
+          Der Leser darf eine sichtbare Folge selbst verstehen.
+        - UNPERFEKTE ALLTAGSREDE: Nicht jede Replik braucht Witz, Subtext oder eine Pointe. Menschen
+          wechseln das Thema, antworten praktisch, reden aneinander vorbei oder lassen einen Gedanken
+          liegen. Die Knappheit und Präzision entsteht aus Absicht, nicht aus einer permanenten
+          Schlagfertigkeitsmaschine.
+        - SINNE MIT AUSWAHL: Nutze pro Moment ein praezises Detail, das Orientierung, Figur oder
+          Handlung traegt. Kein Inventar aus Sehen, Hoeren, Riechen und Fuehlen; kein Wetter als
+          automatische Gefuehlsmetapher.
+        - GEFUEHLE OHNE STANDARDREFLEX: Koerperreaktionen sind erlaubt, wenn sie spezifisch und
+          selten sind. Vermeide wiederkehrendes Zittern, Atemstocken, Herzhaemmern, Haende,
+          die sich ballen, und andere austauschbare Abkuerzungen.
+        - WORTWAHL UND LESEFLUSS: Zeitgemaesse deutsche Standardsprache, vertraute Alltagswoerter,
+          praezise Verben und wenige tragende Adjektive. Schreibe so, dass ein erwachsener Leser
+          und ein durchschnittlicher 15-jaehriger Jugendlicher ohne Nachschlagen und ohne
+          Zurueckspringen folgen koennen. Ueberwiegend kurze bis mittlere Saetze; eine laengere
+          Periode nur, wenn ihr Gedankengang beim ersten Lesen klar bleibt. Fachsprache nur, wenn Figur und
+          Situation sie verlangen und der Kontext sie sofort verstaendlich macht. Kein pathetischer,
+          altertuemlicher, akademisch aufgeblasener oder gewollt literarischer Ton. Schoenheit
+          entsteht aus Genauigkeit, Emotion und Rhythmus, nicht aus seltenen Woertern.
+          Das gilt auch in historischen Romanen und Fantasy: Die Welt darf alt sein,
+          die Erzaehlsprache bleibt modern. Statt "alsbald" schreibe "bald", statt
+          "allenthalben" "ueberall", statt "sie vermochte" "sie konnte". Keine
+          kuenstliche Jugendsprache. Mache bei mehreren Figuren deutlich, auf wen
+          "sie", "er" und "ihr" verweisen. Jede wichtige Entscheidung bekommt einen
+          verstaendlichen Anlass und eine erkennbare Folge.
+        - BILDER UND VERGLEICHE: Ein starkes, zur Figur passendes Bild reicht. Keine
+          Vergleichsketten, keine Trikola als Reflex und keine Antithese-Schablone "nicht X,
+          sondern Y".
+        - WIEDERHOLUNGSKONTROLLE: Wiederhole weder ganze Saetze noch markante Gesten, Gegenstaende,
+          Lieblingswoerter oder Absatzschluesse. Ein bewusstes Motiv darf wiederkehren, wenn seine
+          Bedeutung oder Funktion sich sichtbar veraendert.
+        - FIGURENNAMEN NATUERLICH: Nenne eine bereits eindeutig aktive Figur nicht in jedem Satz
+          erneut beim Namen. Nach der ersten klaren Nennung Pronomen oder ausgelassenes Subjekt
+          verwenden, solange nie unklar wird, wer handelt. In einem kurzen Absatz denselben
+          Vornamen hoechstens zweimal nennen; Dialoganreden nur, wenn ein Mensch sie dort wirklich
+          aussprechen wuerde.
+        - ABSATZ UND ENDE: Absatzwechsel folgen Handlung, Gedanke oder Sprecher. Enden duerfen
+          offen oder ruhig sein, aber nie das eben Gezeigte deuten, moralisieren oder poetisch
+          zusammenfassen. Keine künstlich ausgestellte Erkenntnis („Da stand plötzlich eine Frage“,
+          „Was geschah mit …?“) und keine Themenformel über zweite Chancen, Neuanfänge oder Wahrheit.
+          Schließe stattdessen mit einer konkreten Handlung, einem belastbaren Detail, einer Entscheidung
+          oder der unmittelbaren Folge.
+        - KANONTREUE: Namen, Beziehungen, Alter, Orte, Besitz, Wissen und Zeitfolge bleiben
+          unveraendert. Fuehre keine benannte Figur und keine Vorgeschichte ein, die nicht im
+          Szenenplan oder bisherigen Buch belegt ist.
+        - STILLE ENDKONTROLLE: Pruefe vor der Ausgabe Szenenziel, Kausalitaet, Perspektive,
+          Anschluss, Wiederholungen und Lesbarkeit. Gib danach ausschliesslich die fertige Prosa aus.
         """
     }
 
@@ -692,6 +1350,52 @@ enum PromptFactory {
         """
     }
 
+    /// Das komplette Prosa-Handwerk für den SYSTEM-Prompt des Draft Writers.
+    ///
+    /// Früher standen `humanCraftRules`, `pageTurnerRules` und `gripRules` mitten im
+    /// ohnehin überladenen Szenen-Prompt – zwischen Kanon, Sperrlisten und Kontext.
+    /// Sprachmodelle befolgen Anweisungen am Anfang und am Ende eines Prompts am
+    /// zuverlässigsten („Lost in the Middle"): Genau die teuer erzeugten Sperrlisten
+    /// wurden so übersehen. Das generische Handwerk gehört in den System-Prompt
+    /// (gilt für jede Szene gleich), der User-Prompt behält nur das Szenenspezifische.
+    static var draftingSystemCraftRules: String {
+        """
+
+        PROSA-HANDWERK (Prioritaet in dieser Reihenfolge):
+        1. ANSCHLUSS UND KAUSALITAET: Setze beim letzten erreichten Zustand an. Wiederhole
+           weder den Szenenanfang noch eine bereits gezeigte Handlung. Jede Entscheidung
+           hat eine konkrete Folge, die den naechsten Absatz notwendig macht.
+        2. FUNKTIONALE PROSA TRAEGT DEN ROMAN: Nicht jeder Satz braucht Tiefe, Pointe,
+           Symbol oder Spannung. Der groesste Teil darf schlicht orientieren, bewegen,
+           verbinden und Gespraeche tragen. Dadurch wirken die wenigen starken Momente.
+        3. FIGURENEIGENE STIMME: Wortwahl, Aufmerksamkeit, Humor, Ausfluechte und Satzbau
+           folgen Bildung, Beziehung und aktuellem Ziel der Perspektivfigur. Keine
+           Erzählerweisheit und keine wiederholte Catchphrase.
+        4. NATUERLICHER DIALOG: Menschen duerfen direkt antworten, ausweichen, stocken,
+           missverstehen oder schweigen. Waehle, was Absicht und Beziehung verlangen;
+           keine feste Dialogquote und kein mathematisches Subtextmuster. Jede direkte
+           Rede steht ausnahmslos in deutschen Anfuehrungszeichen („…“); niemals nackte
+           Redezeilen wie `Ich komme morgen, sagte sie.` ausgeben.
+        5. KLARER LESEFLUSS: Zeitgemaesse, leicht verstaendliche Standardsprache. Mische
+           kurze und mittlere Saetze nach Tempo. Laengere Saetze bleiben beim ersten Lesen
+           klar. Einzelne Satzfragmente duerfen gezielt betonen, aber keine Haeufung und
+           kein Telegrammstil; die Prosa besteht ueberwiegend aus vollstaendigen Saetzen.
+           Namen nur zur Orientierung, danach eindeutige Pronomen oder Anschluss.
+        6. ZURUECKHALTUNG: Gefuehle duerfen knapp benannt oder konkret gezeigt werden.
+           Bilder, Koerperreaktionen, Sinnesdetails und Absatzhaken nur, wenn dieser Moment
+           sie braucht. Kein Pflicht-Effekt und keine Deutung nach einer bereits klaren Geste.
+           Nach sichtbarer Handlung nie einen Satz anhängen, der ihre Bedeutung erklärt.
+           Nicht jede Replik braucht Witz oder Subtext; funktionale, unvollkommene Alltagsrede
+           schafft den Kontrast, den starke Dialogmomente brauchen.
+        7. SZENENENDE: Spiele genau die geplante Wendung aus. Der letzte Satz darf schlicht,
+           offen, warm, hart oder ruhig sein. Er muss passen, nicht sichtbar konstruiert wirken.
+           Verwende keine rhetorische Bedeutungsfrage und keine ausgesprochene Erkenntnis über
+           „zweite Chancen“, „Neuanfänge“ oder „Wahrheit“. Zeige die Folge als konkreten Vorgang.
+        Gib ausschliesslich fertige Prosa aus und pruefe vor der Ausgabe still Anschluss,
+        Zeitform, Namensdichte, Figurenwissen, Wiederholungen und Vollstaendigkeit.
+        """
+    }
+
     /// Konzeptphasen-Vertrag, der verhindert, dass aus einem Liebesroman/Erotik-Roman
     /// ein Thriller mit Job-Plot (und einem Stalker als „Love Interest") wird.
     /// Greift VOR der ersten Szene; leer für andere Genres.
@@ -707,7 +1411,7 @@ enum PromptFactory {
         - Die zentrale dramatische Frage MUSS eine Beziehungsfrage sein („Finden A und B zueinander / bleiben sie zusammen, obwohl …?"). Verboten als Kernfrage: „Wird das Netz/die Firma/die Stadt gerettet?", „Wird der Täter gefasst?", „Überlebt sie?".
         - Streich-Test: Bliebe nach dem Entfernen der Liebesgeschichte ein funktionierender Plot übrig, ist das Konzept falsch. Äußerer Konflikt (Beruf, Krise, Gefahr) ist nur Bühne und Druckmittel, das die beiden zusammenzwingt, nie Selbstzweck.
         - Der dunkle Moment ist ein Beziehungskonflikt (Stolz, Angst vor Nähe, Missverständnis, Vertrauensbruch), nicht Bombe, Anzeige oder Tod.
-        - Der Love Interest wird als rootbare Figur angelegt: eine Wunde, aktive Fürsorge, Respekt vor ihrer Autonomie, eine eigene anziehende Eigenschaft, selbst begehrt. Kein Stalker, kein heimliches Beobachten.
+        - Der Love Interest wird als glaubwürdige Figur angelegt: ein konkretes eigenes Bedürfnis oder Dilemma, aktive Fürsorge, Respekt vor ihrer Autonomie und eine eigene anziehende Eigenschaft. Kein Stalker, kein heimliches Beobachten.
         - Die Heldin ist Subjekt mit eigenem, aktivem Begehren (POV-Symmetrie), nie nur Objekt.
         - Pflicht-Ende: emotional erfülltes Happy End (HEA oder HFN).
         """
@@ -716,13 +1420,21 @@ enum PromptFactory {
     static func genreCraft(_ genre: String) -> String {
         let g = genre.lowercased()
         if g.contains("thriller") || g.contains("krimi") {
-            return "GENRE-HANDWERK: Hohes Tempo. Spannung durch Wissensvorsprung oder -rückstand des Lesers. Jede Szene endet mit einem Haken. Kurze Sätze in Actionmomenten."
+            return """
+            GENRE-HANDWERK THRILLER/KRIMI: Spannung entsteht aus Kausalitaet, Zeitdruck und einer
+            aktiven Gegenkraft: Jede Entscheidung liefert eine neue Information, schliesst eine
+            Moeglichkeit oder macht den naechsten Schritt riskanter. Hinweise sind konkret, fair
+            vorbereitet und spaeter logisch erklaerbar. Wechsle Zuspitzung mit kurzen Momenten zum
+            Verarbeiten, damit Gefahr wieder wirken kann. Keine Pflicht-Cliffhanger, keine zufaelligen
+            Rettungen und keine kuenstlich zurueckgehaltene Information, die die Perspektivfigur kennt.
+            In Actionmomenten wird die Sprache knapper, bleibt aber raeumlich und kausal klar.
+            """
         }
         if g.contains("erotik") || g.contains("erotic") || g.contains("dark romance") || g.contains("spicy") {
-            return "GENRE-HANDWERK: Die BEZIEHUNG der Hauptfiguren ist der Motor, nicht ein externer Thriller- oder Job-Plot. Jede Szene mit dem Love Interest bewegt das Paar um EINEN Schritt (Anziehung, Rückschlag, Verletzlichkeit, Begehren, Bruch, Wiederannäherung). Der Love Interest ist rootbar: begehrenswert, verletzlich, mit aktiver Fürsorge für die Heldin und Respekt vor ihrer Autonomie (er handelt MIT ihr, nie heimlich AN ihr) – KEIN Stalker/Täter; heimliches Beobachten, Schlaf-Überwachen oder jemanden „studieren wie ein Krankheitsbild“ ist nicht romantisch, sondern ein Genre-Fehler. Chemie ist gegenseitig: pro Begegnung mindestens ein Begehrens-Detail aus Sicht der Heldin. Slow Burn – Sehnsucht aus noch nicht eingelöster Nähe (Beinahe-Berührung, das Ungesagte, Wollen/Zögern/Erlauben); Gefahr ersetzt NIE die erotische Spannung. Intime und erotische Szenen sind ausdrücklich erwünscht und dürfen explizit und körperlich ausgeschrieben werden, auf Bestseller-Niveau (Fifty-Shades-Stil): einvernehmlich zwischen Erwachsenen, geschmackvoll, sinnlich (Haut, Temperatur, Geruch, Druck, Stimme), nie vulgär, klinisch oder als Körperteil-Inventar, auch in der Hitze aus der inneren Perspektive mit Subtext. Fachjargon nur Kulisse, max. 1-2 Sachbegriffe pro Szene. Keine illegalen oder nicht-einvernehmlichen Inhalte, keine Minderjährigen."
+            return "GENRE-HANDWERK: Die BEZIEHUNG der Hauptfiguren ist der Motor, nicht ein externer Thriller- oder Job-Plot. Jede Szene mit dem Love Interest bewegt das Paar um EINEN Schritt (Anziehung, Rückschlag, Verletzlichkeit, Begehren, Bruch, Wiederannäherung). Der Love Interest ist rootbar: begehrenswert, verletzlich, mit aktiver Fürsorge für die Heldin und Respekt vor ihrer Autonomie (er handelt MIT ihr, nie heimlich AN ihr) – KEIN Stalker/Täter; heimliches Beobachten, Schlaf-Überwachen oder jemanden „studieren wie ein Krankheitsbild“ ist nicht romantisch, sondern ein Genre-Fehler. Chemie ist gegenseitig und entsteht aus der besonderen Dynamik beider Figuren, nicht aus einer Pflichtgeste oder einem Sinnesdetail pro Begegnung. Slow Burn – Sehnsucht aus noch nicht eingelöster Nähe; Gefahr ersetzt NIE die erotische Spannung. Intime und erotische Szenen sind ausdrücklich erwünscht und dürfen einvernehmlich zwischen Erwachsenen körperlich, geschmackvoll und aus der inneren Perspektive ausgeschrieben werden, nie vulgär, klinisch oder als Körperteil-Inventar. Fachjargon nur Kulisse, max. 1-2 Sachbegriffe pro Szene. Keine illegalen oder nicht-einvernehmlichen Inhalte, keine Minderjährigen."
         }
         if g.contains("liebes") || g.contains("romance") {
-            return "GENRE-HANDWERK: Die LIEBESGESCHICHTE ist die Haupthandlung, nicht Beiwerk. Die zentrale Frage ist eine Beziehungsfrage (Finden die beiden zueinander, bleiben sie es?), kein Kriminalfall, keine Sabotage, kein Beruf. Faustregel: Ließe sich der Liebes-Strang herausschneiden und der Plot bliebe intakt, ist es kein Liebesroman. Jede Szene mit dem Love Interest bewegt das Paar um EINEN benennbaren Schritt (erster Funke, Anziehung gegen Widerstand, erzwungene Nähe, Verletzlich-Werden, Vertrauen, Begehren, Missverständnis, Geständnis, Bruch, Wiederannäherung); der dunkle Moment ist ein Beziehungs-Bruch (Stolz, Angst vor Nähe, Missverständnis), KEINE Bombe und keine Anzeige. Der Love Interest ist rootbar: eine menschliche Wunde, aktive Fürsorge für die Heldin, Respekt vor ihrer Autonomie (er handelt MIT ihr, nie heimlich AN ihr), eine eigene anziehende Eigenschaft, und er wird selbst begehrt. VERBOTEN als Romantik: heimliches Beobachten, Schlaf-Überwachen, Ausspähen, jemanden „studieren wie ein Krankheitsbild“ – das ist ein Stalker-Muster und ein Genre-Fehler, kein Reiz. Chemie ist wechselseitig und körperlich verankert: pro Begegnung mindestens EIN Wärme-/Begehrens-Detail aus Sicht der Heldin (sein Geruch, wie er den Kopf neigt, ihr Blick, der zu lange hält). Slow Burn: Sehnsucht aus noch nicht eingelöster Nähe; Gefahr ersetzt NIE die emotionale Spannung. Fachjargon des Berufs nur Kulisse, max. 1-2 Sachbegriffe pro Szene. Dialoge leben vom Ungesagten; das Thema wird nie ausgesprochen. Pflicht-Ende: emotional erfülltes Happy End (HEA oder HFN)."
+            return "GENRE-HANDWERK: Die LIEBESGESCHICHTE ist die Haupthandlung, nicht Beiwerk. Die zentrale Frage ist eine Beziehungsfrage (Finden die beiden zueinander, bleiben sie es?), kein Kriminalfall, keine Sabotage, kein Beruf. Faustregel: Ließe sich der Liebes-Strang herausschneiden und der Plot bliebe intakt, ist es kein Liebesroman. Jede Szene mit dem Love Interest bewegt das Paar um EINEN benennbaren Schritt (erster Funke, Anziehung gegen Widerstand, erzwungene Nähe, Verletzlich-Werden, Vertrauen, Begehren, Missverständnis, Geständnis, Bruch, Wiederannäherung); der dunkle Moment ist ein Beziehungs-Bruch (Stolz, Angst vor Nähe, Missverständnis), KEINE Bombe und keine Anzeige. Der Love Interest ist glaubwürdig und begehrenswert: ein konkretes eigenes Bedürfnis oder Dilemma, aktive Fürsorge für die Heldin, Respekt vor ihrer Autonomie (er handelt MIT ihr, nie heimlich AN ihr) und eine eigene anziehende Eigenschaft. VERBOTEN als Romantik: heimliches Beobachten, Schlaf-Überwachen, Ausspähen, jemanden „studieren wie ein Krankheitsbild“ – das ist ein Stalker-Muster und ein Genre-Fehler, kein Reiz. Chemie ist wechselseitig und entsteht aus Blick, Entscheidung, Aufmerksamkeit, Humor, Reibung oder Nähe, wenn die konkrete Situation es trägt; keine Pflichtgeste und kein wiederholtes Wärme-, Geruchs- oder Körperdetail. Slow Burn: Sehnsucht aus noch nicht eingelöster Nähe; Gefahr ersetzt NIE die emotionale Spannung. Fachjargon des Berufs nur Kulisse, max. 1-2 Sachbegriffe pro Szene. Dialoge leben vom Ungesagten; das Thema wird nie ausgesprochen. Pflicht-Ende: emotional erfülltes Happy End (HEA oder HFN)."
         }
         if g.contains("romantasy") {
             return "GENRE-HANDWERK: Romantasy = große Romanze IN einer fantastischen Welt. Beide Achsen tragen gleichberechtigt: ein in EINEM Satz fassbares Magie-/Welt-Konzept UND eine Beziehung mit echter Chemie, die den emotionalen Sog liefert. Der Love Interest ist rootbar und begehrenswert (KEIN Stalker), Sehnsucht und Begehren treiben mit, die fantastische Bedrohung erhöht den persönlichen Einsatz. Welt durch konkrete Details im Handlungsfluss zeigen, nie durch Infodumps. Pflicht: ein emotional erfülltes Ende für das Paar."
@@ -731,12 +1443,39 @@ enum PromptFactory {
             return "GENRE-HANDWERK: Die Welt durch konkrete Details im Handlungsfluss zeigen – niemals durch Erklärabsätze oder Infodumps. Regeln der Welt konsequent einhalten."
         }
         if g.contains("horror") {
-            return "GENRE-HANDWERK: Bedrohung andeuten statt zeigen. Atmosphäre über Sinneseindrücke und Stille aufbauen. Ruhe vor jeder Eskalation."
+            return """
+            GENRE-HANDWERK HORROR: Angst beginnt mit einer konkreten Quelle, die in die persoenliche
+            Angst, Schuld, Beziehung oder Lebensgrundlage der Hauptfigur greift. Lege klare Regeln der
+            Bedrohung fest und verletze sie nie nur fuer einen Effekt. Jede Begegnung veraendert Wissen,
+            Sicherheit oder Handlungsmoeglichkeiten und hat eine bleibende Konsequenz.
+            - ESKALATION: Stoerung, begruendeter Zweifel, bestaetigte Gefahr, Verlust von Schutz,
+              unausweichliche Konfrontation. Wiederhole denselben Schreck nicht lauter; veraendere Art,
+              Naehe oder Preis der Bedrohung.
+            - KONTROLLIERTE ENTHUELLUNG: Erst praezise Spuren, dann Teilansichten, schliesslich genug
+              Wahrheit fuer eine konkrete Entscheidung. Andeutung ist ein Aufbau, kein Dauerzustand.
+            - VERLETZLICHKEIT: Begrenze Flucht, Hilfe oder Gewissheit glaubhaft. Die Figur bleibt aktiv
+              und trifft verstaendliche Entscheidungen; sie handelt nie nur deshalb unvernünftig, damit
+              die Handlung weitergeht.
+            - RHYTHMUS UND KONTRAST: Sichere, warme oder alltaegliche Momente machen den kommenden
+              Einbruch spuerbar. Keine diffuse Dauerdüsternis, kein Absatz voller unbestimmtem „Etwas",
+              keine endlosen Schatten-, Fluestern- und Stillevarianten.
+            - WIRKUNG: Grauen entsteht aus Erwartung, Kontrollverlust, folgerichtiger Konsequenz und
+              dem, was die Figur verlieren kann. Gewalt oder Ekel nur gezielt; ein klares Detail wirkt
+              staerker als ein Inventar. Das Ende bezahlt die zentrale Angst durch Konfrontation,
+              Erkenntnis oder einen bewusst gesetzten bitteren Preis aus.
+            """
         }
         if g.contains("histor") {
             return "GENRE-HANDWERK: Epochendetails beiläufig einweben (Gegenstände, Gerüche, Umgangsformen). Sprache zeitgemäß färben, ohne antiquiert zu wirken."
         }
-        return "GENRE-HANDWERK: Erzeuge in jeder Szene einen klaren Spannungsbogen mit spürbarer Wendung."
+        return """
+        GENRE-HANDWERK: Erzaehle eine menschlich glaubhafte Geschichte mit emotionaler Wahrheit,
+        klaren Wuenschen und folgerichtigen Entscheidungen. Jede Szene veraendert die Lage oder die
+        Beziehung und verdient ihren Platz. Schreibe anschaulich, modern und leicht lesbar; starke
+        Gefuehle entstehen aus konkreten Situationen und individuellen Figuren, nicht aus Pathos.
+        Ruhe, Humor, Naehe und Konflikt duerfen sich abwechseln. Das Ende beantwortet die zentrale
+        dramatische Frage und zeigt den Preis sowie die Veraenderung der Hauptfigur.
+        """
     }
 
     static func draftScene(language: String, style: String, tonality: String,
@@ -751,7 +1490,8 @@ enum PromptFactory {
                            targetWords: Int, bookSignature: String = "", spiceLevel: Int = 0,
                            genreBrief: String = "", positionBlock: String = "",
                            catalogAvoidance: String = "", manuscriptAvoidance: String = "",
-                           researchContext: String = "", canonicalStory: String = "") -> String {
+                           researchContext: String = "", canonicalStory: String = "",
+                           chapterEventsAlreadyHappened: String = "") -> String {
         if BookContentType.infer(from: genre) == .nonfiction {
             return nonfictionDraftSection(language: language, style: style, tonality: tonality,
                                            genre: genre, bookTitle: bookTitle,
@@ -769,9 +1509,40 @@ enum PromptFactory {
             positionNote = """
 
             WICHTIG – ERSTE SZENE DES BUCHES:
-            Der erste Satz ist der wichtigste des gesamten Romans (Amazon-Leseprobe!). \
-            Er muss sofort fesseln: eine Störung der Normalität, eine Frage im Kopf des Lesers. \
-            Etabliere Hauptfigur und Stimmung auf der ersten Seite – ohne Vorgeplänkel.
+            Beginne mit einem klaren menschlichen Moment, nicht mit sichtbar gebauter Hook-Technik. \
+            Die Perspektivfigur befindet sich in einer sofort verständlichen Alltagssituation mit \
+            sozialem oder praktischem Gewicht (zum Beispiel ein erwartetes Treffen, eine konkrete \
+            Aufgabe, eine Fahrt, ein Arbeitsmoment oder ein Gespräch). Im ersten Absatz versteht \
+            der Leser Ort, unmittelbare Absicht und warum das Ergebnis der Figur wichtig ist. \
+            Lasse genau eine glaubwürdige Störung aus DIESER Situation wachsen; erst die Reaktion \
+            der Figur darauf eröffnet die größere Spannung. Kein Rätsel-Stapel aus anonymer \
+            Nachricht, Fundstück, Foto, Akte und Bedrohung, bevor der Leser die Person und ihre \
+            Lage kennt. Beginne am frühesten Moment, dessen Ausgang wirklich zählt. Gib genug \
+            Orientierung für müheloses Lesen, aber keine Vorgeschichte auf Vorrat. Keine \
+            Stakkato-Hookfolge, kein Sinnesinventar und keine Kette bedeutungsschwerer \
+            Mini-Details. Ein klarer menschlicher Konflikt trägt besser als sichtbare Technik.
+
+            10/10-EINSTIEGSPRUEFUNG (VERBINDLICH):
+            - Kausalitaet vor Stimmung: Wenn Frist, Vertrag, Verkauf, Geldforderung, Auftrag oder
+              andere Sachzwänge vorkommen, muss beim ersten Lesen klar sein, WER was von der Figur
+              verlangt, WARUM gerade jetzt und WELCHE konkrete Folge ein Scheitern hat.
+            - Persoenlicher Einsatz: Zeige nicht nur die Aufgabe, sondern was diese konkrete Figur
+              dadurch verlieren, verraten oder aufs Spiel setzen kann.
+            - Vorbereitete Entscheidung: Eine abrupte Kuendigung, Trennung, Flucht, Gewalttat oder
+              andere unumkehrbare Entscheidung braucht vorher mindestens ein konkretes Erlebnis,
+              Verhalten oder Detail, das sie psychologisch nachvollziehbar macht. Keine pauschale
+              Erklaerung wie "die Firma sah sie nur als Nummer".
+            - Unverwechselbare Figur: Zeige mindestens einen Widerspruch zwischen dem, was die Figur
+              behauptet oder will, und dem, was sie tut, schuetzt oder fuerchtet.
+            - Individuelle Stimmen: Dialoge transportieren Untertext. Figuren erklaeren einander
+              keine Informationen, die beide bereits kennen, und sprechen nicht im selben Ton.
+            - Konkreter Ausloeser: Hoechstens ein zentrales Raetsel, Fundstueck oder Stoerelement.
+              Es muss persoenlich mit der Figur verbunden sein und eine konkrete Frage oeffnen.
+            - Konkrete Sprache: Keine abstrakte Zusammenfassung wie "alte Wunden", "klares Ziel",
+              "Geheimnisse lueften" oder "Truemmer ihres Lebens". Zeige Gegenstand, Handlung,
+              Erinnerung oder Folge. Pro Absatz hoechstens ein bis zwei Sinnesdetails.
+            - Namens- und Faktenkontinuitaet: Kein Name, Besitzverhaeltnis, Verwandtschaftsgrad,
+              Ziel oder Rechtsvorgang darf innerhalb der Szene wechseln oder neu erfunden werden.
             """
         } else if isFinalScene {
             positionNote = """
@@ -810,6 +1581,16 @@ enum PromptFactory {
         Keinen dieser Sätze oder Beats wiederholen oder nur kosmetisch umstellen.
         Reagiere an dieser Stelle konkret aus Figur, Ort und Handlung heraus.
         """
+        let chapterEventBlock = chapterEventsAlreadyHappened
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : """
+
+        BEREITS IN DIESEM KAPITEL GESCHEHEN, UNVERÄNDERLICH ABGESCHLOSSEN:
+        \(chapterEventsAlreadyHappened)
+        Diese konkreten Ereignisse NIEMALS erneut ausspielen, entdecken, enthüllen,
+        entscheiden oder als ersten Moment inszenieren. Beginne mit ihrer Folge und
+        führe Ursache und Wirkung weiter. Eine Erinnerung oder kurze Bezugnahme ist nur
+        erlaubt, wenn sie für die neue Handlung nötig ist; keine Reinszenierung.
+        """
 
         return """
         Schreibe Szene \(sceneNumber) aus Kapitel \(chapterNumber) ("\(chapterTitle)") des Romans "\(bookTitle)".
@@ -819,8 +1600,6 @@ enum PromptFactory {
         STILREGELN: \(styleRules.truncated(to: 600))
         \(signatureBlock)\(spiceBlock)
         \(genreDirectiveBlock(genreBrief))
-        \(catalogAvoidance)
-        \(manuscriptAvoidanceBlock)
         \(ContentSafetyFilter.promptDirective)
         VERBINDLICHER BUCHKANON (jede Aussage muss damit vereinbar sein):
         \(canonicalStory.truncated(to: 7000))
@@ -857,15 +1636,40 @@ enum PromptFactory {
         BISHERIGE HANDLUNG:
         \(storySoFar.isEmpty ? "Dies ist der Anfang des Buches." : storySoFar.truncated(to: 8000))
         \(transition)
-        HANDWERK (die GESCHICHTE steht im Vordergrund – Technik dient ihr, nie umgekehrt):
-        - KLARHEIT VOR SCHÖNHEIT: Der Leser muss der Szene mühelos folgen und sich auf sie einlassen können. Schreibe verständlich; verrätsle oder überlade nichts, was die Handlung trägt.
-        - BILDER STRENG RATIONIEREN: HÖCHSTENS ein bis zwei wirklich starke Bilder/Metaphern in der GANZEN Szene. Alles andere klar und nüchtern erzählen. Nicht jeder innere Zustand bekommt ein Bild – sonst stumpft die Wirkung ab und am Ende wirkt nichts mehr intensiv.
-        - HANDELN STATT GRÜBELN: Die Figur tut konkrete Dinge (fragt, sucht, ruft an, konfrontiert, entscheidet, handelt) statt überwiegend innerlich zu reagieren. Innere Erschütterung kurz halten.
-        - KÖRPERSIGNALE SPARSAM UND VARIIERT: Zittern, Herzklopfen, zugeschnürte Kehle, „den Mund öffnen und wieder schließen" nur selten – nicht in jeder Szene dieselben Reaktionen.
-        - DIALOG BEILÄUFIG UND ECHT: Verletzendes klingt beiläufig und präzise, nicht wie ein ausgesprochenes Romanthema. Eine Figur sagt das Thema des Buches NIE direkt aus. Lieber härter und glaubwürdiger als perfekt formuliert.
-        - THEMA NIEMALS ERKLÄREN: Die emotionale Bedeutung wird gezeigt, nie zusammengefasst oder ausbuchstabiert („nicht X, sondern Y" als Deutung ist verboten). Vertraue darauf, dass der Leser sie selbst erschließt.
-        - Beginne mitten in der Handlung; halte den Einstieg kurz und komm schnell zum Kern der Szene. Keine Wetter- oder Aufwach-Eröffnung.
-        - Szenenstruktur: Ziel → Konflikt → Wendung. Tiefe Perspektive der Perspektivfigur (keine Information, die sie nicht haben kann). Zeigen statt behaupten – Emotion NIE benennen („sie war wütend" ist verboten).
+        SCHREIBAUFTRAG FUER DIESE SZENE:
+        - ANSCHLUSS: Der Zustand am Ende der vorherigen Szene und alle bereits geschehenen
+          Ereignisse sind verbindlich. Beginne mit der naechsten Folge, nicht mit einem Neustart.
+        - BEWEGUNG: Die Perspektivfigur verfolgt das geplante konkrete Ziel, trifft auf das
+          geplante Hindernis und gelangt folgerichtig zur geplanten Wendung. Zeige Entscheidung
+          und Konsequenz auf der Seite; Nebenwege und Uebergaenge duerfen knapp bleiben.
+        - LESEFLUSS: Funktionale Prosa ist ausdruecklich erlaubt. Die meisten Saetze duerfen
+          schlicht orientieren, handeln und verbinden. Nutze moderne, gut verstaendliche Sprache.
+        - DIALOG: Schreibe nur so viel direkte oder indirekte Rede, wie Situation, Absicht und
+          Beziehung brauchen. Jede Hauptfigur verfolgt in jeder Replik ein konkretes eigenes Ziel
+          (z. B. abwehren, gewinnen, verbergen, beruhigen, provozieren oder Nähe zulassen).
+          Sie darf ehrlich antworten, ausweichen, schweigen oder sich missverstehen; vermeide
+          rätselhafte Allgemeinsätze und Trailer-Sprache wie „Manche Dinge …", „die Wahrheit …"
+          oder „alles wird sich ändern", wenn die Figur nicht eine konkrete Sache meint.
+        - GEFUEHL UND BILD: Gefuehle duerfen knapp benannt oder konkret gezeigt werden. Bilder,
+          Sinnesdetails und Koerpersignale nur dort, wo sie diesen Moment praeziser machen; keine
+          Pflichtmetapher, kein wiederholter Reflex und keine Erklaerung nach einer klaren Geste.
+          Reaktionsgesten wie Wegdrehen, Augen schliessen, Kopf schuetteln, Atem-/Herzbeschreibung
+          oder „etwas in ihr" niemals als Standardersatz fuer Entscheidung, Wahrnehmung oder Folge
+          einsetzen. Wiederhole eine Geste oder ein Leitmotiv nur, wenn sich ihre Bedeutung ändert.
+        - FIGURENSTIMME: Wortwahl, Rhythmus und Reaktion gehoeren dieser Figur und dieser
+          Beziehung. Nebenfiguren dürfen nicht gleich poetisch oder gleich kryptisch sprechen;
+          ihre Sätze verraten Herkunft, Ziel, Verhältnis und aktuellen Druck. Namen nur zur sicheren
+          Orientierung, danach eindeutige Pronomen verwenden.
+        - ENDE: Spiele ausschliesslich die geplante Wendung aus. Der letzte Satz darf ruhig oder
+          vorwaertsgerichtet sein und muss zur Szene passen, ohne sichtbar konstruierten Haken.
+          Die Wendung ist der ENDpunkt dieser Szene, nicht der Start einer weiteren: Nennt sie
+          eine Abfahrt, Ankunft, Nachricht, Person oder Entscheidung, ende genau dort. Spiele das
+          anschliessende Gespraech, die Begegnung, Lieferung oder Folgehandlung NICHT mehr aus;
+          sie gehoert in die naechste Szene.
+
+        WEITERE LEITPLANKEN:
+        - Beginne am fruehesten interessanten Moment; keine Wetter- oder Aufwach-Eroeffnung.
+        - Perspektive und Figurenwissen bleiben strikt bei der angegebenen Perspektivfigur.
         - KEINE ZUSATZ-ENTHÜLLUNG: Erfinde weder Schlüssel, Brief, Zettel, Notiz, Foto, Tagebuch, Waffe,
           Silhouette, Beobachter noch anderes Fundstück als zusätzlichen Haken. Die Szene endet
           ausschließlich mit der oben geplanten Wendung. Ist dort kein Fundstück genannt, gibt es keines.
@@ -874,25 +1678,120 @@ enum PromptFactory {
           Niemand war heimlich im Haus, beobachtet die Figur oder hinterlässt Spuren, sofern der
           Szenenplan das nicht ausdrücklich und genresicher festlegt.
           Türen, Fenster und Gegenstände verändern ihren Zustand nicht unerklärt zwischen Szenen.
-        - Konkrete, spezifische Details statt generischer. Variiere Satzlänge und Rhythmus wie in einem Bestseller: Lesefluss vor Kunstfertigkeit, nicht jede Zeile „literarisch" aufladen.
-        \(humanCraftRules)
+        - Konkrete, spezifische Details statt generischer. Variiere Satzlaenge und Rhythmus nach
+          Figur und Tempo; Lesefluss geht vor sichtbarer Kunstfertigkeit.
         - KEINE WIEDERHOLUNGEN: Greife keine Bilder, Metaphern, Formulierungen oder Motive aus der bisherigen Handlung wieder auf; erkläre etablierte Fakten nie ein zweites Mal. Ein starkes Symbol nur SELTEN erwähnen, nicht in jeder Szene.
         \(isFinalScene
             ? "- AUSZAHLUNG: Alle offenen Fragen werden hier beantwortet – der letzte Satz hallt nach, statt eine neue Frage zu öffnen."
             : """
-              - SOG (dezent): Halte mindestens eine offene Frage aktiv und nutze Mikro-Spannung, aber nie auf Kosten der Verständlichkeit. Pro Szene höchstens EINE neue Figur oder Enthüllung, nicht mehrere gleichzeitig.
-              - Der letzte Satz gibt einen Grund zum Weiterlesen, ohne aufgesetzt oder programmatisch zu wirken.
-              \(pageTurnerRules)
-              \(gripRules)
+              - SOG (dezent): Halte die bereits geplante offene Frage aktiv, ohne eine neue
+                Pflicht-Enthuellung oder einen kuenstlichen Cliffhanger zu erfinden.
               """)
         \(genreCraft(genre))
         \(positionNote)
+        \(catalogAvoidance)
+        \(manuscriptAvoidanceBlock)
+        \(chapterEventBlock)
         Gib AUSSCHLIESSLICH den fertigen Prosatext der Szene aus. Übernimm NIEMALS
         Anweisungen, Labels (z.B. „Ort:", „Ziel:", „Zielumfang"), Überschriften oder
         Hinweise aus diesem Auftrag in den Text – schreibe ausschließlich die Geschichte selbst.
         REINER FLIESSTEXT: keine Markdown-Formatierung (kein *, **, _, #, keine Aufzählungen),
         keine Sternchen, keine Emojis, keine Szenen-Überschriften. Betonung entsteht durch
         Wortwahl, nicht durch Sonderzeichen. Nur normale Wörter und Satzzeichen.
+        """
+    }
+
+    /// Kapitelübergreifender Doppler-Scan: arbeitet auf den Szenen-Zusammenfassungen
+    /// des GANZEN Buches und findet Ereignisse, die in verschiedenen Kapiteln erneut
+    /// „zum ersten Mal" erzählt werden – die Lücke, die der kapitelinterne Audit
+    /// (chapterEventDuplicateAudit) strukturell nicht sehen kann.
+    static func crossChapterDuplicateScan(bookTitle: String, sceneSummaries: String) -> String {
+        """
+        Prüfe die Szenen-Übersicht des GESAMTEN Romans „\(bookTitle)" auf Ereignisse, \
+        die in VERSCHIEDENEN Kapiteln doppelt erzählt werden.
+
+        Ein Fehler liegt vor, wenn eine spätere Szene dasselbe konkrete Ereignis \
+        (Fund, Entdeckung, Konfrontation, Enthüllung, Entscheidung, Ankunft, Übergabe, \
+        Gespräch mit demselben Ergebnis) erneut wie zum ersten Mal ausspielt – also \
+        etwa dieselbe Figur denselben Brief in Kapitel 3 UND in Kapitel 7 „zum ersten \
+        Mal" findet. Folgen, Erinnerungen, kurze Rückverweise und wiederkehrende Orte \
+        oder Motive sind KEIN Fehler.
+
+        SZENEN-ÜBERSICHT (Kapitel, Szene, Inhalt):
+        \(sceneSummaries)
+
+        Für jede echte kapitelübergreifende Dopplung GENAU eine Zeile:
+        DUPLICATE|späteres Kapitel|spätere Szene|früheres Kapitel|frühere Szene|konkret doppeltes Ereignis|was die spätere Szene stattdessen als nächsten kausalen Schritt zeigen muss
+
+        Nenne immer die SPÄTERE Szene zuerst. Wenn keine echte Dopplung vorliegt, \
+        antworte exakt: KEINE DOPPLUNG
+        Keine Vorrede, keine Stilhinweise, keine Kapitel-internen Dubletten.
+        """
+    }
+
+    static func chapterEventDuplicateAudit(bookTitle: String, chapterNumber: Int,
+                                           chapterTitle: String, scenes: String) -> String {
+        """
+        Prüfe die Szenen aus Kapitel \(chapterNumber) „\(chapterTitle)" des Romans
+        „\(bookTitle)" ausschließlich auf SEMANTISCH DOPPELT ERZÄHLTE EREIGNISSE.
+
+        Ein Fehler liegt vor, wenn eine spätere Szene denselben konkreten Fund, dieselbe
+        Entdeckung, Konfrontation, Enthüllung, Entscheidung, Ankunft, Übergabe oder
+        Handlung erneut wie zum ersten Mal ausspielt. Melde außerdem jeden harten
+        ANSCHLUSSWIDERSPRUCH: Ein Gegenstand liegt wieder am alten Ort, obwohl er genommen,
+        übergeben, verloren, geöffnet oder zerstört wurde; eine Figur ist ohne möglichen
+        Übergang an einem anderen Ort; Wissen, Beziehung, Verletzung, Besitz, Türzustand
+        oder Tageszeit widersprechen der früheren Szene. Wiederkehrende Figuren, Orte,
+        Themen, Folgen oder kurze Erinnerungen sind allein KEIN Fehler.
+
+        SZENEN MIT TEXT:
+        \(scenes)
+
+        Für jede echte Dopplung genau eine Zeile:
+        DUPLICATE|spätere Szenennummer|frühere Szenennummer|konkret doppeltes Ereignis oder widersprüchlicher Zustand|was die spätere Szene stattdessen als nächsten kausalen Schritt zeigen muss
+
+        Nenne immer die SPÄTERE Szene zuerst. Wenn keine echte Ereignisdopplung vorliegt,
+        antworte exakt: KEINE DOPPLUNG
+        Keine Vorrede, keine allgemeinen Stilhinweise.
+        """
+    }
+
+    static func repairDuplicateScene(language: String, bookTitle: String,
+                                     chapterNumber: Int, chapterTitle: String,
+                                     laterSceneNumber: Int, earlierSceneNumber: Int,
+                                     duplicatedEvent: String, instruction: String,
+                                     chapterGoal: String, laterScenePlan: String,
+                                     earlierSceneText: String, laterSceneText: String,
+                                     allSceneSummaries: String) -> String {
+        """
+        Repariere ausschließlich Szene \(laterSceneNumber) aus Kapitel \(chapterNumber)
+        „\(chapterTitle)" des Romans „\(bookTitle)". Sprache: \(language).
+
+        FEHLER: Szene \(laterSceneNumber) spielt dieses bereits in Szene
+        \(earlierSceneNumber) abgeschlossene Ereignis erneut aus:
+        \(duplicatedEvent)
+
+        VERBINDLICHER AUFTRAG:
+        \(instruction)
+
+        Kapitelziel: \(chapterGoal)
+        Plan der späteren Szene: \(laterScenePlan)
+
+        ALLE SZENEN-ZUSAMMENFASSUNGEN:
+        \(allSceneSummaries)
+
+        FRÜHERE, KANONISCHE SZENE \(earlierSceneNumber) (nicht verändern):
+        \(earlierSceneText)
+
+        ZU REPARIERENDE SPÄTERE SZENE \(laterSceneNumber):
+        \(laterSceneText)
+
+        Schreibe nur die vollständige neue Fassung der SPÄTEREN Szene. Das frühere
+        Ereignis ist bereits geschehen: nicht wiederholen und nicht kosmetisch umstellen.
+        Setze bei seiner unmittelbaren Folge an und führe Handlung, Entscheidung und
+        Einsatz kausal weiter. Erhalte Perspektive, Figurenkanon, Zeitform, ungefähre
+        Länge und den Anschluss an die Folgeszene. Keine Überschrift, keine Labels,
+        keine Kommentare, nur veröffentlichungsreifer Buchtext.
         """
     }
 
@@ -916,6 +1815,34 @@ enum PromptFactory {
         Fakten oder Wendungen wurden etabliert? Gib NUR die Verdichtung aus.
 
         \(sceneSummaries.truncated(to: 4000))
+        """
+    }
+
+    /// Frischer Endfassungs-Digest fuer die buchweite Logikpruefung. Anders als die
+    /// Schreib-Zusammenfassung liest er den nach Revision und Korrektorat tatsaechlich
+    /// gespeicherten Text und kann deshalb nicht auf einem veralteten Plotstand beruhen.
+    static func finalChapterDigest(chapterNumber: Int, chapterTitle: String,
+                                   chapterText: String, isNonfiction: Bool) -> String {
+        let sample: String
+        if chapterText.count <= 28_000 {
+            sample = chapterText
+        } else {
+            sample = String(chapterText.prefix(15_000))
+                + "\n\n[MITTELTEIL GEKUERZT]\n\n"
+                + String(chapterText.suffix(13_000))
+        }
+        let focus = isNonfiction
+            ? "These, belegte Kernaussagen, Lernfortschritt, Beispiel und offene Voraussetzung"
+            : "aktive Entscheidung, neue Information, kausale Folge, Figurenveraenderung und offener oder geloester Handlungsfaden"
+        return """
+        Lies die ENDGÜLTIGE Fassung von Kapitel \(chapterNumber) („\(chapterTitle)“).
+        Erstelle einen faktentreuen Digest mit 60 bis 110 Wörtern. Erfasse: \(focus).
+        Nenne ausschließlich Dinge, die im Text wirklich geschehen oder ausdrücklich
+        feststehen. Keine Deutung, keine Wertung, keine erfundenen Verbindungen.
+        Gib nur den Digest als zusammenhängenden Absatz aus.
+
+        ENDFASSUNG:
+        \(sample)
         """
     }
 
@@ -1002,6 +1929,82 @@ enum PromptFactory {
         """
     }
 
+    /// A/B-Abnahme der Kapitelrevision: Die Revision wurde früher übernommen, sobald
+    /// sie formal in Ordnung war (Länge, Szenentrenner, keine Artefakte) – egal ob sie
+    /// die Rohfassung tatsächlich VERBESSERT hat. Eine „Glättung" kann Genre-Hitze
+    /// abkühlen und die Stimme verwässern; das im Prompt zu verbieten misst nichts.
+    /// Dieser Judge vergleicht beide Fassungen als Leser.
+    static func revisionVerdict(language: String, chapterTitle: String,
+                                draft: String, revision: String) -> String {
+        """
+        Du bist ein erfahrener Romanlektor und vergleichst blind zwei Fassungen desselben \
+        Kapitels („\(chapterTitle)", Sprache: \(language)) als LESER. Du weisst nicht, \
+        welche Fassung zuerst geschrieben oder spaeter bearbeitet wurde.
+
+        FASSUNG A:
+        \(draft.truncated(to: 9000))
+
+        FASSUNG B:
+        \(revision.truncated(to: 9000))
+
+        Bewerte NUR die Lesequalität: Lebendigkeit, Satzrhythmus, Dialog, emotionale \
+        Wirkung, Genre-Ton. Handlung und Fakten dürfen sich nicht unterscheiden – \
+        wenn B Handlung, Namen oder Fakten verändert oder verwässert hat, ist B \
+        automatisch schlechter. Wenn B zwar glatter, aber kühler, generischer oder \
+        lebloser klingt als A, ist B schlechter.
+
+        Antworte mit GENAU EINEM dieser Werte:
+        A – wenn A klar lesenswerter ist
+        B – wenn B klar lesenswerter ist
+        GLEICH – wenn keine Fassung klar gewinnt
+        """
+    }
+
+    /// Editor-in-Chief-Gesamtpass: liest das Buch fensterweise als GANZES und findet
+    /// Buch-Ebenen-Probleme (Pacing, Figurenbogen, offene Fäden, Ton-Drift), die ein
+    /// kapitelweises Audit strukturell nicht sehen kann. Antwortformat identisch zum
+    /// Repair-Audit, damit die Befunde in denselben Reparatur-Workflow laufen.
+    static func globalEditorAudit(bookTitle: String, genre: String,
+                                  windowLabel: String, chaptersText: String,
+                                  characters: String, openThreads: String) -> String {
+        let threadsBlock = openThreads.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? ""
+            : "\nIM BUCH GEÖFFNETE FÄDEN (aus den Szenenprotokollen):\n\(openThreads.truncated(to: 1500))\n"
+        return """
+        Du bist der verantwortliche Schlusslektor (Editor-in-Chief) des Romans \
+        „\(bookTitle)" (Genre: \(genre)). Du liest hier \(windowLabel) des fertigen \
+        Manuskripts im Volltext – bewerte es wie ein Lektor, der das Buch zur \
+        Veröffentlichung freigeben soll.
+
+        FIGUREN:
+        \(characters.truncated(to: 1200))
+        \(threadsBlock)
+        Prüfe AUSSCHLIESSLICH auf Buch-Ebenen-Probleme, die einem Einzelkapitel-Audit \
+        entgehen:
+        - PACING: zähe Passagen ohne Vorwärtsbewegung, gehetzte Wendungen, monotone \
+          Folge gleichartiger Szenen.
+        - FIGURENBOGEN: Figur handelt ohne erkennbare Motivation, verändert sich \
+          sprunghaft oder bleibt über viele Kapitel statisch.
+        - OFFENE FÄDEN: eine eingeführte Frage, Drohung oder Figur verschwindet \
+          kommentarlos aus dem Buch.
+        - TON-DRIFT: Erzählstimme, Humor oder Härtegrad kippen zwischen Kapiteln \
+          spürbar um.
+        - ANSCHLUSS: ein Kapitel beginnt in einer Lage, die zum Ende des vorigen \
+          Kapitels nicht passt.
+
+        Regeln: Melde NUR echte, im Text belegbare Probleme – keine Geschmacksnoten, \
+        keine Stil-Ratschläge, keine Kleinigkeiten des Korrektorats. Jedes Problem \
+        muss einem konkreten Kapitel zuordenbar und automatisch reparierbar sein.
+
+        Antworte je Befund mit GENAU einer Zeile:
+        REPAIR|Schweregrad (Warnung/Fehler/Kritisch)|Kapitel N|Bereich|Problem|Konkrete Reparaturanweisung
+        Wenn dieser Abschnitt sauber ist, antworte exakt: KEINE REPARATUR NÖTIG
+
+        MANUSKRIPT (\(windowLabel)):
+        \(chaptersText)
+        """
+    }
+
     /// Extrahiert die HARTEN, unveränderlichen Fakten eines Kapitels für den Fakten-Ledger.
     ///
     /// Kern der research-backed „Active Enforcement": Nach jedem Kapitel werden die neuen
@@ -1029,6 +2032,234 @@ enum PromptFactory {
 
         Regeln: Höchstens 6 Zeilen. KEINE Vermutungen, nur was das Kapitel eindeutig festlegt.
         Nenne Figuren immer mit vollem Namen. Wenn nichts wirklich Neues dazukommt, antworte mit: KEINE.
+        """
+    }
+
+    /// FIGURENSTAND (Character-State-Tracking): Der Fakten-Ledger hält harte Fakten
+    /// fest – aber Bestseller leben davon, dass Figuren nur das wissen, was sie erlebt
+    /// haben, und dass sich Gefühle/Beziehungen nachvollziehbar entwickeln. Genau das
+    /// bricht sonst bei 500+ Seiten als Erstes: Eine Figur „ahnt" plötzlich Dinge aus
+    /// Szenen, bei denen sie nicht dabei war, oder zwei Figuren sind in Kapitel 20
+    /// wieder Fremde, obwohl sie sich in Kapitel 12 versöhnt haben.
+    ///
+    /// Nach jedem Kapitel aktualisiert dieser Prompt den knappen Ist-Zustand je Figur
+    /// (Wissen, Gefühl, Beziehungsstand, zuletzt erlebtes Ereignis). Nur geänderte
+    /// Figuren werden zurückgegeben – der Aufrufer merged zeilenweise.
+    static func characterStateUpdate(bookTitle: String, chapterNumber: Int,
+                                     chapterSummaries: String, currentState: String,
+                                     charactersSummary: String) -> String {
+        return """
+        Führe das Figurenregister des Romans "\(bookTitle)" fort. Kapitel \(chapterNumber) \
+        ist gerade fertig geschrieben; aktualisiere den Stand der Figuren, die in diesem \
+        Kapitel etwas erlebt oder erfahren haben.
+
+        BISHERIGER STAND (nur ändern, was das Kapitel wirklich verändert):
+        \(currentState.isEmpty ? "(noch keiner – lege die beteiligten Figuren neu an)" : currentState.truncated(to: 2000))
+
+        FIGUREN DES BUCHS (Namen exakt so übernehmen, keine neuen Figuren):
+        \(charactersSummary.truncated(to: 1200))
+
+        KAPITEL \(chapterNumber) IN KURZE:
+        \(chapterSummaries.truncated(to: 2500))
+
+        Antworte je betroffener Figur mit GENAU einer Zeile in dieser Form:
+        Voller Name: <Stand in höchstens 25 Wörtern – was die Figur JETZT weiß, was sie fühlt, \
+        Beziehungsstand zu den wichtigsten anderen Figuren, zuletzt erlebtes Schlüsselereignis>
+
+        Regeln:
+        - Nur Figuren aufnehmen, deren Wissen, Gefühl oder Beziehung sich in DIESEM Kapitel \
+        verändert hat (oder die erstmals auftreten).
+        - Der Stand ersetzt den bisherigen Eintrag der Figur vollständig.
+        - Keine Vermutungen, keine Zukunft, keine Meta-Kommentare – nur der belegbare Ist-Zustand.
+        - Wenn sich bei keiner Figur etwas Relevantes geändert hat, antworte mit: KEINE.
+        """
+    }
+
+    /// GOLDEN-EVAL: Die heuristischen Qualitäts-Scores (QualityScores) messen nur,
+    /// was sich zählen lässt (Längen, Wiederholungen, Format). Ob sich ein Buch wie
+    /// ein Bestseller LIEST, kann nur ein urteilender Lektor bewerten. Dieser Prompt
+    /// ist diese Messlatte: ein strenges, numerisches Urteil über das fertige
+    /// Manuskript – verdichtete Kapitelinhalte für die Gesamtsicht plus wörtliche
+    /// Auszüge (Anfang/Mitte/Schluss) für die Prosa-Qualität. Bewusst hart geeicht
+    /// (7 = gut genug für KDP, alles darunter ist Nacharbeit), damit die Note ein
+    /// echter Maßstab bleibt und keine Feel-Good-Zahl.
+    static func goldenEval(bookTitle: String, genre: String, digests: String,
+                           excerpts: String, isNonfiction: Bool = false) -> String {
+        let dimensionen = isNonfiction
+            ? """
+              LESERNUTZEN: <1-10> — <eine Zeile Grund>
+              STRUKTUR UND ROTE LINIE: <1-10> — <eine Zeile Grund>
+              KLARHEIT UND STIL: <1-10> — <eine Zeile Grund>
+              SPRACHLICHE SAUBERKEIT: <1-10> — <Rechtschreibung, Grammatik und Zeichensetzung; eine Zeile Grund>
+              UMSETZBARKEIT: <1-10> — <eine Zeile Grund>
+              """
+            : """
+              SPANNUNGSBOGEN: <1-10> — <eine Zeile Grund>
+              FIGUREN UND DIALOGE: <1-10> — <eine Zeile Grund>
+              KONFLIKT UND EINSÄTZE: <1-10> — <eine Zeile Grund>
+              STIL UND VOICE: <1-10> — <eine Zeile Grund>
+              SPRACHLICHE SAUBERKEIT: <1-10> — <Rechtschreibung, Grammatik und Zeichensetzung; eine Zeile Grund>
+              ENDE UND KATHARSIS: <1-10> — <eine Zeile Grund>
+              """
+        let buchart = isNonfiction ? "Sachbuch/Ratgeber" : "Roman"
+        return """
+        Du bist der strengste Lektor einer Bestseller-Agentur. Bewerte das fertige \
+        \(buchart)-Manuskript "\(bookTitle)" (Genre: \(genre)). Du erhältst die \
+        verdichteten Inhalte aller Kapitel und wörtliche Auszüge (Anfang, Mitte, Schluss).
+
+        KAPITEL-INHALTE:
+        \(digests.truncated(to: 24_000))
+
+        WÖRTLICHE AUSZÜGE:
+        \(excerpts.truncated(to: 12_000))
+
+        Vergib je Dimension eine ganze Note von 1 bis 10. Eichung (verbindlich): \
+        10 = Bestseller-Niveau, 8 = sehr gut, 7 = gerade noch veröffentlichbar, \
+        5-6 = spürbare Schwächen, unter 5 = so nicht veröffentlichbar. \
+        Durchschnittliche KI-Ware ist eine 4-5 – bewerte ehrlich, nicht freundlich.
+
+        FREIGABE ist nur erlaubt, wenn GESAMT mindestens 8 ist UND jede einzelne \
+        Dimension mindestens 7 erreicht. Sobald eine Dimension darunter liegt, lautet \
+        das Urteil NACHARBEIT und mindestens eine SCHWÄCHE nennt Kapitel/Bereich, Ursache \
+        und konkrete Korrektur. Prüfe besonders: kausale Folge statt Episodenreihe, \
+        echte Zieländerung in der Mitte, unvermeidbaren Höhepunkt, vollständige Auflösung, \
+        widerspruchsfreies Figurenwissen sowie unnötige Wiederholungen.
+        Unter SPRACHLICHE SAUBERKEIT fallen außerdem idiomatische, moderne und leicht
+        lesbare Standardsprache, korrekte Rechtschreibung, Grammatik, Zeichensetzung
+        und Anführungszeichen. Sichtbare Fehler oder gestelzte, unnötig hohe Sprache
+        dürfen in dieser Dimension keine 7 erreichen.
+
+        Antworte GENAU in diesem Format, keine anderen Zeilen:
+        \(dimensionen)\
+        GESAMT: <1-10> — <eine Zeile Gesamturteil>
+        URTEIL: FREIGABE oder NACHARBEIT
+        SCHWÄCHE: <die konkreteste Verbesserungsanweisung> \
+        (bis zu 3 SCHWÄCHE-Zeilen, nur bei NACHARBEIT; jede muss sagen, WAS wo besser werden muss)
+        """
+    }
+
+    /// STILTICK-JUDGE (B2): Die deterministischen Stiltick-Prüfungen (styleTicViolations)
+    /// zählen Wortlisten – sie erwischen „Nicht …"-Satzanfänge und Körper-Beats, aber
+    /// nicht die Muster, an denen Leser KI-Prosa WIRKLICH erkennen: Erklär-Sätze, die
+    /// Dialog doppelt deuten, Emotions-Doppelungen (benennen + zeigen + kommentieren),
+    /// bedeutungsschwangere Leere ohne Inhalt, gestelzte Gesten, monotone Satzrhythmen.
+    /// Das kann nur ein lesender Lektor finden. Dieser Prompt prüft EIN Kapitel auf
+    /// genau diese kontextabhängigen Muster – bewusst nur WIEDERKEHRENDE, damit keine
+    /// Einzelstellen-Kleinlichkeit endlos Neufassungen auslöst.
+    static func styleTicJudge(bookTitle: String, chapterNumber: Int,
+                              chapterTitle: String, chapterText: String) -> String {
+        return """
+        Du bist Stil-Lektor für den Roman "\(bookTitle)". Lies Kapitel \(chapterNumber) \
+        („\(chapterTitle)") und finde WIEDERKEHRENDE maschinelle Muster, an denen Leser \
+        KI-Prosa sofort erkennen. Keine Einzelstellen – nur Muster, die im Kapitel \
+        mehrfach oder strukturell auftreten:
+
+        - ERKLÄR-SÄTZE: Dialog oder Handlung wird doppelt gedeutet („sagte sie, weil sie Angst hatte", „er ging hinaus, um sich zu beruhigen")
+        - KÜNSTLICHER DEUTUNGS-HAKEN: Ein Szenenende behauptet eine Erkenntnis oder eine rhetorische Frage („Da stand plötzlich eine Frage", „Was geschah mit …?"), statt die Folge konkret auszuspielen
+        - EMOTIONS-DOPPELUNG: Ein Gefühl wird benannt UND gezeigt UND kommentiert
+        - BEDEUTUNGSSCHWANGERE LEERE: „irgendetwas stimmte nicht", „etwas an ihm war anders" – ohne dass es je konkret wird
+        - GESTELZTE GESTEN: Reaktionen, die kein echter Mensch so macht (ständiges Augenbrauen-Heben, Lächeln ohne Grund, choreografierte Körperbetonung)
+        - MONOTONER SATZRHYTHMUS: 3+ Sätze gleicher Bauart in Serie (alle Subjekt-Verb-Objekt, alle mit „Und" beginnend)
+
+        Empfehle niemals Satzfragmente, Telegrammstil oder unvollständige Sätze als
+        Rhythmusvariation. Variiere stattdessen vollständige Satzstrukturen und Satzlängen.
+
+        KAPITEL \(chapterNumber):
+        \(chapterText.truncated(to: 9000))
+
+        Antworte pro gefundenem Muster GENAU eine Zeile in diesem Format:
+        TICK|<Muster in 3-6 Wörtern>|<eine kurze wörtliche Belegstelle>|<konkrete Anweisung, wie es stattdessen geht>
+
+        Maximal 5 Zeilen. Kein Kommentar drumherum. Wenn das Kapitel stilistisch sauber ist, antworte: SAUBER.
+        """
+    }
+
+    /// FIGURENSTIMMEN-AUDIT (B4): Die Sprachprofile stehen zwar im Prompt (Sprechweise
+    /// pro Figur), aber niemand prüft, ob die Figuren im Ergebnis UNTERSCHEIDBAR
+    /// klingen – „alle Figuren reden gleich" ist der häufigste Dialog-KI-Mangel und
+    /// ein klassischer Rezensionspunkt. Dieser Prompt macht den Blindtest: Könnte
+    /// man jede wörtliche Rede ohne Namensnennung der richtigen Figur zuordnen?
+    static func dialogueVoiceAudit(bookTitle: String, chapterNumber: Int,
+                                   charactersWithSpeech: String, chapterText: String) -> String {
+        return """
+        Du bist Dialog-Lektor für den Roman "\(bookTitle)". Prüfe in Kapitel \(chapterNumber), \
+        ob die Figuren in ihren Dialogen UNTERSCHEIDBAR klingen.
+
+        SPRACHPROFILE (kanonisch – so sollen die Figuren klingen):
+        \(charactersWithSpeech.truncated(to: 1500))
+
+        KAPITEL \(chapterNumber):
+        \(chapterText.truncated(to: 9000))
+
+        Der Blindtest: Könnte man jede wörtliche Rede ohne Namensnennung der richtigen \
+        Figur zuordnen – an Satzlänge, Wortwahl, Rhythmus, Bildungston, Eigenheiten? \
+        Prüfe nur Figuren, die in diesem Kapitel tatsächlich sprechen.
+
+        Antworte für jede Figur mit spürbarer Schwäche GENAU eine Zeile:
+        STIMME|<Name>|<was an ihrer Stimme generisch oder verwechselbar ist>|<konkrete Anweisung, wie diese Figur stattdessen spricht: Satzlänge, Wortwahl, Rhythmus, was sie NIE sagen würde>
+
+        Maximal 4 Zeilen, keine andere Zeile. Wenn alle sprechenden Figuren \
+        unterscheidbar klingen, antworte: UNTERSCHEIDBAR.
+        """
+    }
+
+    /// BETA-LESER (A5): Alle anderen Prüfungen sind Fachleute (Lektor, Kontinuität,
+    /// Stil). Keine davon antwortet auf die einzige Frage, die über Verkäufe
+    /// entscheidet: Würde ein echter Leser weiterlesen – und was würde er in die
+    /// Rezension schreiben? Dieser Prompt simuliert die drei Lesertypen, die über
+    /// Schicksal eines KDP-Buchs entscheiden, an den drei Schlüsselstellen
+    /// (Eröffnung = Kaufabbruch, Mitte = Durchhaltevermögen, Finale = Rezension).
+    /// Befunde mit ≤ 3 Sternen fließen als Reparaturaufträge ins Schlussaudit.
+    static func betaReaderPass(bookTitle: String, genre: String, chapterNumber: Int,
+                               chapterLabel: String, chapterText: String) -> String {
+        return """
+        Drei Testleser bewerten Kapitel \(chapterNumber) (\(chapterLabel)) des Romans \
+        "\(bookTitle)" (Genre: \(genre)). Jeder antwortet ehrlich aus seiner Lesersicht – \
+        keine Höflichkeit, keine Fachbegriffe, nur echtes Leseerlebnis:
+
+        1. GENRE-FAN – kennt und liebt \(genre), hat hundert Bücher des Genres gelesen; \
+        verzeiht keine Genre-Brüche, Klischees ohne eigenen Dreh oder fehlendes Genre-Versprechen.
+        2. REZENSENT – skeptischer Vielleser, der aktiv nach Gründen für eine 1-Stern- \
+        Rezension sucht: Logiklöcher, Kitsch, Längen, Figuren ohne Eigenleben, \
+        Stellen, die nach Maschine klingen.
+        3. GELEGENHEITSLESER – liest abends müde zur Entspannung; bricht ab, wenn es \
+        zäh wird, er den Faden verliert oder ihn nichts an den Figuren berührt.
+
+        KAPITEL \(chapterNumber):
+        \(chapterText.truncated(to: 9000))
+
+        Jeder Testleser antwortet mit GENAU einer Zeile in diesem Format:
+        PERSONA|<GENRE-FAN oder REZENSENT oder GELEGENHEITSLESER>|<Sterne 1-5>|<härtestes ehrliches Problem in einem Satz, oder „keins">|<konkrete Anweisung, was im Text anders werden muss, oder „-">
+
+        GENAU drei Zeilen, keine andere Zeile. Die Sterne ehrlich vergeben: \
+        5 = konnte nicht aufhören, 4 = gern weitergelesen, 3 = würde kurz weglegen, \
+        2 = fast abgebrochen, 1 = abgebrochen und schlecht bewertet.
+        """
+    }
+
+    /// EMOTIONSSCHRITT-VERIFIKATION (D3): Der Kapitelplan legt für jedes Kapitel einen
+    /// „Emotionalen Schritt" fest (z. B. „Misstrauen kippt in erstes Vertrauen") – der
+    /// Gefühlsbogen ist das, was Leser an Figuren bindet. Bisher landete dieser Schritt
+    /// nur im Zieltext; niemand prüfte, ob er im geschriebenen Kapitel auch PASSIERT.
+    /// Ein Kapitel ohne seinen emotionalen Schritt ist ein totes Kapitel, auch wenn
+    /// der Plot vorankommt. Dieser Prompt verifiziert den Schritt im fertigen Text.
+    static func emotionalStepAudit(bookTitle: String, chapterNumber: Int,
+                                   plannedStep: String, chapterText: String) -> String {
+        return """
+        Du bist Lektor für den Roman "\(bookTitle)". Der Kapitelplan sieht für Kapitel \
+        \(chapterNumber) diesen EMOTIONALEN SCHRITT der Hauptfigur bzw. ihrer \
+        Beziehungen vor: „\(plannedStep)"
+
+        KAPITEL \(chapterNumber):
+        \(chapterText.truncated(to: 9000))
+
+        Frage: Passiert dieser emotionale Schritt im Text konkret und nachfühlbar – \
+        in Handlung, Entscheidung, Dialog oder einem klaren inneren Umschlag? \
+        (Nicht gefragt: ob der Plot vorankommt oder das Kapitel gut geschrieben ist.)
+
+        Antworte mit GENAU einer Zeile:
+        ERFÜLLT – wenn der Schritt im Text konkret geschehen ist.
+        FEHLT|<was stattdessen (nicht) passiert>|<konkrete Anweisung, welche Szene/Wendung den Schritt herstellen würde>
         """
     }
 
@@ -1158,10 +2389,14 @@ enum PromptFactory {
 
     /// Dedizierter viraler Titel-Generator: liefert mehrere klickstarke, spannende
     /// Buchtitel, die auf Amazon KDP / BookTok auffallen.
-    static func viralTitles(genre: String, premise: String, language: String) -> String {
+    static func viralTitles(genre: String, premise: String, language: String,
+                            trendBriefing: String = "") -> String {
         if BookContentType.infer(from: genre) == .nonfiction {
             return nonfictionTitles(genre: genre, premise: premise, language: language, count: 10)
         }
+        // Recherchierte Marktlage zuerst – konkrete Genre-Daten steuern verlässlicher
+        // als weitere Vorschriften.
+        let trendBlock = trendBriefing.isEmpty ? "" : "\n\(trendBriefing)\n"
         let genreLine = genre.trimmingCharacters(in: .whitespaces).isEmpty ? "" : "Genre: \(genre)\n"
         let premiseLine = premise.trimmingCharacters(in: .whitespaces).isEmpty
             ? "" : "Worum es geht: \(premise.truncated(to: 600))\n"
@@ -1175,25 +2410,57 @@ enum PromptFactory {
         einem Freund empfehlen, ohne sich fremdzuschämen? Ein Titel, der nach billiger
         Selfpublishing-KI klingt, ist DURCHGEFALLEN.
 
-        NUTZE VERSCHIEDENE BEWÄHRTE FORMEN (nicht acht Varianten derselben Masche):
-        - Bildstarke Nomen-Wendung: ein konkretes, emotionales Bild in 2–4 Wörtern
-          (Form-Beispiele, NICHT übernehmen: „Das Lied der Weite", „Wo die Nächte hell sind").
-        - Stilles Versprechen / Sehnsucht: „Solange …", „Bevor …", „Als wir …"
-          (Form-Beispiele: „Solange die Hoffnung bleibt", „Als der Sommer uns gehörte").
-        - Ein einzelnes starkes Wort, evtl. mit knapper Ergänzung.
-        - Eine kurze, offene Zeile – aber HÖCHSTENS ZWEI der acht Titel dürfen so gebaut sein.
+        ⚠ DIESE TITEL SIND ECHTE, VERÖFFENTLICHTE BÜCHER. Übernimm KEINEN davon, auch
+        nicht leicht abgewandelt („Ein Wiedersehen im Winter" wäre bereits zu nah).
+        Buchtitel sind in Deutschland als Werktitel geschützt. Lerne die BAUWEISE,
+        erfinde daraus etwas Eigenes, das zu DIESER Geschichte gehört:
+        „Ein Wiedersehen im Sommer" · „Zwischen Ende und Anfang" · „Das kleine Zuhause in
+        Prag" · „Der kleine Dünenkiosk auf Sylt" · „Sommer, Glück und Ringelblumen" ·
+        „Der Geschmack von Sommer und Karamell" · „Warte auf mich am Meer" ·
+        „All das Ungesagte zwischen uns" · „Unser Tag ist heute" · „Die Tage mit Dir"
+
+        WAS DIESE TITEL GEMEINSAM HABEN – halte dich daran:
+        - SIE VERSPRECHEN ETWAS. Das ist das Wichtigste: „warte auf mich" (eine Bitte,
+          ein offenes Ende), „All das Ungesagte" (ein Geheimnis), „Zwischen Ende und
+          Anfang" (ein Bruch), „Unser Tag ist heute" (eine Entscheidung, jetzt). Der Leser
+          spürt sofort, dass etwas auf dem Spiel steht.
+        - WARME, SINNLICHE ALLTAGSWÖRTER: Sommer, Zuhause, Geschmack, Karamell, Meer, Tage,
+          Wiedersehen. Wörter, die jeder kennt und die sofort ein Gefühl auslösen.
+        - BEZIEHUNG SICHTBAR: „zwischen uns", „mit Dir", „unser", „warte auf mich" – die
+          zwei Menschen sind im Titel spürbar, nicht nur ein Gegenstand.
+        - Wärme statt Schwere. Diese Titel klingen einladend, nicht bedeutungsschwanger.
+        - Ein Ort oder eine Jahreszeit darf dazukommen – aber NUR zusätzlich zum
+          Versprechen, niemals als Ersatz dafür.
 
         HARTE VERBOTE:
-        - KEINE reißerischen Aussage-Sätze im Reihen-Stil („Er stirbt, wenn ich bleibe",
-          „Mein Ex heiratet meine Schwester"). Das klingt nach KI und Groschenheft, nicht
-          nach Verlag. Höchstens zwei kurze offene Zeilen insgesamt, und diese müssen elegant sein.
+        - KEINE abstrakten Objekt-Metaphern nach dem Muster „Das [abstraktes Nomen] von
+          [Material]" – etwa „Das Gewicht von Seide", „Die Farbe des Schweigens", „Der
+          Klang von Asche". Das klingt nach Literaturpreis-Bewerbung, nicht nach einem Buch,
+          das jemand im Urlaub kauft. Solche Titel sind DURCHGEFALLEN.
+        - KEINE schweren, kalten oder verkopften Substantive als Kern (Gewicht, Substanz,
+          Wesen, Essenz, Fragment, Membran, Schweigen als Hauptwort).
+        - KEINE reißerischen Skandal-Schlagzeilen im Reihen-Stil („Mein Ex heiratet meine
+          Schwester"). Das klingt nach Groschenheft. Ein ruhiger, starker Aussagesatz ist
+          dagegen ausdrücklich ERWÜNSCHT („Es endet mit uns", „Unser Tag ist heute") –
+          verboten ist der Skandal, nicht der Satz.
         - KEINE kryptischen, prätentiösen oder paradoxen Wort-Collagen.
         - KEINE Berufs-/Ort-Klischees („Die Bäckerin von …"), keine Anführungszeichen,
           keine Erklärungen, keine zwei austauschbaren Allerweltstitel.
         - 2–6 Wörter, als Amazon-KDP-Thumbnail sofort lesbar, nur Alltagswörter.
 
-        Jeder Titel soll neugierig machen und ein Gefühl auslösen – aber durch BILD und
+        PRÜFE JEDEN TITEL SELBST – die Versprechen-Probe: Trägt er einen Konflikt, ein
+        Geheimnis, einen Verlust, ein Begehren, eine Bitte, eine Entscheidung oder eine
+        direkte Anrede? Wenn NEIN, ersetze ihn – egal wie hübsch er klingt.
+        Ein Titel, der nur eine Kulisse benennt (Ort, Jahreszeit, Stimmung, ein erfundenes
+        Detail), ist DURCHGEFALLEN: „Unser Sommer in der blauen Küche" hat Beziehung, Zeit
+        und Ort – und verspricht trotzdem nichts. Niemand klickt darauf.
+        VERBOTENE BAUART: Possessiv/Artikel + Jahreszeit + Ortsangabe („Die Tage im gelben
+        Haus", „Mein Winter im alten Leuchtturm"). Ein erfundenes Detail ersetzt kein
+        Versprechen – es tarnt nur, dass keines da ist.
+
+        Jeder Titel soll neugierig machen und ein Gefühl auslösen – durch BILD und
         SEHNSUCHT, nicht durch Schock. Passe die Titel zum Inhalt oben.
+        \(trendBlock)
 
         Gib NUR die 8 Titel aus, je einen pro Zeile, jeweils beginnend mit "TITEL: ".
         """
@@ -1236,7 +2503,7 @@ enum PromptFactory {
           keine Zahlen, keine Logos, keine Wasserzeichen im Bild.
         - Klare, ruhige Negativräume im oberen Drittel (für späteren Titel) und unteren Viertel (Autor).
         - Ein starker Fokuspunkt, der den zentralen Konflikt / das Schlüsselsymbol / die emotionale
-          Wunde des Buches transportiert – nicht generisch, sondern unverwechselbar für DIESES Buch.
+          innere Spannung des Buches transportiert – nicht generisch, sondern unverwechselbar für DIESES Buch.
         - Hochwertig, cinematic, professionell – kein billiger KI-Glow, keine verformten Gesichter/Hände.
         - Keine Hinweise auf KI, AI oder Automatisierung.
 
@@ -1391,6 +2658,10 @@ enum PromptFactory {
           betroffenem Kapitel, damit die App diese Kapitel automatisch korrigieren kann.
         - Nutze "Gesamtmanuskript" nur, wenn keine konkrete Textreparatur möglich ist.
         - Stütze Befunde zu Wortlaut, Anschluss und Kontinuität auf die mitgelieferten Textauszüge.
+        - Jeder BISHERIGE QUALITÄTSBERICHT mit Schweregrad Fehler oder Kritisch ist
+          verbindlich: Übersetze seine konkrete Schwäche in mindestens einen
+          kapitelgenauen REPAIR-Auftrag. Antworte nicht mit KEINE REPARATUR NÖTIG,
+          solange ein solcher Bericht offen ist.
         - ENDE-ABNAHME (Pflicht): Prüfe die LETZTEN beiden Kapitel besonders streng – wird die
           zentrale Frage des Buches klar beantwortet? Bleiben benannte offene Fäden ungelöst
           (die OFFEN-Punkte der Handlungsübersicht)? Wirkt das Ende gehetzt, abrupt oder surreal?
@@ -1463,7 +2734,8 @@ enum PromptFactory {
     }
 
     /// „Blick ins Buch"-Optimierung: macht den Anfang (Amazon-Leseprobe) zu maximalem Lesesog.
-    static func openingHook(language: String, bookTitle: String, genre: String, chapterText: String) -> String {
+    static func openingHook(language: String, bookTitle: String, genre: String,
+                            chapterText: String, editorialContext: String = "") -> String {
         if BookContentType.infer(from: genre) == .nonfiction {
             return """
             Überarbeite den Anfang der Amazon-Leseprobe des Sachbuchs "\(bookTitle)" auf \(language).
@@ -1479,15 +2751,50 @@ enum PromptFactory {
         }
         return """
         Überarbeite den ANFANG (Blick ins Buch / Amazon-Leseprobe) von „\(bookTitle)"
-        (Genre: \(genre), Sprache: \(language)) zu unwiderstehlichem Lesesog. Die ersten Sätze
-        entscheiden über den Kauf.
+        (Genre: \(genre), Sprache: \(language)) zu einem professionellen, leicht lesbaren
+        Romanbeginn. Die ersten Seiten muessen Neugier und Vertrauen in die Erzaehlung wecken.
 
         PFLICHT:
-        - Erste Zeile = sofortiger Hook (Spannung, Frage, Irritation, starke Stimme). KEIN Wetter,
-          kein Aufwachen, kein Info-Dump, kein Prolog-Geschwafel.
-        - Sofort eine konkrete Figur in einem konkreten Moment mit etwas auf dem Spiel.
-        - Zeigen statt erklären; eigene, sofort erkennbare Erzählstimme; konkrete Sinnesdetails.
-        - Eine Spannungsfrage, die zum Weiterlesen zwingt, bleibt am Ende des Auszugs offen.
+        - ORIENTIERUNG: Im ersten Absatz versteht der Leser Perspektivfigur, Ort, momentane Absicht
+          und die konkrete Lage, ohne Namen-, Detail- oder Vorgeschichts-Inventar.
+        - NATÜRLICHKEIT: Der Anfang zeigt zuerst eine verständliche menschliche Alltagssituation
+          mit sozialem oder praktischem Gewicht. Die Figur will etwas Konkretes; ihre Beziehung,
+          Aufgabe oder Entscheidung macht das Ergebnis relevant. Erst danach verschiebt eine
+          einzelne glaubwürdige Störung die Lage.
+        - Der Hook darf Stimme, Erwartung, Entscheidung, Beziehungsreibung oder eine konkrete
+          Unstimmigkeit sein. Kein erzwungener Schock, keine zufällige Waffe, Entführung oder
+          Todesdrohung, wenn die vorhandene Handlung das nicht bereits verlangt.
+        - Kein Rätsel-Stapel: Kein anonymer Umschlag, kryptisches Foto, alte Akte, unbekannte
+          Nachricht und zusätzliche Bedrohung in schneller Folge, bevor Leser Figur und Lage
+          emotional einordnen können. Falls ein solches Element bereits kanonisch ist, ordne es
+          der bestehenden Situation unter und lasse die Figur menschlich, nicht melodramatisch
+          reagieren.
+        - Keine Stakkato-Kette aus Mini-Sätzen. Kurze Akzente mit klaren mittleren Sätzen
+          verbinden; jeder Satz muss beim ersten Lesen verständlich sein.
+        - LESEALTER 15+: Ein durchschnittlicher 15-Jaehriger folgt jeder Handlung, Referenz und
+          Motivation beim ersten Lesen. Nutze moderne Alltagswoerter und ueberwiegend kurze bis
+          mittlere Saetze. Seltene Fachwoerter werden vermieden oder sofort aus der Situation klar.
+          Die Sprache bleibt erwachsen und emotional tief, aber nie akademisch oder altertuemlich.
+        - Keine aufgereihte Sammlung aus Geruch, Kleidung, Narbe, Fingern, Wetter und Vergleich.
+          Ein oder zwei handlungsrelevante Details genügen.
+        - Zeigen statt erklären; eigene, sofort erkennbare Erzählstimme, aber keine sichtbare
+          Hook-Technik und keine bedeutungsschwere Leerformel.
+        - Eine Spannungsfrage, die aus der etablierten Situation folgt, bleibt am Ende des Auszugs offen.
+        - KAUSALE KLARHEIT: Wenn Frist, Vertrag, Verkauf, Geldforderung, Auftrag oder ein anderer
+          Sachzwang vorkommt, versteht der Leser ohne Ruecksprung: Wer verlangt was, warum jetzt,
+          welche Folge droht und warum betrifft das die Perspektivfigur persoenlich?
+        - MOTIVATION: Jede unumkehrbare Entscheidung ist durch mindestens ein konkretes Erlebnis,
+          Verhalten oder Beweisdetail vorbereitet. Ersetze allgemeine Behauptungen ueber Beruf,
+          Familie oder Vergangenheit durch eine spezifische Erinnerung oder gegenwaertige Folge.
+        - FIGURENEIGENHEIT: Die Perspektivfigur zeigt einen individuellen Widerspruch zwischen
+          Wunsch und Furcht, Behauptung und Verhalten oder Pflicht und Sehnsucht.
+        - DIALOG MIT UNTERTEXT: Figuren erklaeren einander nichts, was beide wissen. Ihre Wortwahl,
+          Ausweichbewegungen und Machtpositionen unterscheiden sich hoerbar.
+        - KONKRETE SPRACHE: Streiche Standardbilder wie "alte Wunden", "klares Ziel vor Augen",
+          "Geheimnisse lueften" und "Truemmer des Lebens". Pro Absatz reichen ein bis zwei
+          handlungsrelevante Sinnesdetails; wiederhole kein Wetter- oder Koerpermotiv mechanisch.
+        - PLAUSIBILITAET UND KONTINUITAET: Namen, Rollen, Besitzverhaeltnisse, Fristen,
+          Rechtsvorgaenge und Ziele widersprechen sich nicht. Erfinde keine Ersatznamen.
         - Erhalte Figuren, Setting, Fakten und Handlung des Kapitels – ändere NUR Anziehung/Sog
           und Formulierung, nicht das Geschehen.
         - Reine Prosa, keine Überschriften, keine Kommentare, keine Meta-Hinweise.
@@ -1495,7 +2802,116 @@ enum PromptFactory {
         KAPITELTEXT:
         \(chapterText)
 
+        VERBINDLICHER KONTEXT FUER FAKTEN UND MOTIVATION:
+        \(editorialContext.isEmpty ? "Kein zusaetzlicher Kontext vorhanden; erfinde deshalb keine neuen Fakten." : editorialContext)
+
+        Die im Kontext markierte hoechste Autoritaet hat bei jedem Widerspruch Vorrang vor
+        Kapiteltext und alten Planfeldern.
+        Korrigiere falsche Namen und Rollen vollstaendig auf die dort festgelegten Figuren.
+        Erfinde keinen Ersatznamen. Bewahre nur Ereignisse und Fakten, die dem Kontext nicht
+        widersprechen.
+
         Gib den vollständigen, überarbeiteten Kapiteltext aus.
+        """
+    }
+
+    /// Eng gefuehrte Folgerunde nach einer semantischen Abnahme. Anders als der
+    /// kreative Erstentwurf darf sie nicht erneut den ganzen Anfang umgestalten.
+    static func openingTargetedRepair(
+        language: String,
+        bookTitle: String,
+        genre: String,
+        chapterText: String,
+        editorialContext: String,
+        repairIssues: [String],
+        allowsCanonicalEventCorrections: Bool
+    ) -> String {
+        let canonicalCorrectionRule = allowsCanonicalEventCorrections ? """
+        Die Fehlerliste und der verbindliche Kanon sind fuer die beanstandeten Stellen die
+        hoehere Autoritaet als der alte Kapiteltext. Wenn eine Reparatur ein widerspruechliches
+        Ereignis, eine falsche Reaktion oder eine unplausible Entscheidung ersetzen muss,
+        fuehre genau diese Korrektur aus. Bewahre nur die davon nicht betroffenen Ereignisse.
+        """ : """
+        Bewahre alle nicht beanstandeten Ereignisse und Fakten. Veraendere an den markierten
+        Stellen nur so viel Handlung, Reaktion oder Dialog, wie die konkrete Reparatur verlangt.
+        """
+        let issues = repairIssues.prefix(6).map { "- \($0)" }.joined(separator: "\n")
+        return """
+        CHIRURGISCHE KORREKTUR eines Romananfangs aus „\(bookTitle)"
+        (Genre: \(genre), Sprache: \(language)).
+
+        Die Fassung ist bereits redaktionell bearbeitet. Schreibe sie NICHT erneut frei um.
+        Repariere jede unten genannte Stelle konkret und vollstaendig. Aendere den kleinsten
+        zusammenhaengenden Textbereich, der fuer eine natuerliche Ursache und Folge noetig ist.
+        Entferne dabei auch Saetze, die nach der Reparatur widerspruechlich oder doppelt waeren.
+        \(canonicalCorrectionRule)
+
+        VERBINDLICHE REPARATUREN:
+        \(issues.isEmpty ? "- Erhalte die Fassung; glätte nur einen eindeutig stoerenden Anschluss." : issues)
+
+        VERBINDLICHER KANON:
+        \(editorialContext.isEmpty ? "Keine zusaetzlichen Fakten erfinden." : editorialContext)
+
+        SICHERHEITSREGELN:
+        - Verwende nur Personen, Rollen, Orte und Gegenstaende aus Text oder Kanon.
+        - Erfinde keine Ersatznamen, Fristen, Rechtsakte, Besitzverhaeltnisse oder Wendungen.
+        - Perspektive, Zeitform, Umfang und Genreton bleiben stabil.
+        - Moderne, klare Sprache fuer Leser ab 15; Dialog mit Untertext statt Erklaerungen.
+        - Reine Prosa, keine Ueberschrift, Fehlerliste, Erklaerung oder Meta-Ausgabe.
+
+        AKTUELLE FASSUNG:
+        \(chapterText)
+
+        Gib den vollstaendigen reparierten Kapiteltext aus.
+        """
+    }
+
+    /// Semantische Endabnahme fuer die Amazon-Leseprobe. Der zweite Modellaufruf
+    /// bewertet keine "schoene Sprache", sondern die Punkte, die reine Regex-Pruefer
+    /// nicht verlaesslich erkennen koennen: Kausalitaet, Motivation, Untertext und
+    /// innere Faktenlogik.
+    static func openingEditorialAudit(language: String, bookTitle: String, genre: String,
+                                      editorialContext: String, chapterText: String) -> String {
+        """
+        Pruefe den Romananfang von "\(bookTitle)" (Genre: \(genre), Sprache: \(language))
+        als strenger Akquisitionslektor. Ein glatter Stil ist KEIN Bestehensgrund.
+
+        Ein 10/10-tauglicher Einstieg besteht nur, wenn ALLE Punkte erfuellt sind:
+        1. KLARHEIT: Wer will in der aktuellen Szene was, warum jetzt und welche konkrete Folge droht?
+        2. EINSATZ: Warum trifft das genau diese Perspektivfigur persoenlich?
+        3. MOTIVATION: Eine grosse Entscheidung folgt aus konkretem Verhalten oder Vorgeschichte,
+           nicht aus einer pauschalen Erklaerung.
+        4. FIGUR: Die Hauptfigur besitzt einen individuellen Widerspruch und wirkt nicht austauschbar.
+        5. DIALOG: Figurenstimmen unterscheiden sich; Rede hat Untertext statt Publikumserklaerungen.
+        6. EIGENHEIT: Konkrete Beobachtungen ersetzen Standardmetaphern, Sinnesinventar und KI-Phrasen.
+        7. SOG: Genau ein organischer Ausloeser oeffnet eine konkrete, persoenliche Frage.
+        8. PLAUSIBILITAET: Namen, Rollen, Fristen, Besitz, Rechtsvorgaenge und Ziele bleiben widerspruchsfrei.
+        9. LESBARKEIT 15+: Ein durchschnittlicher 15-Jaehriger versteht Wortwahl, Satzbau,
+           Bezuege und Handlungslogik beim ersten Lesen, ohne dass der Text kindlich klingt.
+
+        Antworte NUR mit BESTANDEN, wenn jeder Punkt zweifelsfrei erfuellt ist.
+        Verwende ausschliesslich die Namen aus dem verbindlichen Kontext. Erfinde auch fuer
+        unbenannte Rollen keine Beispiel- oder Ersatznamen. Wenn Text und Kontext kollidieren,
+        benenne den Widerspruch mit [PLAUSIBILITAET] und nenne die kanonische Korrektur.
+        Sonst gib pro echtem Fehler genau eine kurze Zeile aus. Beginne jede Fehlerzeile
+        mit einem dieser Tags und direkt danach mit dem Wort FEHLER und Doppelpunkt:
+        [KLARHEIT] [EINSATZ] [MOTIVATION] [FIGUR] [DIALOG] [EIGENHEIT] [SOG] [PLAUSIBILITAET] [LESBARKEIT]
+        Exaktes Format: [TAG] FEHLER: konkrete Textstelle oder konkreter Widerspruch; knappe Reparatur.
+        Schreibe bestandene Kriterien NICHT auf. Ein getaggter positiver Befund ist ungueltig.
+        Nenne die konkrete Textstelle oder den konkreten Widerspruch und eine knappe Reparatur.
+        Hoechstens sechs Zeilen. Keine Geschmacksurteile, kein Lob, keine Zusammenfassung.
+        Belege jeden Befund am aktuell vorliegenden Text. Kritik aus einer aelteren
+        Fassung ist kein Beleg. Eine Charaktereigenschaft ist eine Neigung, kein Naturgesetz;
+        eine plausible Abweichung ist kein automatischer Widerspruch. Erfinde fuer eine
+        Reparatur keine Behoerdenentscheidung, Rechtsgrundlage, Erinnerung oder Beziehung.
+        Trenne fehlende Information von einem belegbaren Widerspruch. Unbekannte Details
+        darfst du nicht durch eigene Annahmen zu Fakten machen.
+
+        VERBINDLICHER KONTEXT:
+        \(editorialContext.truncated(to: 10_000))
+
+        ROMANANFANG:
+        \(chapterText.truncated(to: 36_000))
         """
     }
 
@@ -1633,7 +3049,7 @@ enum PromptFactory {
                                               targetWords: Int, sectionCount: Int,
                                               isFinalChapter: Bool) -> String {
         """
-        Plane mindestens \(sectionCount) Abschnitte für Kapitel \(chapterNumber) "\(chapterTitle)"
+        Plane GENAU \(sectionCount) Abschnitte für Kapitel \(chapterNumber) "\(chapterTitle)"
         aus "\(bookTitle)". Lernziel: \(chapterGoal). Leserhindernis: \(chapterChallenge).
         Zielumfang: \(targetWords) Wörter.
         SACHBUCH-ARCHITEKTUR: \(architecture.truncated(to: 3500))
@@ -1789,6 +3205,63 @@ enum AuthorBioQuality {
     }
 }
 
+enum PlotCanonAuditParser {
+    static func parse(_ text: String) -> [String] {
+        Array(text.components(separatedBy: .newlines).compactMap { line -> String? in
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.uppercased().hasPrefix("WIDERSPRUCH|") else { return nil }
+            let detail = String(trimmed.dropFirst("WIDERSPRUCH|".count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return detail.wordCount >= 3 ? detail : nil
+        }.prefix(6))
+    }
+}
+
+enum VerifiedCanonAuditParser {
+    static func parse(_ text: String, source: String) -> [String] {
+        let haystack = normalized(source)
+        return Array(text.components(separatedBy: .newlines).compactMap { line -> String? in
+            let fields = line.split(separator: "|", omittingEmptySubsequences: false)
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            guard fields.count == 5,
+                  fields[0].uppercased() == "WIDERSPRUCH",
+                  !fields[1].isEmpty, !fields[2].isEmpty,
+                  fields[3].wordCount <= 16, fields[4].wordCount <= 16,
+                  fields[3].wordCount >= 1, fields[4].wordCount >= 1 else { return nil }
+            let normalizedField = normalized(fields[2])
+            // Beziehungs- und Verwandtschaftssaetze sind meist Handlungen, keine
+            // exklusiven Etiketten. Zwei echte Zitate koennen deshalb gleichzeitig
+            // stimmen, obwohl das Pruefmodell sie als Gegensatz ausgibt. Namen und
+            // Verwandtschaft werden bereits deterministisch in groundedRelationships
+            // und CharacterCanonAudit geprueft; hier duerfen sie keinen teuren Retry
+            // aufgrund einer blossen semantischen Vermutung ausloesen.
+            if normalizedField.contains("bezieh") || normalizedField.contains("verwandt") {
+                return nil
+            }
+            if normalizedField.contains("beruf"),
+               (fields[3].wordCount > 6 || fields[4].wordCount > 6) {
+                return nil
+            }
+            if normalizedField.contains("name"),
+               (fields[3].wordCount > 4 || fields[4].wordCount > 4) {
+                return nil
+            }
+            let first = normalized(fields[3])
+            let second = normalized(fields[4])
+            guard first != second, first.count >= 3, second.count >= 3,
+                  haystack.contains(first), haystack.contains(second) else { return nil }
+            return "\(fields[1]) / \(fields[2]): \(fields[3]) <> \(fields[4])"
+        }.prefix(6))
+    }
+
+    private static func normalized(_ value: String) -> String {
+        value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+            .replacingOccurrences(of: "[\\s\\n]+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 enum ConceptParser {
     private static let labelMap: [String: String] = [
         "PRÄMISSE": "premise", "PRAEMISSE": "premise", "PREMISE": "premise",
@@ -1909,8 +3382,30 @@ struct RepairIssue {
 }
 
 enum QualityReleasePolicy {
+    enum GoldenEvalDecision: Equatable {
+        case release
+        case repair
+        case invalid
+    }
+
     static func isBlockingReport(autoFixed: Bool, severity: Severity) -> Bool {
         !autoFixed && (severity == .critical || severity == .error)
+    }
+
+    /// Eine Modellbewertung ist nur dann eine Freigabe, wenn Note UND ausdrueckliches
+    /// Urteil vorhanden und widerspruchsfrei sind. Fehlende Felder duerfen niemals
+    /// still als bestanden gelten.
+    static func goldenEvalDecision(score: Int?, approved: Bool?,
+                                   dimensionScores: [Int],
+                                   requiredDimensionCount: Int) -> GoldenEvalDecision {
+        guard let score, (1...10).contains(score), let approved,
+              requiredDimensionCount > 0,
+              dimensionScores.count == requiredDimensionCount,
+              dimensionScores.allSatisfy({ (1...10).contains($0) }) else {
+            return .invalid
+        }
+        return score >= 8 && approved && dimensionScores.allSatisfy { $0 >= 7 }
+            ? .release : .repair
     }
 }
 
@@ -2005,6 +3500,23 @@ struct PlannedChapter {
     let title: String
     let goal: String
     let conflict: String
+    let cause: String
+    let decision: String
+    let outcome: String
+    let emotionalStep: String
+
+    init(number: Int, title: String, goal: String, conflict: String,
+         cause: String = "", decision: String = "", outcome: String = "",
+         emotionalStep: String = "") {
+        self.number = number
+        self.title = title
+        self.goal = goal
+        self.conflict = conflict
+        self.cause = cause
+        self.decision = decision
+        self.outcome = outcome
+        self.emotionalStep = emotionalStep
+    }
 }
 
 struct PlannedScene {
@@ -2015,6 +3527,34 @@ struct PlannedScene {
     let goal: String
     let obstacle: String
     let turn: String
+    /// Erzähltakt nach Dwight Swain: `"Szene"` (Ziel → Konflikt → Rückschlag) oder
+    /// `"Nachklang"` (Reaktion → Dilemma → Entscheidung).
+    ///
+    /// Bis hierher kannte die Planung nur den ersten Takt. Ohne den zweiten sieht der
+    /// Leser zwar, was passiert, verarbeitet es aber nie mit der Figur – daraus
+    /// entsteht der Eindruck einer Handlungszusammenfassung im Tempo. Leer bei
+    /// Altbeständen; dann gilt `"Szene"`.
+    var takt: String = ""
+
+    /// Wer die Wendung dieser Szene verursacht: `Figur`, `Gegenspieler` oder `Zufall`.
+    ///
+    /// Macht die Handlungsmacht messbar, die bisher nur im Prompt erbeten wurde. Eine
+    /// Figur, der ausschließlich Dinge zustoßen, ist eine Zuschauerin – der Leser wartet
+    /// dann darauf, dass endlich jemand handelt. Leer bei Altbeständen.
+    var antrieb: String = ""
+
+    /// Was diese Szene die Figur kostet – der Einsatz, der über das Buch steigen muss.
+    ///
+    /// Ohne benannten Preis passiert in einem Roman viel, ohne dass etwas schwerer wiegt
+    /// als das Vorige. Genau daran scheitern lange Bücher: Auf 500 Seiten wird aus
+    /// „spannend“ eine Aufzählung, wenn jede Szene gleich viel kostet. Leer bei
+    /// Altbeständen.
+    var preis: String = ""
+
+    var istNachklang: Bool {
+        takt.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .contains("nachklang")
+    }
 }
 
 struct ParsedCharacter {
@@ -2029,6 +3569,9 @@ struct ParsedCharacter {
     var appearance: String = ""
     var relationships: String = ""
     var canonicalFacts: String = ""
+    /// Das unbewusste innere Brauchen (Need) – Gegenspieler zu `goal` (Want).
+    /// Aus der Kollision beider entsteht der Figurenbogen. Leer bei Altbeständen.
+    var innerNeed: String = ""
 }
 
 struct ParsedIssue {
@@ -2103,24 +3646,76 @@ enum StructureParser {
         return isPureNumber ? Array(parts.dropFirst()) : parts
     }
 
+    /// Liest die vom Modell gelieferte Nummer, statt Luecken still zu schliessen.
+    ///
+    /// Beide von `fields` tolerierten Formen muessen dieselbe Nummer ergeben:
+    /// `KAPITEL|3|Titel` traegt sie im ersten Nutzfeld, `KAPITEL 3|Titel`
+    /// bereits im Marker-Kopf. Nur alte, wirklich unnummerierte Zeilen erhalten die
+    /// fortlaufende Ersatznummer. So kann die Pipeline fehlende oder doppelte Eintraege
+    /// erkennen, anstatt spaetere Kapitel unter einer falschen Nummer zu speichern.
+    private static func explicitNumber(in line: String, rawParts: [String],
+                                       marker: String, fallback: Int) -> Int {
+        if let first = rawParts.first {
+            let digits = first.filter(\.isNumber)
+            let isNumberField = !digits.isEmpty
+                && first.allSatisfy { $0.isNumber || ".)# ".contains($0) }
+            if isNumberField, let number = Int(digits), number > 0 {
+                return number
+            }
+        }
+
+        let escaped = NSRegularExpression.escapedPattern(for: marker)
+        guard let expression = try? NSRegularExpression(
+            pattern: "(?i)\\b" + escaped + "\\s*[:.#)]?\\s*(\\d+)",
+            options: []
+        ) else { return fallback }
+        let plain = line.replacingOccurrences(of: "*", with: "") as NSString
+        let range = NSRange(location: 0, length: plain.length)
+        guard let match = expression.firstMatch(in: plain as String, range: range),
+              match.numberOfRanges > 1,
+              match.range(at: 1).location != NSNotFound,
+              let number = Int(plain.substring(with: match.range(at: 1))), number > 0 else {
+            return fallback
+        }
+        return number
+    }
+
     static func parseChapters(_ text: String) -> [PlannedChapter] {
         var result: [PlannedChapter] = []
         for line in text.components(separatedBy: .newlines) {
             guard let raw = fields(in: line, marker: "KAPITEL") else { continue }
+            let number = explicitNumber(in: line, rawParts: raw,
+                                        marker: "KAPITEL", fallback: result.count + 1)
             let parts = droppingLeadingNumber(raw)
             let title = parts.first ?? ""
             guard !title.isEmpty else { continue }
-            // Emotionaler Schritt (4. Feld) wird ins Ziel gefaltet – so fließt der geplante
-            // Gefühlsbogen ohne Schema-Änderung automatisch in Szenenplan und Prosa-Prompt.
-            var goal = parts.count > 1 ? parts[1] : ""
-            if parts.count > 3, !parts[3].isEmpty {
-                goal += goal.isEmpty ? parts[3] : " – Emotionaler Schritt: \(parts[3])"
+            let structured = parts.count >= 6
+            let cause = structured ? parts[1] : ""
+            let decision = structured ? parts[2] : (parts.count > 1 ? parts[1] : "")
+            let outcome = structured ? parts[3] : ""
+            let conflict = structured ? parts[4] : (parts.count > 2 ? parts[2] : "")
+            let emotionalStep = structured ? parts[5] : (parts.count > 3 ? parts[3] : "")
+            let goal: String
+            if structured {
+                goal = [
+                    "Ausloeser/Folge: \(cause)",
+                    "Aktive Entscheidung: \(decision)",
+                    "Neue Lage: \(outcome)",
+                    "Emotionaler Schritt: \(emotionalStep)"
+                ].joined(separator: " – ")
+            } else {
+                goal = decision
+                    + (emotionalStep.isEmpty ? "" : " – Emotionaler Schritt: \(emotionalStep)")
             }
             result.append(PlannedChapter(
-                number: result.count + 1, // fortlaufend nummerieren, Modell-Nummern können lückenhaft sein
+                number: number,
                 title: title,
                 goal: goal,
-                conflict: parts.count > 2 ? parts[2] : ""
+                conflict: conflict,
+                cause: cause,
+                decision: decision,
+                outcome: outcome,
+                emotionalStep: emotionalStep
             ))
         }
         return entdoppelteTitel(result)
@@ -2158,14 +3753,15 @@ enum StructureParser {
                 return gemeinsam / Double(max(alt.count, jetzt.count)) >= 0.6
             }
             if dublette {
-                // Aus dem Kapitelziel eine eigene Überschrift bilden (erste sinnvolle
-                // Wortgruppe), sonst die Nummer – Hauptsache nicht zweimal dasselbe.
-                let ausZiel = k.goal
-                    .components(separatedBy: CharacterSet(charactersIn: ".,;–-"))
-                    .first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                let ersatz = ausZiel.count >= 8 ? String(ausZiel.prefix(48)) : "Kapitel \(k.number)"
-                ergebnis.append(PlannedChapter(number: k.number, title: ersatz,
-                                               goal: k.goal, conflict: k.conflict))
+                // Das Kapitelziel enthält interne Felder wie „Ausloeser/Folge:".
+                // Es darf nie als sichtbare Überschrift verwendet werden. Der neutrale
+                // Platzhalter wird nach der Rohfassung aus der Zusammenfassung ersetzt.
+                let ersatz = "Kapitel \(k.number)"
+                ergebnis.append(PlannedChapter(
+                    number: k.number, title: ersatz, goal: k.goal, conflict: k.conflict,
+                    cause: k.cause, decision: k.decision, outcome: k.outcome,
+                    emotionalStep: k.emotionalStep
+                ))
                 gesehen.append(kern(ersatz))
             } else {
                 ergebnis.append(k)
@@ -2179,16 +3775,25 @@ enum StructureParser {
         var result: [PlannedScene] = []
         for line in text.components(separatedBy: .newlines) {
             guard let raw = fields(in: line, marker: "SZENE") else { continue }
+            let number = explicitNumber(in: line, rawParts: raw,
+                                        marker: "SZENE", fallback: result.count + 1)
             let parts = droppingLeadingNumber(raw)
             guard !parts.isEmpty else { continue }
             result.append(PlannedScene(
-                number: result.count + 1,
+                number: number,
                 perspective: parts.first ?? "",
                 location: parts.count > 1 ? parts[1] : "",
                 time: parts.count > 2 ? parts[2] : "",
                 goal: parts.count > 3 ? parts[3] : "",
                 obstacle: parts.count > 4 ? parts[4] : "",
-                turn: parts.count > 5 ? parts[5] : ""
+                turn: parts.count > 5 ? parts[5] : "",
+                // Neues Feld am ENDE: Pläne ohne Takt bleiben lesbar und gelten als „Szene“.
+                takt: parts.count > 6 ? parts[6] : "",
+                // Ebenso Preis und Antrieb: Altbestände ohne diese Felder bleiben lesbar,
+                // ihren Szenen fehlt nur der benannte Einsatz bzw. der Verursacher.
+                // Reihenfolge in der Zeile: …|Takt|Preis|Antrieb
+                antrieb: parts.count > 8 ? parts[8] : "",
+                preis: parts.count > 7 ? parts[7] : ""
             ))
         }
         return result
@@ -2200,9 +3805,11 @@ enum StructureParser {
             guard let parts = fields(in: line, marker: "FIGUR"), !parts.isEmpty else { continue }
             let name = parts[0]
             guard !name.isEmpty else { continue }
+            let role = parts.count > 1 ? parts[1] : "Nebenfigur"
+            guard !CharacterCanonAudit.isNonPersonCharacterRole(role) else { continue }
             result.append(ParsedCharacter(
                 name: name,
-                role: parts.count > 1 ? parts[1] : "Nebenfigur",
+                role: role,
                 age: parts.count > 2 ? parts[2] : "",
                 occupation: parts.count > 3 ? parts[3] : "",
                 goal: parts.count > 4 ? parts[4] : "",
@@ -2211,7 +3818,10 @@ enum StructureParser {
                 speech: parts.count > 7 ? parts[7] : "",
                 appearance: parts.count > 8 ? parts[8] : "",
                 relationships: parts.count > 9 ? parts[9] : "",
-                canonicalFacts: parts.count > 10 ? parts[10] : ""
+                canonicalFacts: parts.count > 10 ? parts[10] : "",
+                // Neues Feld am ENDE der Zeile: Altbestände ohne dieses Feld werden
+                // weiterhin gelesen, sie bekommen nur ein leeres inneres Brauchen.
+                innerNeed: parts.count > 11 ? parts[11] : ""
             ))
         }
         return result

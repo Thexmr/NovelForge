@@ -33,6 +33,200 @@ enum SpellCheckService {
         "plopp", "ratsch", "schlurf", "tock", "tack", "surr", "brumm",
     ]
 
+    /// Falschschreibungen, die aus lauter GÜLTIGEN Teilwörtern bestehen und deshalb
+    /// durch jede Kompositum-Erkennung rutschen.
+    ///
+    /// Gemessen an „Das Gewicht von Seide": Die Prüfung meldete im ganzen Buch nur
+    /// EINE Korrektur (Strähne), während „Ziffernblatt" dreimal unbeanstandet stehen
+    /// blieb – „Ziffern" und „Blatt" sind beide korrekt, die Zusammensetzung ist es
+    /// nicht (richtig: Zifferblatt). Solche Fälle findet kein Wörterbuchabgleich; sie
+    /// brauchen eine benannte Liste.
+    ///
+    /// Bewusst klein und nur eindeutige Fälle: Jeder Eintrag ist im Deutschen
+    /// unstrittig falsch, unabhängig vom Satzzusammenhang.
+    static let haeufigeFalschschreibungen: [String: String] = [
+        "ziffernblatt": "Zifferblatt",
+        "standart": "Standard",
+        "wiederspiegeln": "widerspiegeln",
+        "wiederspiegelte": "widerspiegelte",
+        "wiedersprechen": "widersprechen",
+        "wiedersprach": "widersprach",
+        "einzigste": "einzige",
+        "seperat": "separat",
+        "authenzität": "Authentizität",
+        "gallerie": "Galerie",
+        "immernoch": "immer noch",
+        "garnicht": "gar nicht",
+        "aufjedenfall": "auf jeden Fall",
+        "zumindestens": "zumindest",
+        "kapitzel": "Kapitel",
+        "nähmlich": "nämlich",
+        "warscheinlich": "wahrscheinlich",
+        "warscheinlichkeit": "Wahrscheinlichkeit",
+        "vorraus": "voraus",
+        "entgültig": "endgültig",
+        "wiederrum": "wiederum",
+        "bischen": "bisschen",
+        "schäft": "Schaft",
+        "gewebts": "Gewebes",
+        "glasfaserweinen": "Gläsern Wein",
+    ]
+
+    /// Schreibweisen von VOR der Rechtschreibreform 1996 (ß statt ss).
+    ///
+    /// Warum das nötig ist: Sprachmodelle sind auf sehr viel Deutsch vor 1996 trainiert
+    /// und schreiben gelegentlich „daß“, „muß“ oder „wußte“. In einem verkauften Buch
+    /// von 2026 ist das ein glatter Rechtschreibfehler – und einer, den Leser sofort
+    /// sehen. Vorher gab es dafür keine Prüfung.
+    ///
+    /// Regel seit 1996: ß nur nach LANGEM Vokal oder Diphthong (Straße, heiß, Fuß,
+    /// vergaß, ließ), sonst ss (dass, muss, wusste). Weil die Vokallänge nicht
+    /// berechenbar ist, steht hier eine feste Liste – ausschließlich eindeutige Fälle.
+    /// Korrekte ß-Wörter sind bewusst NICHT enthalten und werden nie angefasst.
+    static let veralteteSchreibweisen: [String: String] = [
+        "daß": "dass", "muß": "muss", "mußte": "musste", "mußten": "mussten",
+        "müßte": "müsste", "müßten": "müssten", "wußte": "wusste", "wußten": "wussten",
+        "wüßte": "wüsste", "gewußt": "gewusst", "gewiß": "gewiss", "bißchen": "bisschen",
+        "läßt": "lässt", "schloß": "schloss", "Schloß": "Schloss", "Fluß": "Fluss",
+        "Schluß": "Schluss", "Kuß": "Kuss", "küßte": "küsste", "haßte": "hasste",
+        "Haß": "Hass", "häßlich": "hässlich", "gräßlich": "grässlich",
+        "paßte": "passte", "paßten": "passten", "faßte": "fasste", "faßten": "fassten",
+        "Riß": "Riss", "Biß": "Biss", "Nuß": "Nuss", "Guß": "Guss", "Faß": "Fass",
+        "naß": "nass", "blaß": "blass", "kraß": "krass", "Paß": "Pass", "Roß": "Ross",
+        "Schuß": "Schuss", "Streß": "Stress", "Prozeß": "Prozess", "Kongreß": "Kongress",
+        "Kompromiß": "Kompromiss", "Erlaß": "Erlass", "Verschluß": "Verschluss",
+        "Einfluß": "Einfluss", "Genuß": "Genuss", "Verdruß": "Verdruss",
+        "Rußland": "Russland", "vermißt": "vermisst", "gepreßt": "gepresst",
+        "geküßt": "geküsst", "beeinflußt": "beeinflusst", "unerläßlich": "unerlässlich",
+        "wäßrig": "wässrig", "entschloß": "entschloss"
+    ]
+
+    /// Findet Vor-1996-Schreibweisen. Meldet nur, ändert nichts.
+    static func veralteteRechtschreibung(in text: String) -> [(alt: String, neu: String)] {
+        var treffer: [(alt: String, neu: String)] = []
+        for (alt, neu) in veralteteSchreibweisen where alt != neu {
+            guard let re = try? NSRegularExpression(pattern: "\\b\(alt)\\b") else { continue }
+            let ns = text as NSString
+            let n = re.numberOfMatches(in: text, range: NSRange(location: 0, length: ns.length))
+            if n > 0 { treffer.append((alt: alt, neu: neu)) }
+        }
+        return treffer.sorted { $0.alt < $1.alt }
+    }
+
+    /// Ersetzt Vor-1996-Schreibweisen. Die Zuordnung ist eindeutig, deshalb wird hier
+    /// direkt korrigiert statt ein Modell zu fragen – deterministisch und kostenlos.
+    static func korrigiereVeralteteRechtschreibung(_ text: String) -> String {
+        var ergebnis = text
+        for (alt, neu) in veralteteSchreibweisen where alt != neu {
+            guard let re = try? NSRegularExpression(pattern: "\\b\(alt)\\b") else { continue }
+            ergebnis = re.stringByReplacingMatches(
+                in: ergebnis, range: NSRange(location: 0, length: (ergebnis as NSString).length),
+                withTemplate: neu)
+        }
+        return ergebnis
+    }
+
+    /// Kleingeschriebene Tageszeiten nach einem Zeitwort – seit der Rechtschreibreform
+    /// groß: „gestern Abend", nicht „gestern abend". Gemessen im selben Buch.
+    static func tageszeitenFehler(in text: String) -> [(fehler: String, korrekt: String)] {
+        var gefunden: [(String, String)] = []
+        let zeitwoerter = ["gestern", "heute", "morgen", "vorgestern", "übermorgen"]
+        let tageszeiten = ["abend": "Abend", "morgen": "Morgen", "mittag": "Mittag",
+                           "nachmittag": "Nachmittag", "vormittag": "Vormittag",
+                           "nacht": "Nacht"]
+        for zeit in zeitwoerter {
+            for (klein, gross) in tageszeiten {
+                let muster = "(?i:\\b\(zeit))\\s+\(klein)\\b"
+                if text.range(of: muster, options: [.regularExpression]) != nil {
+                    gefunden.append(("\(zeit) \(klein)", "\(zeit) \(gross)"))
+                }
+            }
+        }
+        return gefunden
+    }
+
+    /// Ausschliesslich kontextunabhaengige, zweifelsfreie Schreibfehler fuer die harte
+    /// Exportfreigabe. Anders als der Systempruefer enthaelt diese Liste keine unbekannten
+    /// Eigennamen, Fachwoerter oder legitimen Komposita und produziert daher keine
+    /// spekulativen Upload-Sperren.
+    static func eindeutigeFehler(in text: String) -> [String] {
+        guard !text.isEmpty else { return [] }
+        let ns = text as NSString
+        var result: [String] = []
+        for (falsch, richtig) in haeufigeFalschschreibungen.sorted(by: { $0.key < $1.key }) {
+            let escaped = NSRegularExpression.escapedPattern(for: falsch)
+            guard let regex = try? NSRegularExpression(
+                pattern: "(?<![\\p{L}])\(escaped)(?![\\p{L}])",
+                options: [.caseInsensitive]
+            ) else { continue }
+            let count = regex.numberOfMatches(
+                in: text, range: NSRange(location: 0, length: ns.length)
+            )
+            if count > 0 {
+                result.append("\(falsch) -> \(richtig) (\(count)x)")
+            }
+        }
+        result.append(contentsOf: tageszeitenFehler(in: text).map {
+            "\($0.fehler) -> \($0.korrekt)"
+        })
+        return result
+    }
+
+    /// Korrigiert nur kontextunabhaengige, zweifelsfreie Schreibfehler. Diese Stufe
+    /// braucht weder Netzwerk noch Modell und laeuft vor der vorsichtigeren
+    /// Woerterbuch-/Kontextpruefung. Grossschreibung am Satzanfang bleibt erhalten.
+    static func korrigiereEindeutigeFehler(in text: String) -> String {
+        guard !text.isEmpty else { return text }
+        var result = text
+
+        func passendeSchreibweise(_ korrekt: String, wie original: String) -> String {
+            let buchstaben = original.filter(\.isLetter)
+            if !buchstaben.isEmpty, original == original.uppercased() {
+                return korrekt.uppercased()
+            }
+            if original.first?.isUppercase == true, let erstes = korrekt.first {
+                return String(erstes).uppercased() + korrekt.dropFirst()
+            }
+            return korrekt
+        }
+
+        for (falsch, korrekt) in haeufigeFalschschreibungen.sorted(by: { $0.key.count > $1.key.count }) {
+            let muster = "(?<![\\p{L}])" + NSRegularExpression.escapedPattern(for: falsch)
+                + "(?![\\p{L}])"
+            guard let regex = try? NSRegularExpression(pattern: muster, options: [.caseInsensitive])
+            else { continue }
+            let mutable = NSMutableString(string: result)
+            let matches = regex.matches(
+                in: result, range: NSRange(location: 0, length: (result as NSString).length)
+            )
+            for match in matches.reversed() {
+                let original = mutable.substring(with: match.range)
+                mutable.replaceCharacters(
+                    in: match.range,
+                    with: passendeSchreibweise(korrekt, wie: original)
+                )
+            }
+            result = mutable as String
+        }
+
+        let zeitwoerter = ["gestern", "heute", "morgen", "vorgestern", "übermorgen"]
+        let tageszeiten = ["abend": "Abend", "morgen": "Morgen", "mittag": "Mittag",
+                           "nachmittag": "Nachmittag", "vormittag": "Vormittag",
+                           "nacht": "Nacht"]
+        for zeit in zeitwoerter {
+            for (klein, gross) in tageszeiten {
+                let muster = "((?i:\\b\(zeit))\\s+)\(klein)\\b"
+                guard let regex = try? NSRegularExpression(pattern: muster) else { continue }
+                result = regex.stringByReplacingMatches(
+                    in: result,
+                    range: NSRange(location: 0, length: (result as NSString).length),
+                    withTemplate: "$1\(gross)"
+                )
+            }
+        }
+        return result
+    }
+
     /// Prüft das Manuskript und liefert nur die Wörter, die wirklich verdächtig sind.
     ///
     /// - Parameter eigennamen: Figuren- und Ortsnamen aus der Story Bible. Sie stehen
@@ -56,12 +250,35 @@ enum SpellCheckService {
 
         let namenKlein = Set(eigennamen.map { $0.lowercased() })
         var befunde: [Befund] = []
+
+        // ZUERST die benannten Falschschreibungen – sie bestehen aus gültigen
+        // Teilwörtern und würden von der Kompositum-Prüfung sonst durchgewinkt.
+        // Sie tauchen im Wörterbuch-Durchlauf teils gar nicht auf, deshalb wird der
+        // Text hier direkt durchsucht.
+        for (falsch, richtig) in haeufigeFalschschreibungen {
+            let escaped = NSRegularExpression.escapedPattern(for: falsch)
+            let muster = "(?<![\\p{L}])\(escaped)(?![\\p{L}])"
+            guard let re = try? NSRegularExpression(pattern: muster, options: [.caseInsensitive])
+            else { continue }
+            let anzahl = re.numberOfMatches(in: text, range: NSRange(location: 0, length: ns.length))
+            if anzahl > 0 {
+                befunde.append(Befund(wort: falsch.capitalized, anzahl: anzahl,
+                                      vorschlaege: [richtig]))
+            }
+        }
+        // Kleingeschriebene Tageszeiten („gestern abend").
+        for (fehler, korrekt) in tageszeitenFehler(in: text) {
+            befunde.append(Befund(wort: fehler, anzahl: 1, vorschlaege: [korrekt]))
+        }
+
         for (wort, anzahl) in treffer {
             let klein = wort.lowercased()
             if erlaubteWortschoepfungen.contains(klein) { continue }
             // Eigenname oder eine gebeugte Form davon („Mira" → „Miras").
             if namenKlein.contains(klein) { continue }
             if namenKlein.contains(where: { klein.hasPrefix($0) && klein.count - $0.count <= 2 }) { continue }
+            // Bereits oben als benannte Falschschreibung erfasst?
+            if haeufigeFalschschreibungen.keys.contains(where: { klein.hasPrefix($0) }) { continue }
             if istKompositum(wort, pruefer: pruefer) { continue }
 
             let vorschlaege = pruefer.guesses(forWordRange: NSRange(location: 0, length: (wort as NSString).length),

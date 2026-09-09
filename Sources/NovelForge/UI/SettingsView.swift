@@ -11,7 +11,7 @@ struct SettingsView: View {
         case appearance = "Darstellung"
         case providers = "Textmodelle"
         case covers = "Cover"
-        case privacy = "Daten"
+        case privacy = "Amazon & Daten"
 
         var id: String { rawValue }
 
@@ -34,11 +34,8 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Einstellungen")
-                            .font(.system(size: 30, weight: .bold, design: .rounded))
+                            .font(.system(size: 26, weight: .bold))
                             .foregroundStyle(StudioTheme.heroGradient)
-                        Text("Vorgaben, Modelle, Cover-Erstellung und lokale Daten verwalten.")
-                            .font(.subheadline)
-                            .foregroundStyle(StudioTheme.textMuted)
                     }
 
                     Picker("Bereich", selection: $selectedSection) {
@@ -63,7 +60,7 @@ struct SettingsView: View {
                     }
                 }
                 .id(selectedSection)
-                .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .trailing)))
+                .transition(.opacity)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .animation(reduceMotion ? nil : Motion.standard, value: selectedSection)
             }
@@ -140,16 +137,18 @@ struct GeneralSettingsView: View {
 
             Section("Schreibqualität · Autoren-Modell (Prosa)") {
                 Picker("Autoren-Modell", selection: $writingModel) {
-                    Text("Beste Qualität – mistral-large-3:675b").tag("")
-                    Text("Schnell – kimi-k2.6").tag("__standard__")
+                    Text("Empfohlen – qwen3.5:397b (Qualität & Tempo)").tag("")
+                    Text("Schneller – kimi-k2.6").tag("__standard__")
+                    Text("Sehr tief, sehr langsam – mistral-large-3:675b").tag("mistral-large-3:675b")
                     ForEach(OllamaCloudModelCatalog.fallbackModels.filter {
                         $0 != OllamaCloudModelCatalog.defaultModel
                             && $0 != OllamaCloudModelCatalog.recommendedWritingModel
+                            && $0 != "mistral-large-3:675b"
                     }, id: \.self) {
                         Text($0).tag($0)
                     }
                 }
-                Text("Steuert kreative Prosa, Konzept, Struktur und Reparatur. Standard ist mistral-large-3:675b für mehr Tiefe und bessere Anweisungsbefolgung; Hilfsschritte bleiben auf kimi-k2.6. Der Schnellmodus reduziert Laufzeit. Ist ein Modell nicht verfügbar, weicht die Produktion automatisch auf kimi aus.")
+                Text("Steuert kreative Prosa, Konzept, Struktur und Reparatur. Empfohlen ist qwen3.5:397b als gemessene Balance aus Anweisungstreue, Qualität und Laufzeit. Kimi bleibt die schnellere Wahl; Mistral Large ist deutlich langsamer. Ist das Autorenmodell nicht verfügbar, weicht die Produktion automatisch auf das Standardmodell aus.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

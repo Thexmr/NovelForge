@@ -32,12 +32,61 @@ jobs:
       - name: Tests kompilieren (Gate)
         run: swift build --build-tests
 
-      - name: Tests
-        # Läuft zur Sichtbarkeit, blockiert aber nicht die Paketierung: einige
-        # SwiftData-In-Memory-Tests (mainContext) brechen im headless CI mit SIGTRAP ab,
-        # obwohl die App mit echtem ModelContainer normal läuft. Das harte Gate ist
-        # 'swift build' (App kompiliert). Reine Logik-Tests laufen zusätzlich als
-        # Unit-Tests auf Android/Windows.
+      # HARTES GATE: die reinen Logik-Tests.
+      #
+      # Vorher lief hier 'swift test' komplett mit continue-on-error – rote Tests
+      # hielten die CI grün und die App wurde trotzdem paketiert. Der Grund für
+      # continue-on-error war echt (einige SwiftData-In-Memory-Tests brechen im
+      # headless CI mit SIGTRAP ab), aber die Konsequenz war zu grob: Es folgenlos
+      # zu machen kostete den Schutz für ALLE Tests.
+      #
+      # Gezählt: 10 von 235 Testfunktionen brauchen einen ModelContainer. Genau die
+      # werden übersprungen, die restlichen 225 sind ab jetzt blockierend.
+      - name: Logik-Tests (hartes Gate)
+        run: |
+          swift test \
+            --skip testPersistentModelsRoundTripRelationshipsAndCascadeDelete \
+            --skip testPublicationReadinessBlocksTruncatedAndUnresolvedCriticalContent \
+            --skip testCoverPromptIsBuiltFromBookIdentityAndKDPContext \
+            --skip testCoverPromptRequestsTextFreeArtworkForOverlay \
+            --skip testKDPSalesSheetContainsTitleHookDescriptionKeywordsAndCategories \
+            --skip testRawBestTextPriority \
+            --skip testScoresWithWellFormedChapter \
+            --skip testProjectTotalWordCountUsesFastChapterCounts \
+            --skip testConsistencyScoreDropsWithSevereIssues \
+            --skip testCachedScoresInvalidateAfterSceneUpdate
+
+      # HARTES GATE: die eigenständigen Prüfprogramme.
+      #
+      # Sie prüfen, was XCTest hier nicht abdeckt: die Schranke gegen Endlosschleifen
+      # (SzenenBudget), Deep POV, Rechtschreibung nach der Reform, und das
+      # Ereignis-Register gegen doppelt erzählte Szenen. Die Ereignis-Probe rechnet
+      # ihre Schwelle bei jedem Lauf neu aus und schlägt fehl, wenn der Abstand
+      # zwischen echten Dopplungen und bloß verwandten Szenen zusammenschrumpft –
+      # eine Kalibrierung, die niemand vergessen kann.
+      #
+      # NovelForgeApp.swift bleibt draußen: Zwei @main-Typen in einem Modul
+      # übersetzen nicht.
+      - name: Prüfprogramme (hartes Gate)
+        run: |
+          SRC=$(find Sources/NovelForge -name '*.swift' ! -name 'NovelForgeApp.swift' | tr '\n' ' ')
+          for probe in \
+            DeepPOVProbe EreignisProbe DialogProbe RueckgratProbe PlotGateProbe \
+            NamensProbe ChapterScorecardProbe OpeningQualityProbe \
+            StabilityPolicyProbe CharacterCanonProbe ProseRepetitionProbe \
+            NarrativeArchitectureProbe NarrativeQualityProbe GenreCraftProbe \
+            PromptQualityProbe RevisionSafetyProbe GoldenEvalProbe \
+            KDPUploadStatusProbe FinalRepairPhaseProbe FinalScenePlanRetryProbe \
+            RegressionProbe; do
+            echo "── $probe ──"
+            swiftc -wmo -parse-as-library -module-name Probe \
+              -o "/tmp/$probe" "Scripts/$probe.swift" $SRC
+            "/tmp/$probe"
+          done
+
+      - name: SwiftData-Tests (nur Sichtbarkeit)
+        # Diese zehn brauchen einen echten ModelContainer und trappen im headless
+        # Runner. Sie laufen zur Information mit, blockieren aber nicht.
         continue-on-error: true
         run: swift test
 
